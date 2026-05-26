@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -17,6 +18,7 @@ def run_script(*args: str) -> subprocess.CompletedProcess[str]:
         errors="replace",
         capture_output=True,
         check=True,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"},
     )
 
 

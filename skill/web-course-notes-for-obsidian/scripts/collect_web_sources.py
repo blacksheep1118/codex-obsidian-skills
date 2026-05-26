@@ -90,6 +90,12 @@ def normalize_space(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def configure_output_encoding() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def is_url(value: str) -> bool:
     parsed = urlparse(value)
     return parsed.scheme in {"http", "https", "file"}
@@ -262,6 +268,7 @@ def build_manifest(pages: list[PageRecord]) -> str:
 
 
 def main() -> int:
+    configure_output_encoding()
     parser = argparse.ArgumentParser(description="Collect web learning sources into a Markdown manifest.")
     parser.add_argument("sources", nargs="+", help="URL or local HTML file")
     parser.add_argument("--out", type=Path, help="Output Markdown path. Defaults to stdout.")

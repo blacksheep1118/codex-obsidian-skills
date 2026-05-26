@@ -48,6 +48,12 @@ class CreatedNotes:
     files: tuple[Path, ...]
 
 
+def configure_output_encoding() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def safe_path_name(value: str, fallback: str = "untitled", max_length: int = 80) -> str:
     cleaned = INVALID_PATH_CHARS_RE.sub(" ", value)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
@@ -253,6 +259,7 @@ def create_notes(
 
 
 def main() -> int:
+    configure_output_encoding()
     parser = argparse.ArgumentParser(description="Create an Obsidian note folder from web learning resource URLs.")
     parser.add_argument("sources", nargs="+", help="URL or local HTML file")
     parser.add_argument("--notes-dir", type=Path, required=True, help="Existing Obsidian notes directory")
