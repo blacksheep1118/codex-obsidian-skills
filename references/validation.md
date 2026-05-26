@@ -11,6 +11,26 @@ rg -n '<<<<<<<|=======|>>>>>>>' notes --glob '*.md'
 rg -n '相关知识链接|TODO|FIXME|待补|待完善' notes --glob '*.md'
 ```
 
+## Scripted Checks
+
+Check Obsidian links:
+
+```bash
+python3 scripts/check_obsidian_links.py notes
+```
+
+Validate this skill repository:
+
+```bash
+python3 scripts/validate_skill_repo.py
+```
+
+Compile scripts:
+
+```bash
+python3 -m compileall scripts
+```
+
 ## Review Page Coverage
 
 Each course/topic directory should have:
@@ -30,3 +50,5 @@ For a robust check, parse both Markdown links and Obsidian wiki links:
 - `[[file stem]]`
 
 Report broken links and self-links before making content claims.
+
+`scripts/check_obsidian_links.py` implements this check for local Markdown vaults.

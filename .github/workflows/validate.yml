@@ -1,0 +1,36 @@
+name: Validate Skill
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install validation dependencies
+        run: python -m pip install --upgrade pyyaml python-pptx
+
+      - name: Compile scripts
+        run: python -m compileall scripts
+
+      - name: Validate skill metadata and README links
+        run: python scripts/validate_skill_repo.py
+
+      - name: Extract sample PPTX
+        run: python scripts/extract_pptx_text.py examples/sample-course/raw/sample_course.pptx --out /tmp/sample_course_extracted.md
+
+      - name: Clean sample formulas
+        run: python scripts/clean_latex_from_ppt.py examples/sample-course/extracted/sample_course_extracted.md --unicode-math --out /tmp/sample_course_cleaned.md
+
+      - name: Check sample Obsidian links
+        run: python scripts/check_obsidian_links.py examples/sample-course/notes

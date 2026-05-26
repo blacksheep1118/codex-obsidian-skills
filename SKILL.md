@@ -28,7 +28,8 @@ Keep the detailed review and concise review as two separate files. Do not replac
 
 2. Extract slide text while preserving slide order.
    - For `.pptx`, use `scripts/extract_pptx_text.py` when a deterministic text dump helps.
-   - For legacy `.ppt`, convert to `.pptx` with LibreOffice or another approved local tool when available, then extract.
+   - For legacy `.ppt`, use `scripts/convert_ppt_to_pptx.py` to convert with LibreOffice first, then extract.
+   - If the extracted text contains formula noise, run `scripts/clean_latex_from_ppt.py` before rewriting.
    - If extraction is noisy, use slide titles, visible bullets, formulas, filenames, and course order together instead of trusting raw text blindly.
 
 3. Rewrite into primary notes.
@@ -50,10 +51,20 @@ Keep the detailed review and concise review as two separate files. Do not replac
    - If the user says a long review page must not be split, keep it as one file.
 
 6. Validate before finishing.
-   - Check broken links and self-links.
+   - Check broken links and self-links with `scripts/check_obsidian_links.py`.
    - Check empty files and conflict markers.
    - Check leftover template phrases such as `相关知识链接`.
    - Check that every course overview links both review versions.
+
+## Conversion Modes
+
+Choose one mode before rewriting:
+
+- Course notes: numbered chapter notes, course overview, detailed and concise review pages.
+- Research group presentation: problem, method, experiment, limitation, and discussion.
+- Exam review material: concept map, formula table, typical question patterns, and common mistakes.
+
+See `references/modes.md` when the mode is ambiguous or the user asks for a specific output style.
 
 ## Quality Bar
 
@@ -76,5 +87,9 @@ Poor notes usually look like:
 ## Bundled Resources
 
 - `scripts/extract_pptx_text.py`: extract ordered text, tables, and notes from `.pptx` files.
+- `scripts/convert_ppt_to_pptx.py`: convert legacy `.ppt` files to `.pptx` with LibreOffice.
+- `scripts/check_obsidian_links.py`: check Markdown and Obsidian wiki links.
+- `scripts/clean_latex_from_ppt.py`: normalize formula and Unicode noise from slide extraction.
 - `references/obsidian-style.md`: local style guide for note writing and cross-linking.
 - `references/validation.md`: lightweight validation checks for Obsidian Markdown outputs.
+- `references/modes.md`: conversion mode guidance for course notes, group presentations, and exam review.

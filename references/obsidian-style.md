@@ -50,3 +50,9 @@ The detailed version should be comprehensive. The concise version should be fast
 - core formulas,
 - frequent mistakes,
 - links back to detailed version and course overview.
+
+## Mode Differences
+
+- Course notes should preserve chapter order and concept progression.
+- Research group presentations should emphasize problem, method, experiment, limitation, and discussion.
+- Exam review notes should prioritize formula tables, typical question patterns, and common mistakes.
