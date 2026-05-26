@@ -274,7 +274,7 @@ cd skill/web-course-notes-for-obsidian
 python3 -m compileall scripts
 python3 -m pytest
 python3 scripts/validate_skill.py
-python3 scripts/collect_web_sources.py examples/sample-web-course/index.html --out /tmp/web_course_source_manifest.md
+python3 scripts/collect_web_sources.py examples/sample-web-course/index.html --out "${TMPDIR:-/tmp}/web_course_source_manifest.md"
 ```
 
 ```powershell

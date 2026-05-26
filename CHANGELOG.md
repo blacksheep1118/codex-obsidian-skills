@@ -8,6 +8,7 @@ All notable changes to this repository are documented here.
 - Added web source manifest collection, examples, tests, and CI validation for the new skill.
 - Added cross-platform install, update, validation, and development documentation for macOS/Linux shells and Windows PowerShell.
 - Added Windows-aware LibreOffice discovery, platform-neutral temporary directories, Windows-style `file://` URL normalization tests, and macOS/Windows CI coverage.
+- Pinned development pytest dependencies below 9.0 so the declared Python 3.9 validation path remains installable.
 
 ## v0.1.0 - 2026-05-26
 
