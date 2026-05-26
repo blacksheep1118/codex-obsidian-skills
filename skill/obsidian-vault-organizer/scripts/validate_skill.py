@@ -10,6 +10,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.S)
+MD_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
 
 
 def fail(message: str) -> None:
@@ -72,11 +73,44 @@ def validate_references_exist() -> None:
             fail(f"referenced bundled resource is missing: {target}")
 
 
+def validate_required_files() -> None:
+    required = [
+        "README.md",
+        "LICENSE",
+        "agents/openai.yaml",
+        "scripts/check_obsidian_links.py",
+        "scripts/check_vault_quality.py",
+        "scripts/validate_skill.py",
+        "references/project-vault-workflow.md",
+        "references/obsidian-style.md",
+        "references/validation.md",
+    ]
+    for target in required:
+        if not (ROOT / target).exists():
+            fail(f"required bundled file is missing: {target}")
+
+
+def validate_readme_links() -> None:
+    path = ROOT / "README.md"
+    if not path.exists():
+        fail("README.md is missing")
+    text = path.read_text(encoding="utf-8")
+    for target in MD_LINK_RE.findall(text):
+        target = target.strip()
+        if target.startswith(("http://", "https://", "mailto:", "#")):
+            continue
+        target = target.split("#", 1)[0]
+        if target and not (ROOT / target).resolve().exists():
+            fail(f"README.md link target does not exist: {target}")
+
+
 def main() -> int:
     metadata = load_skill_metadata()
     validate_openai_yaml(metadata["name"])
+    validate_required_files()
     validate_yaml_files()
     validate_references_exist()
+    validate_readme_links()
     print("skill_validation ok")
     return 0
 

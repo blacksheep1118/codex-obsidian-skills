@@ -6,12 +6,12 @@ Use this skill when the source of truth is already a vault or notes directory. I
 
 ## Install
 
-Clone this repository, then copy this skill subdirectory into the matching Codex skill directory:
+Clone this repository, then install this skill into the matching Codex skill directory:
 
 ```bash
 git clone https://github.com/blacksheep1118/codex-obsidian-skills.git /tmp/codex-obsidian-skills
-mkdir -p ~/.codex/skills/obsidian-vault-organizer
-cp -R /tmp/codex-obsidian-skills/skill/obsidian-vault-organizer/. ~/.codex/skills/obsidian-vault-organizer/
+cd /tmp/codex-obsidian-skills
+python3 scripts/install_skill.py --skill obsidian-vault-organizer --self-check
 ```
 
 If you want to run the bundled skill validator, install PyYAML:
@@ -47,6 +47,7 @@ The Obsidian link checker itself only uses the Python standard library.
 │   └── validation.md
 └── scripts/
     ├── check_obsidian_links.py
+    ├── check_vault_quality.py
     └── validate_skill.py
 ```
 
@@ -66,6 +67,12 @@ Example prompts:
 按本地 AGENT.md 的规则整理 notes 目录，不要移动源资料。
 ```
 
+Dry-run prompt:
+
+```text
+先 dry-run 审计这个 vault，列出断链、重复主题、拟合并文件和拟修改文件，不要改文件。
+```
+
 ## Link Check
 
 Run the bundled checker against a local vault or notes directory:
@@ -76,12 +83,25 @@ python3 scripts/check_obsidian_links.py path/to/notes
 
 It covers Markdown links, `[[wiki]]`, `[[path/to/file]]`, and `[[path/to/file|alias]]`.
 
+## Quality Check
+
+Run the read-only quality checker against a local vault or notes directory:
+
+```bash
+python3 scripts/check_vault_quality.py path/to/notes
+```
+
+It reports empty files, conflict markers, unbalanced code fences, unbalanced block math, duplicate note stems, and leftover template text.
+
+See [../../docs/dry-run-mode.md](../../docs/dry-run-mode.md) for the expected dry-run report shape when using this skill from the full repository.
+
 ## Validation
 
 Validate the skill metadata and bundled-resource references:
 
 ```bash
 python3 scripts/validate_skill.py
+python3 -m compileall scripts
 ```
 
 ## License

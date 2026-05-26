@@ -80,10 +80,41 @@ def validate_readme_links() -> None:
             fail(f"README.md link target does not exist: {target}")
 
 
+def validate_required_files() -> None:
+    required = [
+        "README.md",
+        "LICENSE",
+        "agents/openai.yaml",
+        "scripts/check_obsidian_links.py",
+        "scripts/check_course_notes.py",
+        "scripts/clean_latex_from_ppt.py",
+        "scripts/convert_ppt_to_pptx.py",
+        "scripts/extract_pdf_text.py",
+        "scripts/extract_pptx_text.py",
+        "scripts/ppt_to_obsidian_pipeline.py",
+        "scripts/validate_skill_repo.py",
+        "references/modes.md",
+        "references/obsidian-style.md",
+        "references/validation.md",
+    ]
+    for target in required:
+        if not (ROOT / target).exists():
+            fail(f"required bundled file is missing: {target}")
+
+
+def validate_references_exist() -> None:
+    text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    for target in re.findall(r"`(references/[^`]+\.md|scripts/[^`]+\.py)`", text):
+        if not (ROOT / target).exists():
+            fail(f"referenced bundled resource is missing: {target}")
+
+
 def main() -> int:
     validate_skill()
     validate_openai_yaml()
+    validate_required_files()
     validate_all_yaml_files()
+    validate_references_exist()
     validate_readme_links()
     print("skill_repo_validation ok")
     return 0

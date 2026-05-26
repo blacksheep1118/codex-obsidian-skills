@@ -56,9 +56,8 @@ Keep the detailed review and concise review as two separate files. Do not replac
 
 6. Validate before finishing.
    - Check broken links and self-links with `scripts/check_obsidian_links.py`.
-   - Check empty files and conflict markers.
-   - Check leftover template phrases such as `相关知识链接`.
-   - Check that every course overview links both review versions.
+   - Check course-note output structure with `scripts/check_course_notes.py`.
+   - Check empty files, conflict markers, leftover template phrases such as `相关知识链接`, and review-page coverage.
 
 ## Conversion Modes
 
@@ -98,6 +97,7 @@ Poor notes usually look like:
 - `scripts/convert_ppt_to_pptx.py`: convert legacy `.ppt` files to `.pptx` with LibreOffice.
 - `scripts/extract_pdf_text.py`: extract raw text from `.pdf` courseware.
 - `scripts/check_obsidian_links.py`: check Markdown and Obsidian wiki links.
+- `scripts/check_course_notes.py`: check course overview, review pages, empty files, conflict markers, template residue, and formula fences.
 - `scripts/clean_latex_from_ppt.py`: normalize formula and Unicode noise from slide extraction.
 - `scripts/ppt_to_obsidian_pipeline.py`: run conversion, extraction, cleanup, and manifest creation.
 - `references/obsidian-style.md`: local style guide for note writing and cross-linking.

@@ -1,4 +1,4 @@
-name: Validate Skill
+name: Validate Skills
 
 on:
   push:
@@ -24,42 +24,5 @@ jobs:
       - name: Install validation dependencies
         run: python -m pip install --upgrade -r skill/ppt-to-md-for-obsidian/requirements-dev.txt -r skill/obsidian-vault-organizer/requirements-dev.txt
 
-      - name: Compile PPT skill scripts
-        working-directory: skill/ppt-to-md-for-obsidian
-        run: python -m compileall scripts
-
-      - name: Run PPT skill tests
-        working-directory: skill/ppt-to-md-for-obsidian
-        run: pytest
-
-      - name: Validate PPT skill metadata and README links
-        working-directory: skill/ppt-to-md-for-obsidian
-        run: python scripts/validate_skill_repo.py
-
-      - name: Extract sample PPTX
-        working-directory: skill/ppt-to-md-for-obsidian
-        run: python scripts/extract_pptx_text.py examples/sample-course/raw/sample_course.pptx --out /tmp/sample_course_extracted.md
-
-      - name: Clean sample formulas
-        working-directory: skill/ppt-to-md-for-obsidian
-        run: python scripts/clean_latex_from_ppt.py examples/sample-course/extracted/sample_course_extracted.md --unicode-math --out /tmp/sample_course_cleaned.md
-
-      - name: Run source-to-cleaned pipeline
-        working-directory: skill/ppt-to-md-for-obsidian
-        run: python scripts/ppt_to_obsidian_pipeline.py --config skill-config.example.yaml --output-dir /tmp/pipeline-out
-
-      - name: Check sample Obsidian links
-        working-directory: skill/ppt-to-md-for-obsidian
-        run: python scripts/check_obsidian_links.py examples/sample-course/notes
-
-      - name: Compile vault organizer scripts
-        working-directory: skill/obsidian-vault-organizer
-        run: python -m compileall scripts
-
-      - name: Validate vault organizer skill metadata
-        working-directory: skill/obsidian-vault-organizer
-        run: python scripts/validate_skill.py
-
-      - name: Check sample links with vault organizer
-        working-directory: skill/obsidian-vault-organizer
-        run: python scripts/check_obsidian_links.py ../ppt-to-md-for-obsidian/examples/sample-course/notes
+      - name: Run full validation suite
+        run: python scripts/validate_all.py

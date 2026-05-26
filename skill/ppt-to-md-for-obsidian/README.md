@@ -8,12 +8,12 @@ For vault-only organization, duplicate-note cleanup, or link repair that does no
 
 ## Install
 
-Clone this repository, then copy this skill subdirectory into the matching Codex skill directory:
+Clone this repository, then install this skill into the matching Codex skill directory:
 
 ```bash
 git clone https://github.com/blacksheep1118/codex-obsidian-skills.git /tmp/codex-obsidian-skills
-mkdir -p ~/.codex/skills/ppt-to-md-for-obsidian
-cp -R /tmp/codex-obsidian-skills/skill/ppt-to-md-for-obsidian/. ~/.codex/skills/ppt-to-md-for-obsidian/
+cd /tmp/codex-obsidian-skills
+python3 scripts/install_skill.py --skill ppt-to-md-for-obsidian --self-check
 ```
 
 Install runtime dependencies when you want to run the bundled extraction scripts locally:
@@ -47,12 +47,15 @@ python3 -m pip install -r ~/.codex/skills/ppt-to-md-for-obsidian/requirements.tx
 │   └── sample-course/
 ├── scripts/
 │   ├── check_obsidian_links.py
+│   ├── check_course_notes.py
 │   ├── clean_latex_from_ppt.py
 │   ├── convert_ppt_to_pptx.py
 │   ├── extract_pdf_text.py
 │   ├── extract_pptx_text.py
 │   ├── ppt_to_obsidian_pipeline.py
 │   └── validate_skill_repo.py
+├── fixtures/
+│   └── pdf-formula-regression/
 └── references/
     ├── modes.md
     ├── obsidian-style.md
@@ -137,6 +140,16 @@ python3 scripts/check_obsidian_links.py examples/sample-course/notes
 
 The checker covers Markdown links, `[[wiki]]`, `[[path/to/file]]`, and `[[path/to/file|alias]]`.
 
+## Course-note Quality Check
+
+Check generated course notes before finishing:
+
+```bash
+python3 scripts/check_course_notes.py examples/sample-course/notes
+```
+
+The checker verifies the overview page, detailed and concise review pages, review links, empty files, conflict markers, template residue, fenced code blocks, and block math delimiters.
+
 ## One-command Pipeline
 
 Use the pipeline to convert/extract/clean sources and create a manifest:
@@ -162,6 +175,10 @@ The pipeline supports `.ppt`, `.pptx`, and `.pdf` sources. It writes:
 
 The example is intentionally small so it can be used in CI and regression tests.
 
+`examples/before-after/` shows a raw slide dump and the corresponding rewritten notes.
+
+`examples/non-course/` shows research-presentation and paper-note patterns for non-course workflows.
+
 ## Conversion Modes
 
 The skill supports three output modes:
@@ -185,6 +202,7 @@ GitHub Actions validates:
 - Formula cleanup.
 - Pipeline execution.
 - Sample Obsidian link integrity.
+- Course-note output quality.
 
 ## Design Principles
 

@@ -11,6 +11,10 @@ Organize an existing Obsidian vault or Markdown note collection into a coherent 
 
 Use this skill for vault-first work. If the main task is extracting or converting PPT/PPTX/PDF courseware, use `$ppt-to-md-for-obsidian` instead.
 
+## Dry-run Mode
+
+When the user asks for a dry run, audit and report planned edits only. Include broken links, duplicate note stems, proposed merges, proposed renames, source files that should stay read-only, and validation commands to run. Do not modify files until the user approves the plan.
+
 ## Workflow
 
 1. Resolve the project, vault, and source boundaries.
@@ -44,7 +48,7 @@ Use this skill for vault-first work. If the main task is extracting or convertin
 
 6. Validate before finishing.
    - Run `scripts/check_obsidian_links.py` for Markdown and Obsidian wiki links when the vault is local.
-   - Check conflict markers, empty files, unbalanced block math, duplicate note creation, and navigation coverage.
+   - Run `scripts/check_vault_quality.py` for conflict markers, empty files, unbalanced block math, duplicate note stems, and leftover template text.
    - See `references/validation.md` for lightweight checks.
 
 ## Common Tasks
@@ -65,6 +69,7 @@ Avoid generic study templates, empty boilerplate sections, broad rewrites unrela
 ## Bundled Resources
 
 - `scripts/check_obsidian_links.py`: check Markdown links and Obsidian wiki links.
+- `scripts/check_vault_quality.py`: check empty files, conflict markers, unbalanced fences/math, duplicate note stems, and template residue.
 - `references/project-vault-workflow.md`: path discovery, local guidance loading, and editing boundaries.
 - `references/obsidian-style.md`: note writing, formulas, links, navigation, and review page style.
 - `references/validation.md`: lightweight validation checks for vault edits.
