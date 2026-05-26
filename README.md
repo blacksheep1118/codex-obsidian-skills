@@ -4,6 +4,8 @@ Codex skill for converting PPT/PPTX/PDF courseware into Obsidian-ready Markdown 
 
 The skill is designed for lecture slides that need to become usable study notes, not slide transcripts. It emphasizes Chinese course notes, formulas, numbered chapter files, course maps, cross-links, and detailed plus concise review pages.
 
+This repository also subsumes the older local `organize-notes-to-obsidian` skill by preserving its project-vault workflow guidance in [references/project-vault-workflow.md](references/project-vault-workflow.md).
+
 ## What It Produces
 
 - Obsidian Markdown chapter notes.
@@ -38,6 +40,7 @@ The skill is designed for lecture slides that need to become usable study notes,
 └── references/
     ├── modes.md
     ├── obsidian-style.md
+    ├── project-vault-workflow.md
     └── validation.md
 ```
 

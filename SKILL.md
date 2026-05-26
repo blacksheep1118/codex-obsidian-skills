@@ -1,6 +1,6 @@
 ---
 name: ppt-to-md-for-obsidian
-description: Use when converting PowerPoint PPT/PPTX lecture slides, courseware, or slide-derived materials into Obsidian-ready Markdown notes, course maps, cross-links, and review pages. Especially useful for Chinese course notes that need concept explanations, formulas, numbered chapter files, backlinks, and detailed plus concise review versions.
+description: Use when converting PowerPoint PPT/PPTX/PDF lecture slides, courseware, or slide-derived materials into Obsidian-ready Markdown notes, course maps, cross-links, and review pages. Also use when merging new course or research materials into an existing Obsidian vault while respecting project-local AGENT.md/agent guidance, source-file safety, formulas, links, and detailed plus concise review versions.
 ---
 
 # PPT To Markdown For Obsidian
@@ -8,6 +8,8 @@ description: Use when converting PowerPoint PPT/PPTX lecture slides, courseware,
 ## Goal
 
 Convert slide-based course material into an Obsidian note system, not a raw slide transcript. The output should be readable as standalone study notes with concept explanation, mechanisms, formulas, examples, boundaries, and useful cross-links.
+
+When working inside an existing project or vault, first load project-local guidance such as `AGENT.md`, `agent.md`, and files under `agent/`. See `references/project-vault-workflow.md` for path resolution, editing boundaries, and source-file safety rules inherited from the previous local skill.
 
 ## Default Outputs
 
@@ -101,3 +103,4 @@ Poor notes usually look like:
 - `references/obsidian-style.md`: local style guide for note writing and cross-linking.
 - `references/validation.md`: lightweight validation checks for Obsidian Markdown outputs.
 - `references/modes.md`: conversion mode guidance for course notes, group presentations, and exam review.
+- `references/project-vault-workflow.md`: project-local vault workflow, path discovery, and safety guidance.
