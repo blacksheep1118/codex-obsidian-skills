@@ -13,9 +13,9 @@ Clone the repository, then copy the skill folder you want into `$CODEX_HOME/skil
 
 ```bash
 git clone https://github.com/blacksheep1118/ppt-to-md-for-obsidian.git /tmp/ppt-to-md-for-obsidian
-mkdir -p ~/.codex/skills
-cp -R /tmp/ppt-to-md-for-obsidian/skill/ppt-to-md-for-obsidian ~/.codex/skills/ppt-to-md-for-obsidian
-cp -R /tmp/ppt-to-md-for-obsidian/skill/obsidian-vault-organizer ~/.codex/skills/obsidian-vault-organizer
+mkdir -p ~/.codex/skills/ppt-to-md-for-obsidian ~/.codex/skills/obsidian-vault-organizer
+cp -R /tmp/ppt-to-md-for-obsidian/skill/ppt-to-md-for-obsidian/. ~/.codex/skills/ppt-to-md-for-obsidian/
+cp -R /tmp/ppt-to-md-for-obsidian/skill/obsidian-vault-organizer/. ~/.codex/skills/obsidian-vault-organizer/
 ```
 
 Install PPT/PDF extraction dependencies only if you need to run the bundled conversion scripts:

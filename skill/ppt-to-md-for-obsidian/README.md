@@ -12,8 +12,8 @@ Clone this repository, then copy this skill subdirectory into the matching Codex
 
 ```bash
 git clone https://github.com/blacksheep1118/ppt-to-md-for-obsidian.git /tmp/ppt-to-md-for-obsidian
-mkdir -p ~/.codex/skills
-cp -R /tmp/ppt-to-md-for-obsidian/skill/ppt-to-md-for-obsidian ~/.codex/skills/ppt-to-md-for-obsidian
+mkdir -p ~/.codex/skills/ppt-to-md-for-obsidian
+cp -R /tmp/ppt-to-md-for-obsidian/skill/ppt-to-md-for-obsidian/. ~/.codex/skills/ppt-to-md-for-obsidian/
 ```
 
 Install runtime dependencies when you want to run the bundled extraction scripts locally:
