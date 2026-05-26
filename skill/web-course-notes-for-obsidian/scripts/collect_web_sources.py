@@ -22,6 +22,7 @@ BOOK_EXTENSIONS = (".epub", ".mobi")
 TRANSCRIPT_EXTENSIONS = (".vtt", ".srt", ".ttml", ".txt")
 BOOK_PATH_RE = re.compile(r"(/book|/books|/chapter|/chapters|/readings?|/textbook)", re.I)
 COURSE_PATH_RE = re.compile(r"(/course|/courses|/class|/classes|/syllabus|/module|/modules)", re.I)
+DIRECT_RESOURCE_KINDS = {"book", "book_pdf", "pdf", "slides", "transcript"}
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class PageRecord:
     source: str
     title: str
     url: str
+    kind: str
     description: str
     links: tuple[LinkRecord, ...]
 
@@ -99,6 +101,15 @@ def source_to_url(source: str) -> str:
     return Path(source).expanduser().resolve().as_uri()
 
 
+def title_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    path_name = Path(unquote(parsed.path)).name
+    if not path_name:
+        return parsed.netloc or url
+    stem = Path(path_name).stem
+    return normalize_space(re.sub(r"[_-]+", " ", stem)) or path_name
+
+
 def normalize_url(url: str) -> str:
     parts = urlsplit(url)
     if not parts.scheme:
@@ -147,12 +158,24 @@ def classify_url(url: str, label: str = "") -> str:
 
 def collect_page(source: str, timeout: float = 15.0) -> PageRecord:
     source_url = source_to_url(source)
+    source_kind = classify_url(source_url)
+    if source_kind in DIRECT_RESOURCE_KINDS:
+        return PageRecord(
+            source=source,
+            title=title_from_url(source_url),
+            url=source_url,
+            kind=source_kind,
+            description=f"Direct {source_kind.replace('_', ' ')} resource collected from the input URL.",
+            links=(),
+        )
+
     text = read_source(source_url, timeout=timeout)
     parser = LearningHTMLParser()
     parser.feed(text)
 
     page_url = normalize_url(urljoin(source_url, parser.canonical)) if parser.canonical else source_url
     title = parser.title or Path(urlparse(page_url).path).name or page_url
+    page_kind = classify_url(page_url, title)
     links = []
     for href, label in parser.links:
         absolute = normalize_url(urljoin(page_url, href))
@@ -165,6 +188,7 @@ def collect_page(source: str, timeout: float = 15.0) -> PageRecord:
         source=source,
         title=title,
         url=page_url,
+        kind=page_kind,
         description=parser.description,
         links=tuple(dedupe_links(links)),
     )
@@ -196,12 +220,12 @@ def build_manifest(pages: list[PageRecord]) -> str:
         "",
         "## Pages",
         "",
-        "| Title | URL | Description |",
-        "| --- | --- | --- |",
+        "| Kind | Title | URL | Description |",
+        "| --- | --- | --- | --- |",
     ]
     for page in pages:
         lines.append(
-            f"| {markdown_escape_cell(page.title)} | {markdown_escape_cell(page.url)} | {markdown_escape_cell(page.description)} |"
+            f"| {page.kind} | {markdown_escape_cell(page.title)} | {markdown_escape_cell(page.url)} | {markdown_escape_cell(page.description)} |"
         )
 
     lines.extend(
@@ -215,6 +239,10 @@ def build_manifest(pages: list[PageRecord]) -> str:
     )
 
     for page in pages:
+        if page.kind in DIRECT_RESOURCE_KINDS:
+            lines.append(
+                f"| {page.kind} | {markdown_escape_cell(page.title)} | {markdown_escape_cell(page.url)} | {markdown_escape_cell(page.url)} |"
+            )
         for link in page.links:
             lines.append(
                 f"| {link.kind} | {markdown_escape_cell(link.title)} | {markdown_escape_cell(link.url)} | {markdown_escape_cell(link.source)} |"

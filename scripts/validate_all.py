@@ -64,6 +64,17 @@ def main() -> int:
         ],
         cwd=WEB_SKILL,
     )
+    run(
+        [
+            py,
+            "scripts/create_web_notes.py",
+            "https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf",
+            "--notes-dir",
+            str(TMP / "codex-obsidian-skills-web-notes"),
+            "--dry-run",
+        ],
+        cwd=WEB_SKILL,
+    )
 
     print("\nvalidate_all ok")
     return 0

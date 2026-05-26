@@ -1,5 +1,15 @@
 # Note Output Patterns
 
+## Vault Placement
+
+When a notes directory is provided, put each imported collection in one deterministic folder. Reuse an existing top-level category when the source clearly matches it, such as `计算机视觉` for CVPR/image papers. If no category fits, create `网络资源/<collection-title>/`.
+
+Each collection folder should contain:
+
+- `source_manifest.md`,
+- `00_学习地图.md`,
+- one or more numbered source or chapter notes.
+
 ## Video Course Site
 
 Prefer:

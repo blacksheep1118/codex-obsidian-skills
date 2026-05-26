@@ -15,6 +15,7 @@ Use only sources the user can legitimately access. Do not bypass logins, paywall
 
 For each course, book, or topic collection, prefer:
 
+- A topic folder inside the user's notes directory. Reuse an existing category folder when the source clearly belongs there; otherwise create a new folder such as `网络资源/<collection-title>/`.
 - `00_学习地图.md` or `00_课程总览.md` as the entry point.
 - Numbered notes such as `01_导论.md`, `02_核心概念.md`, or chapter-based names.
 - `source_manifest.md` with URLs, titles, source types, access status, and what each source contributed.
@@ -32,23 +33,30 @@ Keep source URLs in notes or frontmatter so provenance stays visible.
 
 2. Build a source manifest.
    - Use `scripts/collect_web_sources.py` when a deterministic URL inventory helps.
+   - Direct PDF/PPT/transcript/book URLs should be recorded as resources without attempting to parse binary content as HTML.
    - Capture titles, canonical URLs, descriptions, source type, and links to slides, videos, transcripts, chapters, and PDFs.
    - Record inaccessible or ambiguous sources instead of silently skipping them.
 
-3. Extract only appropriate content.
+3. Place notes in the vault.
+   - If the user provides an Obsidian notes directory, inspect existing top-level folders and classify the collection into the closest existing folder.
+   - If no existing folder fits, create a new folder under the notes directory, preferably `网络资源/<collection-title>/`.
+   - Use `scripts/create_web_notes.py --notes-dir <notes-dir> <url...>` to create the collection folder, `source_manifest.md`, `00_学习地图.md`, and starter notes.
+   - Use `--category <folder>` when the user or context clearly identifies the destination category.
+
+4. Extract only appropriate content.
    - Prefer official transcripts/captions for videos when available.
    - Prefer page headings, abstracts, tables of contents, slide titles, and user-provided excerpts for books.
    - For local or downloadable PPT/PDF files, hand off to `$ppt-to-md-for-obsidian`.
    - If the user supplies an existing Obsidian vault, use `$obsidian-vault-organizer` after drafting.
 
-4. Generate notes.
+5. Generate notes.
    - Use Chinese by default when the user writes Chinese.
    - Convert fragments into explanations, not web-page dumps.
    - Add formulas, variable meanings, examples, assumptions, and failure cases when present.
    - Link concepts where they first become relevant.
    - Cite source URLs near the sections they support.
 
-5. Validate before finishing.
+6. Validate before finishing.
    - Check local Obsidian links with `$obsidian-vault-organizer`.
    - Check that `source_manifest.md` covers every URL the user supplied.
    - Check that generated notes do not contain long copied passages from books or web pages.
@@ -64,5 +72,6 @@ Read `references/note-output.md` when deciding how to structure notes for course
 ## Bundled Resources
 
 - `scripts/collect_web_sources.py`: collect titles, descriptions, and learning-resource links from URL or local HTML inputs.
+- `scripts/create_web_notes.py`: classify sources into a notes directory, create a collection folder, and write `source_manifest.md`, `00_学习地图.md`, and starter notes.
 - `references/source-policy.md`: source access, copyright, attribution, and safety rules.
 - `references/note-output.md`: note structures for video courses, PPT sites, book sites, and mixed web learning resources.

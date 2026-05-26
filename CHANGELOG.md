@@ -12,6 +12,7 @@ All notable changes to this repository are documented here.
 - Updated GitHub Actions checkout/setup-python actions to v6 and declared read-only contents permission for validation jobs.
 - Forced UTF-8 output for validation CLIs that print Obsidian paths, avoiding Windows non-UTF-8 console failures.
 - Decoded subprocess output as UTF-8 in test helpers so Windows CI can assert validator output containing Chinese paths.
+- Added direct web-resource note creation so URL inputs can be classified into an existing notes folder, create `source_manifest.md`, and add starter Obsidian notes.
 
 ## v0.1.0 - 2026-05-26
 

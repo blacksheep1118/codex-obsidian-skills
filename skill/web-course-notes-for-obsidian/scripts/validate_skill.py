@@ -79,6 +79,7 @@ def validate_required_files() -> None:
         "LICENSE",
         "agents/openai.yaml",
         "scripts/collect_web_sources.py",
+        "scripts/create_web_notes.py",
         "scripts/validate_skill.py",
         "references/source-policy.md",
         "references/note-output.md",

@@ -10,7 +10,7 @@ This is a skill collection, not a single monolithic skill. Each installable skil
 
 | Skill | Use it when | Main outputs |
 | --- | --- | --- |
-| [`web-course-notes-for-obsidian`](skill/web-course-notes-for-obsidian) | The task starts from course video websites, PPT/slide websites, book websites, or mixed online learning URLs. | Source manifests, URL-linked course maps, chapter notes, reading notes, review pages. |
+| [`web-course-notes-for-obsidian`](skill/web-course-notes-for-obsidian) | The task starts from course video websites, PPT/slide websites, book websites, direct PDF/PPT URLs, or mixed online learning URLs. | Source manifests, classified note folders, URL-linked learning maps, chapter notes, reading notes, review pages. |
 | [`ppt-to-md-for-obsidian`](skill/ppt-to-md-for-obsidian) | The task starts from local PPT, PPTX, PDF courseware, or slide-derived files. | Extracted text, cleaned Markdown input, chapter notes, course maps, review pages, Obsidian links. |
 | [`obsidian-vault-organizer`](skill/obsidian-vault-organizer) | The task starts from an existing Obsidian vault or Markdown note directory. | Link audits, repaired references, merged duplicate notes, navigation pages, vault cleanup reports. |
 
@@ -122,6 +122,10 @@ After installing, ask Codex for the workflow you want:
 
 ```text
 把这个课程视频网站、PPT 网站和书籍网站整理成 Obsidian 笔记，先生成 source_manifest.md。
+```
+
+```text
+把这个论文 PDF 链接归类到我的 notes 文件夹里，新增学习地图和论文笔记。
 ```
 
 ```text
@@ -275,6 +279,7 @@ python3 -m compileall scripts
 python3 -m pytest
 python3 scripts/validate_skill.py
 python3 scripts/collect_web_sources.py examples/sample-web-course/index.html --out "${TMPDIR:-/tmp}/web_course_source_manifest.md"
+python3 scripts/create_web_notes.py https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf --notes-dir "${TMPDIR:-/tmp}/web-notes" --dry-run
 ```
 
 ```powershell
@@ -283,6 +288,7 @@ py -m compileall scripts
 py -m pytest
 py scripts\validate_skill.py
 py scripts\collect_web_sources.py examples\sample-web-course\index.html --out "$env:TEMP\web_course_source_manifest.md"
+py scripts\create_web_notes.py https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf --notes-dir "$env:TEMP\web-notes" --dry-run
 ```
 
 ## Documentation

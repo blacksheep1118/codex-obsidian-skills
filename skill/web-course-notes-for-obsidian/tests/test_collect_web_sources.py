@@ -25,6 +25,7 @@ def test_collect_sources_from_local_html_fixture():
     assert len(pages) == 1
     page = pages[0]
     assert page.title == "Machine Learning Mini Course"
+    assert page.kind == "course_page"
     assert page.description.startswith("A small course index")
 
     kinds = {link.kind for link in page.links}
@@ -35,6 +36,18 @@ def test_collect_sources_from_local_html_fixture():
     assert "Lecture 01 Video" in manifest
     assert "Lecture 01 Slides" in manifest
     assert "Book Chapter 02" in manifest
+
+
+def test_collect_sources_accepts_direct_pdf_url_without_reading_binary():
+    pages = collect_sources(["https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf"])
+
+    assert len(pages) == 1
+    page = pages[0]
+    assert page.kind == "pdf"
+    assert page.title == "Zhu From Noise Modeling CVPR 2016 paper"
+
+    manifest = build_manifest(pages)
+    assert "| pdf | Zhu From Noise Modeling CVPR 2016 paper |" in manifest
 
 
 def test_collect_page_accepts_file_uri_with_spaces(tmp_path: Path):
