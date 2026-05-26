@@ -10,7 +10,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_command(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([sys.executable, *args], cwd=ROOT, text=True, capture_output=True)
+    return subprocess.run(
+        [sys.executable, *args],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+    )
 
 
 def test_vault_quality_accepts_clean_fixture():

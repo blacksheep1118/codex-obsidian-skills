@@ -13,6 +13,8 @@ def run_script(*args: str, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]
         [sys.executable, *args],
         cwd=cwd,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         check=True,
     )
