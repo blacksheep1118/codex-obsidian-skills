@@ -11,9 +11,9 @@ For vault-only organization, duplicate-note cleanup, or link repair that does no
 Clone this repository, then copy this skill subdirectory into the matching Codex skill directory:
 
 ```bash
-git clone https://github.com/blacksheep1118/ppt-to-md-for-obsidian.git /tmp/ppt-to-md-for-obsidian
+git clone https://github.com/blacksheep1118/codex-obsidian-skills.git /tmp/codex-obsidian-skills
 mkdir -p ~/.codex/skills/ppt-to-md-for-obsidian
-cp -R /tmp/ppt-to-md-for-obsidian/skill/ppt-to-md-for-obsidian/. ~/.codex/skills/ppt-to-md-for-obsidian/
+cp -R /tmp/codex-obsidian-skills/skill/ppt-to-md-for-obsidian/. ~/.codex/skills/ppt-to-md-for-obsidian/
 ```
 
 Install runtime dependencies when you want to run the bundled extraction scripts locally:

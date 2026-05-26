@@ -9,9 +9,9 @@ Use this skill when the source of truth is already a vault or notes directory. I
 Clone this repository, then copy this skill subdirectory into the matching Codex skill directory:
 
 ```bash
-git clone https://github.com/blacksheep1118/ppt-to-md-for-obsidian.git /tmp/ppt-to-md-for-obsidian
+git clone https://github.com/blacksheep1118/codex-obsidian-skills.git /tmp/codex-obsidian-skills
 mkdir -p ~/.codex/skills/obsidian-vault-organizer
-cp -R /tmp/ppt-to-md-for-obsidian/skill/obsidian-vault-organizer/. ~/.codex/skills/obsidian-vault-organizer/
+cp -R /tmp/codex-obsidian-skills/skill/obsidian-vault-organizer/. ~/.codex/skills/obsidian-vault-organizer/
 ```
 
 If you want to run the bundled skill validator, install PyYAML:

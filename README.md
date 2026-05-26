@@ -1,6 +1,8 @@
-# ppt-to-md-for-obsidian skills
+# codex-obsidian-skills
 
-This repository contains two Codex skills under [`skill/`](skill/):
+Codex skills for turning courseware and Markdown note collections into organized Obsidian vaults. The repository focuses on practical study-note workflows: extracting slide content, rewriting it into readable Markdown, maintaining navigation pages, repairing links, and keeping existing vaults coherent.
+
+It contains two installable skills under [`skill/`](skill/):
 
 - [`skill/ppt-to-md-for-obsidian`](skill/ppt-to-md-for-obsidian): convert PPT/PPTX/PDF courseware into Obsidian-ready Markdown notes, course maps, cross-links, and review pages.
 - [`skill/obsidian-vault-organizer`](skill/obsidian-vault-organizer): organize, repair, merge, and validate existing Obsidian vaults or Markdown note collections.
@@ -12,10 +14,10 @@ The two skills are split so their trigger boundaries stay clear. Use `ppt-to-md-
 Clone the repository, then copy the skill folder you want into `$CODEX_HOME/skills` or `~/.codex/skills`. The destination folder name must match the `name` field in that skill's `SKILL.md`.
 
 ```bash
-git clone https://github.com/blacksheep1118/ppt-to-md-for-obsidian.git /tmp/ppt-to-md-for-obsidian
+git clone https://github.com/blacksheep1118/codex-obsidian-skills.git /tmp/codex-obsidian-skills
 mkdir -p ~/.codex/skills/ppt-to-md-for-obsidian ~/.codex/skills/obsidian-vault-organizer
-cp -R /tmp/ppt-to-md-for-obsidian/skill/ppt-to-md-for-obsidian/. ~/.codex/skills/ppt-to-md-for-obsidian/
-cp -R /tmp/ppt-to-md-for-obsidian/skill/obsidian-vault-organizer/. ~/.codex/skills/obsidian-vault-organizer/
+cp -R /tmp/codex-obsidian-skills/skill/ppt-to-md-for-obsidian/. ~/.codex/skills/ppt-to-md-for-obsidian/
+cp -R /tmp/codex-obsidian-skills/skill/obsidian-vault-organizer/. ~/.codex/skills/obsidian-vault-organizer/
 ```
 
 Install PPT/PDF extraction dependencies only if you need to run the bundled conversion scripts:
