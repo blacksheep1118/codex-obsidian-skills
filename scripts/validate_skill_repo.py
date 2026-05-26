@@ -38,6 +38,8 @@ def validate_skill() -> None:
     for key in ("name", "description"):
         if not data.get(key):
             fail(f"SKILL.md frontmatter missing {key}")
+    if ROOT.name != data["name"]:
+        fail(f"skill directory name must match SKILL.md frontmatter name: {ROOT.name!r} != {data['name']!r}")
 
 
 def validate_openai_yaml() -> None:

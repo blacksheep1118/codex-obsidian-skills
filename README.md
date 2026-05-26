@@ -1,10 +1,24 @@
-# skill-ppt-to-md-for-obsidian
+# ppt-to-md-for-obsidian
 
 Codex skill for converting PPT/PPTX/PDF courseware into Obsidian-ready Markdown notes.
 
 The skill is designed for lecture slides that need to become usable study notes, not slide transcripts. It emphasizes Chinese course notes, formulas, numbered chapter files, course maps, cross-links, and detailed plus concise review pages.
 
-This repository also subsumes the older local `organize-notes-to-obsidian` skill by preserving its project-vault workflow guidance in [references/project-vault-workflow.md](references/project-vault-workflow.md).
+For vault-only organization, duplicate-note cleanup, or link repair that does not require slide extraction, use the companion [`obsidian-vault-organizer`](https://github.com/blacksheep1118/obsidian-vault-organizer) skill.
+
+## Install
+
+Clone the repository directly into the matching Codex skill directory:
+
+```bash
+git clone https://github.com/blacksheep1118/ppt-to-md-for-obsidian.git ~/.codex/skills/ppt-to-md-for-obsidian
+```
+
+Install runtime dependencies when you want to run the bundled extraction scripts locally:
+
+```bash
+python3 -m pip install -r ~/.codex/skills/ppt-to-md-for-obsidian/requirements.txt
+```
 
 ## What It Produces
 
@@ -40,19 +54,12 @@ This repository also subsumes the older local `organize-notes-to-obsidian` skill
 └── references/
     ├── modes.md
     ├── obsidian-style.md
-    ├── project-vault-workflow.md
     └── validation.md
 ```
 
 ## Usage
 
 Install or copy this repository as a Codex skill, then ask Codex to convert courseware into Obsidian notes.
-
-Install runtime dependencies:
-
-```bash
-python3 -m pip install -r requirements.txt
-```
 
 Install development/test dependencies:
 
@@ -67,12 +74,14 @@ Example prompts:
 ```
 
 ```text
-检查这个 notes 目录，补课程总览、详细复习版和精简复习版。
+把这组 PDF 课件转成 Obsidian 章节笔记，并生成详细版和精简版复习页。
 ```
 
 ```text
 把新增 PPT 合并进已有笔记，不要移动源资料。
 ```
+
+Use `obsidian-vault-organizer` instead when the task starts from an existing vault and does not require PPT/PPTX/PDF extraction.
 
 ## PPTX Text Extraction
 

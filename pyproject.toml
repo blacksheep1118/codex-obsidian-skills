@@ -3,7 +3,7 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "skill-ppt-to-md-for-obsidian"
+name = "ppt-to-md-for-obsidian"
 version = "0.1.0"
 description = "Codex skill and scripts for converting PPT/PPTX/PDF courseware into Obsidian Markdown notes."
 readme = "README.md"

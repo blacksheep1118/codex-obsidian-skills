@@ -141,7 +141,7 @@ def write_placeholders(config: PipelineConfig) -> None:
         overview.write_text(
             f"# {config.course_name} 总览\n\n"
             "## 顺序导航\n\n"
-            "1. [[01_<topic>|<topic>]]\n\n"
+            "待根据 cleaned extraction 添加章节笔记。\n\n"
             "## 总复习\n\n"
             "- [[知识点精简复习版_含公式|知识点精简复习版（含公式）]]\n"
             "- [[知识点详细版_含公式|知识点详细版（含公式）]]\n",

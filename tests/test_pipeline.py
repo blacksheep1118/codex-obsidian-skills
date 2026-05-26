@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from scripts.check_obsidian_links import check_links
 from scripts.ppt_to_obsidian_pipeline import PipelineConfig, run
 
 
@@ -19,3 +20,8 @@ def test_pipeline_extracts_cleans_and_writes_manifest(tmp_path: Path):
     assert (config.output_dir / "cleaned" / "sample_course.md").exists()
     assert (config.output_dir / "pipeline_manifest.md").exists()
     assert (config.output_dir / "notes_skeleton" / "00_课程总览.md").exists()
+
+    broken, self_links, checked = check_links(config.output_dir / "notes_skeleton")
+    assert checked == 2
+    assert broken == []
+    assert self_links == []
