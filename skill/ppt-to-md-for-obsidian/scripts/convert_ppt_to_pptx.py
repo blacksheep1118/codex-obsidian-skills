@@ -14,10 +14,10 @@ import subprocess
 import sys
 
 
-MACOS_SOFFICE = Path("/Applications/LibreOffice.app/Contents/MacOS/soffice")
+MACOS_SOFFICE = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
 WINDOWS_SOFFICE_PATHS = (
-    Path(r"C:\Program Files\LibreOffice\program\soffice.exe"),
-    Path(r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"),
+    r"C:\Program Files\LibreOffice\program\soffice.exe",
+    r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
 )
 
 
@@ -26,8 +26,8 @@ def soffice_candidates(explicit: str | None = None) -> list[str]:
     if explicit:
         candidates.append(explicit)
     candidates.extend(["soffice", "soffice.exe", "libreoffice", "libreoffice.exe"])
-    candidates.append(str(MACOS_SOFFICE))
-    candidates.extend(str(path) for path in WINDOWS_SOFFICE_PATHS)
+    candidates.append(MACOS_SOFFICE)
+    candidates.extend(WINDOWS_SOFFICE_PATHS)
     return candidates
 
 
