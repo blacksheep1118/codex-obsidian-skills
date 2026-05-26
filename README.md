@@ -148,27 +148,6 @@ python3 scripts/check_obsidian_links.py ../ppt-to-md-for-obsidian/examples/sampl
 - Avoid moving source files unless the user explicitly requests it.
 - Keep Obsidian links local, meaningful, and placed where concepts first become relevant.
 
-## Optimization Roadmap
-
-High-value improvements for future iterations:
-
-- Add install scripts such as `scripts/install_skill.py --skill ppt-to-md-for-obsidian`.
-- Add an update script that safely syncs installed skill folders without nesting directories.
-- Add a `docs/` folder for longer human-facing documentation while keeping skill folders lean.
-- Add a `CONTRIBUTING.md` with skill naming, validation, and release rules.
-- Add fixture vaults for broken links, self-links, duplicate notes, and conflict markers.
-- Add tests for Markdown links with spaces, anchors, aliases, encoded paths, and nested directories.
-- Add PDF extraction regression fixtures with formulas and multi-column slide layouts.
-- Add a before/after example showing raw extracted text and final Obsidian notes.
-- Add a compatibility table for Python versions, LibreOffice, and optional PDF dependencies.
-- Add release tags so users can install stable versions instead of always copying `main`.
-- Add a changelog that records skill behavior changes separately from repository maintenance.
-- Add GitHub topics such as `codex-skills`, `obsidian`, `markdown`, `pptx`, and `study-notes`.
-- Add a script that checks whether `agents/openai.yaml` still matches each skill's `SKILL.md`.
-- Add a validator for empty notes, conflict markers, unbalanced block math, and duplicate filenames.
-- Add examples for non-course use cases such as research group presentations and paper-note vaults.
-- Add optional GitHub Pages documentation if README length grows beyond a quick project overview.
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
