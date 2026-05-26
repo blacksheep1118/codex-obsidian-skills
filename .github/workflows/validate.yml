@@ -22,7 +22,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install validation dependencies
-        run: python -m pip install --upgrade -r skill/ppt-to-md-for-obsidian/requirements-dev.txt -r skill/obsidian-vault-organizer/requirements-dev.txt
+        run: python -m pip install --upgrade -r skill/ppt-to-md-for-obsidian/requirements-dev.txt -r skill/obsidian-vault-organizer/requirements-dev.txt -r skill/web-course-notes-for-obsidian/requirements-dev.txt
 
       - name: Run full validation suite
         run: python scripts/validate_all.py

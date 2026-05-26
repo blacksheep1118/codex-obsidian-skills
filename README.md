@@ -10,14 +10,16 @@ This is a skill collection, not a single monolithic skill. Each installable skil
 
 | Skill | Use it when | Main outputs |
 | --- | --- | --- |
-| [`ppt-to-md-for-obsidian`](skill/ppt-to-md-for-obsidian) | The task starts from PPT, PPTX, PDF courseware, or slide-derived materials. | Extracted text, cleaned Markdown input, chapter notes, course maps, review pages, Obsidian links. |
+| [`web-course-notes-for-obsidian`](skill/web-course-notes-for-obsidian) | The task starts from course video websites, PPT/slide websites, book websites, or mixed online learning URLs. | Source manifests, URL-linked course maps, chapter notes, reading notes, review pages. |
+| [`ppt-to-md-for-obsidian`](skill/ppt-to-md-for-obsidian) | The task starts from local PPT, PPTX, PDF courseware, or slide-derived files. | Extracted text, cleaned Markdown input, chapter notes, course maps, review pages, Obsidian links. |
 | [`obsidian-vault-organizer`](skill/obsidian-vault-organizer) | The task starts from an existing Obsidian vault or Markdown note directory. | Link audits, repaired references, merged duplicate notes, navigation pages, vault cleanup reports. |
 
-The two skills are split so their trigger boundaries stay clear. Use `ppt-to-md-for-obsidian` when the task starts from slide/courseware extraction. Use `obsidian-vault-organizer` when the task starts from an existing vault or notes directory.
+The skills are split so their trigger boundaries stay clear. Use `web-course-notes-for-obsidian` when the task starts from URLs. Use `ppt-to-md-for-obsidian` when the task starts from local slide/courseware files. Use `obsidian-vault-organizer` when the task starts from an existing vault or notes directory.
 
 ## What This Helps With
 
 - Convert lecture slides into readable Obsidian study notes instead of raw slide dumps.
+- Turn course video, slide, and book websites into source-linked study notes.
 - Preserve formulas, variable explanations, chapter order, and Chinese course-note style.
 - Generate or maintain navigation pages such as `00_课程总览.md` and `00_学习地图.md`.
 - Keep detailed and concise review pages separate.
@@ -39,6 +41,7 @@ Install only one skill when needed:
 ```bash
 python3 scripts/install_skill.py --skill ppt-to-md-for-obsidian --self-check
 python3 scripts/install_skill.py --skill obsidian-vault-organizer --self-check
+python3 scripts/install_skill.py --skill web-course-notes-for-obsidian --self-check
 ```
 
 Check what would happen without writing files:
@@ -58,6 +61,7 @@ Install validation dependencies only when developing the skills:
 ```bash
 python3 -m pip install -r skill/ppt-to-md-for-obsidian/requirements-dev.txt
 python3 -m pip install -r skill/obsidian-vault-organizer/requirements-dev.txt
+python3 -m pip install -r skill/web-course-notes-for-obsidian/requirements-dev.txt
 ```
 
 Update installed skills from a fresh checkout:
@@ -72,6 +76,10 @@ python3 scripts/update_installed_skills.py --all --prune --self-check
 ## Quick Start
 
 After installing, ask Codex for the workflow you want:
+
+```text
+把这个课程视频网站、PPT 网站和书籍网站整理成 Obsidian 笔记，先生成 source_manifest.md。
+```
 
 ```text
 把这组 PPT 课件转成 Obsidian 章节笔记，保留公式解释、课程总览和复习页。
@@ -102,6 +110,15 @@ When a task includes both source courseware and an existing vault, start with `p
 ├── scripts/
 ├── tests/
 └── skill/
+    ├── web-course-notes-for-obsidian/
+    │   ├── SKILL.md
+    │   ├── README.md
+    │   ├── LICENSE
+    │   ├── agents/
+    │   ├── examples/
+    │   ├── references/
+    │   ├── scripts/
+    │   └── tests/
     ├── ppt-to-md-for-obsidian/
     │   ├── SKILL.md
     │   ├── README.md
@@ -121,6 +138,11 @@ When a task includes both source courseware and an existing vault, start with `p
 ```
 
 ## Bundled Tools
+
+The web course notes skill includes:
+
+- `collect_web_sources.py`: collect titles, descriptions, and learning-resource links from course video, slide, book, and mixed learning URLs.
+- `validate_skill.py`: validate skill metadata and bundled-resource references.
 
 The PPT skill includes deterministic helpers for the fragile parts of courseware conversion:
 
@@ -177,6 +199,14 @@ cd skill/obsidian-vault-organizer
 python3 -m compileall scripts
 python3 scripts/check_obsidian_links.py ../ppt-to-md-for-obsidian/examples/sample-course/notes
 python3 scripts/check_vault_quality.py ../../fixtures/vault-clean
+```
+
+```bash
+cd skill/web-course-notes-for-obsidian
+python3 -m compileall scripts
+python3 -m pytest
+python3 scripts/validate_skill.py
+python3 scripts/collect_web_sources.py examples/sample-web-course/index.html --out /tmp/web_course_source_manifest.md
 ```
 
 ## Documentation

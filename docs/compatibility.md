@@ -8,5 +8,6 @@
 | PPTX extraction | `.pptx` | Uses `python-pptx`. |
 | Legacy PPT conversion | `.ppt` | Requires LibreOffice on `PATH` or an explicit executable path. |
 | PDF extraction | `.pdf` | Uses `pypdf`; can use `pdfplumber` when installed. |
+| Web source collection | URLs, local HTML files | `web-course-notes-for-obsidian` uses the Python standard library for page titles, descriptions, and learning-resource link discovery. |
 | Validation dependencies | `pytest`, `PyYAML` | Installed from skill-local `requirements-dev.txt`. |
 | Runtime dependencies | `python-pptx`, `PyYAML`, `pypdf` | Installed from `skill/ppt-to-md-for-obsidian/requirements.txt`. |

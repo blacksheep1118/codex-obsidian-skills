@@ -12,6 +12,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 PPT_SKILL = ROOT / "skill" / "ppt-to-md-for-obsidian"
 VAULT_SKILL = ROOT / "skill" / "obsidian-vault-organizer"
+WEB_SKILL = ROOT / "skill" / "web-course-notes-for-obsidian"
 TMP = Path(os.environ.get("TMPDIR", "/tmp"))
 INSTALL_TMP = TMP / "codex-obsidian-skills-validate-install"
 PIPELINE_TMP = TMP / "codex-obsidian-skills-pipeline-out"
@@ -49,6 +50,20 @@ def main() -> int:
     run([py, "scripts/validate_skill.py"], cwd=VAULT_SKILL)
     run([py, "scripts/check_obsidian_links.py", "../ppt-to-md-for-obsidian/examples/sample-course/notes"], cwd=VAULT_SKILL)
     run([py, "scripts/check_vault_quality.py", "../../fixtures/vault-clean"], cwd=VAULT_SKILL)
+
+    run([py, "-m", "compileall", "scripts"], cwd=WEB_SKILL)
+    run([py, "-m", "pytest"], cwd=WEB_SKILL)
+    run([py, "scripts/validate_skill.py"], cwd=WEB_SKILL)
+    run(
+        [
+            py,
+            "scripts/collect_web_sources.py",
+            "examples/sample-web-course/index.html",
+            "--out",
+            str(TMP / "web_course_source_manifest.md"),
+        ],
+        cwd=WEB_SKILL,
+    )
 
     print("\nvalidate_all ok")
     return 0

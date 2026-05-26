@@ -7,10 +7,13 @@ These skills are intended for local note workflows. They do not require network 
 - Source courseware, papers, datasets, and raw materials are read-only by default.
 - Scripts write outputs only to paths provided by the user or to temporary validation directories.
 - The update script does not create backups and only prunes stale files when `--prune` is explicitly passed.
+- Web-source workflows do not bypass logins, paywalls, DRM, robots restrictions, rate limits, or disabled downloads.
 
 ## Sensitive Data
 
 Do not commit private decks, student data, proprietary vaults, credentials, API keys, or generated notes containing sensitive material. Use minimal synthetic fixtures for tests.
+
+For book websites and paid course sites, commit only original study notes, source manifests, or short illustrative excerpts that are legally safe to redistribute.
 
 ## Reporting
 
