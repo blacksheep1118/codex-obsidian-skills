@@ -15,25 +15,35 @@ import sys
 
 
 MACOS_SOFFICE = Path("/Applications/LibreOffice.app/Contents/MacOS/soffice")
+WINDOWS_SOFFICE_PATHS = (
+    Path(r"C:\Program Files\LibreOffice\program\soffice.exe"),
+    Path(r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"),
+)
 
 
-def find_soffice(explicit: str | None = None) -> str:
+def soffice_candidates(explicit: str | None = None) -> list[str]:
     candidates = []
     if explicit:
         candidates.append(explicit)
-    candidates.extend(["soffice", "libreoffice"])
+    candidates.extend(["soffice", "soffice.exe", "libreoffice", "libreoffice.exe"])
+    candidates.append(str(MACOS_SOFFICE))
+    candidates.extend(str(path) for path in WINDOWS_SOFFICE_PATHS)
+    return candidates
 
-    for candidate in candidates:
+
+def find_soffice(explicit: str | None = None) -> str:
+    for candidate in soffice_candidates(explicit):
+        direct = Path(candidate).expanduser()
+        if direct.exists():
+            return str(direct)
         found = shutil.which(candidate)
         if found:
             return found
 
-    if MACOS_SOFFICE.exists():
-        return str(MACOS_SOFFICE)
-
     raise SystemExit(
         "LibreOffice was not found. Install LibreOffice or pass --soffice "
-        "with the path to the soffice executable."
+        "with the path to the soffice executable. On Windows this is often "
+        r"C:\Program Files\LibreOffice\program\soffice.exe."
     )
 
 

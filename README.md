@@ -4,7 +4,7 @@
 
 Codex skills for turning courseware and Markdown note collections into organized Obsidian vaults. The repository focuses on practical study-note workflows: extracting slide content, rewriting it into readable Markdown, maintaining navigation pages, repairing links, and keeping existing vaults coherent.
 
-This is a skill collection, not a single monolithic skill. Each installable skill lives under [`skill/`](skill/) and keeps its own `SKILL.md`, scripts, references, examples, README, and LICENSE so it can be copied directly into `$CODEX_HOME/skills`.
+This is a skill collection, not a single monolithic skill. Each installable skill lives under [`skill/`](skill/) and keeps its own `SKILL.md`, scripts, references, examples, README, and LICENSE so it can be copied directly into `CODEX_HOME/skills` or the default Codex skills directory.
 
 ## Skills
 
@@ -28,13 +28,31 @@ The skills are split so their trigger boundaries stay clear. Use `web-course-not
 
 ## Install
 
-Clone the repository, then install one or both skill folders into `$CODEX_HOME/skills` or `~/.codex/skills`. The destination folder name must match the `name` field in that skill's `SKILL.md`.
+Clone the repository, then install one or all skill folders into the Codex skills directory. The destination folder name must match the `name` field in that skill's `SKILL.md`.
+
+Default install locations:
+
+- macOS/Linux: `~/.codex/skills`
+- Windows: `%USERPROFILE%\.codex\skills`
+- Any platform: set `CODEX_HOME` to install under `CODEX_HOME/skills`
+
+macOS/Linux:
 
 ```bash
-git clone https://github.com/blacksheep1118/codex-obsidian-skills.git /tmp/codex-obsidian-skills
-cd /tmp/codex-obsidian-skills
+git clone https://github.com/blacksheep1118/codex-obsidian-skills.git "${TMPDIR:-/tmp}/codex-obsidian-skills"
+cd "${TMPDIR:-/tmp}/codex-obsidian-skills"
 python3 scripts/install_skill.py --all --self-check
 ```
+
+Windows PowerShell:
+
+```powershell
+git clone https://github.com/blacksheep1118/codex-obsidian-skills.git "$env:TEMP\codex-obsidian-skills"
+cd "$env:TEMP\codex-obsidian-skills"
+py scripts\install_skill.py --all --self-check
+```
+
+On Windows, replace `py` with `python` if the Python launcher is not installed.
 
 Install only one skill when needed:
 
@@ -44,16 +62,30 @@ python3 scripts/install_skill.py --skill obsidian-vault-organizer --self-check
 python3 scripts/install_skill.py --skill web-course-notes-for-obsidian --self-check
 ```
 
+```powershell
+py scripts\install_skill.py --skill ppt-to-md-for-obsidian --self-check
+py scripts\install_skill.py --skill obsidian-vault-organizer --self-check
+py scripts\install_skill.py --skill web-course-notes-for-obsidian --self-check
+```
+
 Check what would happen without writing files:
 
 ```bash
 python3 scripts/install_skill.py --all --dry-run --self-check
 ```
 
+```powershell
+py scripts\install_skill.py --all --dry-run --self-check
+```
+
 Install PPT/PDF extraction dependencies only when you need to run the bundled conversion scripts:
 
 ```bash
 python3 -m pip install -r ~/.codex/skills/ppt-to-md-for-obsidian/requirements.txt
+```
+
+```powershell
+py -m pip install -r "$env:USERPROFILE\.codex\skills\ppt-to-md-for-obsidian\requirements.txt"
 ```
 
 Install validation dependencies only when developing the skills:
@@ -64,11 +96,22 @@ python3 -m pip install -r skill/obsidian-vault-organizer/requirements-dev.txt
 python3 -m pip install -r skill/web-course-notes-for-obsidian/requirements-dev.txt
 ```
 
+```powershell
+py -m pip install -r skill\ppt-to-md-for-obsidian\requirements-dev.txt
+py -m pip install -r skill\obsidian-vault-organizer\requirements-dev.txt
+py -m pip install -r skill\web-course-notes-for-obsidian\requirements-dev.txt
+```
+
 Update installed skills from a fresh checkout:
 
 ```bash
 git pull
 python3 scripts/update_installed_skills.py --all --prune --self-check
+```
+
+```powershell
+git pull
+py scripts\update_installed_skills.py --all --prune --self-check
 ```
 
 `update_installed_skills.py` does not create backups. Use `--dry-run` first when you want an audit of the changes.
@@ -170,10 +213,14 @@ Root management tools include:
 
 ## Validation
 
-GitHub Actions runs the full validation suite across Python 3.9, 3.11, and 3.12. Locally, run:
+GitHub Actions runs the full validation suite across Ubuntu, macOS, and Windows. Ubuntu is tested on Python 3.9, 3.11, and 3.12; macOS and Windows are tested on Python 3.11. Locally, run:
 
 ```bash
 python3 scripts/validate_all.py
+```
+
+```powershell
+py scripts\validate_all.py
 ```
 
 Focused checks are also available:
@@ -184,7 +231,13 @@ python3 scripts/check_shared_link_checker.py
 python3 scripts/install_skill.py --all --dry-run --self-check
 ```
 
-Skill-local checks:
+```powershell
+py scripts\check_openai_yaml_sync.py
+py scripts\check_shared_link_checker.py
+py scripts\install_skill.py --all --dry-run --self-check
+```
+
+Skill-local checks from the repository root:
 
 ```bash
 cd skill/ppt-to-md-for-obsidian
@@ -194,11 +247,26 @@ python3 scripts/check_obsidian_links.py examples/sample-course/notes
 python3 scripts/check_course_notes.py examples/sample-course/notes
 ```
 
+```powershell
+cd skill\ppt-to-md-for-obsidian
+py -m compileall scripts
+py -m pytest
+py scripts\check_obsidian_links.py examples\sample-course\notes
+py scripts\check_course_notes.py examples\sample-course\notes
+```
+
 ```bash
 cd skill/obsidian-vault-organizer
 python3 -m compileall scripts
 python3 scripts/check_obsidian_links.py ../ppt-to-md-for-obsidian/examples/sample-course/notes
 python3 scripts/check_vault_quality.py ../../fixtures/vault-clean
+```
+
+```powershell
+cd skill\obsidian-vault-organizer
+py -m compileall scripts
+py scripts\check_obsidian_links.py ..\ppt-to-md-for-obsidian\examples\sample-course\notes
+py scripts\check_vault_quality.py ..\..\fixtures\vault-clean
 ```
 
 ```bash
@@ -207,6 +275,14 @@ python3 -m compileall scripts
 python3 -m pytest
 python3 scripts/validate_skill.py
 python3 scripts/collect_web_sources.py examples/sample-web-course/index.html --out /tmp/web_course_source_manifest.md
+```
+
+```powershell
+cd skill\web-course-notes-for-obsidian
+py -m compileall scripts
+py -m pytest
+py scripts\validate_skill.py
+py scripts\collect_web_sources.py examples\sample-web-course\index.html --out "$env:TEMP\web_course_source_manifest.md"
 ```
 
 ## Documentation

@@ -97,7 +97,7 @@ def extract_pptx(path: Path, include_media_placeholders: bool = True, include_sl
     except ImportError:
         sys.exit(
             "Missing dependency: python-pptx. Install it with "
-            "`python3 -m pip install python-pptx` in the active environment."
+            "`python -m pip install python-pptx` in the active environment."
         )
 
     prs = Presentation(str(path))

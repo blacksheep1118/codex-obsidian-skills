@@ -6,18 +6,34 @@ Use this skill when the source starts from URLs. For local PPT/PPTX/PDF files, u
 
 ## Install
 
-Clone this repository, then install this skill into the matching Codex skill directory:
+Clone this repository, then install this skill into the matching Codex skill directory. By default this is `~/.codex/skills` on macOS/Linux and `%USERPROFILE%\.codex\skills` on Windows, unless `CODEX_HOME` is set.
+
+macOS/Linux:
 
 ```bash
-git clone https://github.com/blacksheep1118/codex-obsidian-skills.git /tmp/codex-obsidian-skills
-cd /tmp/codex-obsidian-skills
+git clone https://github.com/blacksheep1118/codex-obsidian-skills.git "${TMPDIR:-/tmp}/codex-obsidian-skills"
+cd "${TMPDIR:-/tmp}/codex-obsidian-skills"
 python3 scripts/install_skill.py --skill web-course-notes-for-obsidian --self-check
 ```
+
+Windows PowerShell:
+
+```powershell
+git clone https://github.com/blacksheep1118/codex-obsidian-skills.git "$env:TEMP\codex-obsidian-skills"
+cd "$env:TEMP\codex-obsidian-skills"
+py scripts\install_skill.py --skill web-course-notes-for-obsidian --self-check
+```
+
+On Windows, replace `py` with `python` if the Python launcher is not installed.
 
 The bundled source collector uses only the Python standard library. Install development dependencies only when running tests:
 
 ```bash
 python3 -m pip install -r requirements-dev.txt
+```
+
+```powershell
+py -m pip install -r requirements-dev.txt
 ```
 
 ## What It Produces
@@ -52,6 +68,10 @@ Collect a source manifest from one or more URLs or local HTML files:
 python3 scripts/collect_web_sources.py examples/sample-web-course/index.html --out source_manifest.md
 ```
 
+```powershell
+py scripts\collect_web_sources.py examples\sample-web-course\index.html --out source_manifest.md
+```
+
 The script detects page titles, descriptions, canonical URLs, and links that look like videos, slides, PDFs, transcripts, book pages, chapters, or generic course pages.
 
 ## Validation
@@ -62,6 +82,12 @@ Validate the skill metadata and bundled-resource references:
 python3 scripts/validate_skill.py
 python3 -m compileall scripts
 python3 -m pytest
+```
+
+```powershell
+py scripts\validate_skill.py
+py -m compileall scripts
+py -m pytest
 ```
 
 ## Safety

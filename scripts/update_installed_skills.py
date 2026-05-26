@@ -14,7 +14,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Update installed Codex skills from this repository.")
     parser.add_argument("--skill", action="append", default=[], help="Skill name to update. May be repeated.")
     parser.add_argument("--all", action="store_true", help="Update every skill under skill/. This is the default.")
-    parser.add_argument("--destination", type=Path, help="Destination skills directory. Defaults to $CODEX_HOME/skills.")
+    parser.add_argument(
+        "--destination",
+        type=Path,
+        help="Destination skills directory. Defaults to CODEX_HOME/skills or the user home .codex/skills directory.",
+    )
     parser.add_argument("--codex-home", type=Path, help="Codex home used to derive the destination.")
     parser.add_argument("--dry-run", action="store_true", help="Print actions without writing files.")
     parser.add_argument("--prune", action="store_true", help="Remove files in the installed skill that no longer exist here.")

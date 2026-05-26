@@ -4,11 +4,22 @@ Run checks after creating or updating Obsidian notes.
 
 ## Basic Shell Checks
 
+macOS/Linux:
+
 ```bash
 find notes -name '*.md' | wc -l
 find notes -name '.DS_Store' -print
 rg -n '<<<<<<<|=======|>>>>>>>' notes --glob '*.md'
 rg -n '相关知识链接|TODO|FIXME|待补|待完善' notes --glob '*.md'
+```
+
+Windows PowerShell:
+
+```powershell
+(Get-ChildItem notes -Recurse -Filter *.md).Count
+Get-ChildItem notes -Recurse -Force -Filter .DS_Store
+Select-String -Path (Get-ChildItem notes -Recurse -Filter *.md).FullName -Pattern '<<<<<<<|=======|>>>>>>>'
+Select-String -Path (Get-ChildItem notes -Recurse -Filter *.md).FullName -Pattern '相关知识链接|TODO|FIXME|待补|待完善'
 ```
 
 ## Scripted Checks
@@ -19,10 +30,18 @@ Check Obsidian links:
 python3 scripts/check_obsidian_links.py notes
 ```
 
+```powershell
+py scripts\check_obsidian_links.py notes
+```
+
 Validate this skill repository:
 
 ```bash
 python3 scripts/validate_skill_repo.py
+```
+
+```powershell
+py scripts\validate_skill_repo.py
 ```
 
 Compile scripts:
@@ -31,16 +50,28 @@ Compile scripts:
 python3 -m compileall scripts
 ```
 
+```powershell
+py -m compileall scripts
+```
+
 Run tests:
 
 ```bash
 python3 -m pytest
 ```
 
+```powershell
+py -m pytest
+```
+
 Run the deterministic pipeline:
 
 ```bash
 python3 scripts/ppt_to_obsidian_pipeline.py --config skill-config.example.yaml
+```
+
+```powershell
+py scripts\ppt_to_obsidian_pipeline.py --config skill-config.example.yaml
 ```
 
 ## Review Page Coverage

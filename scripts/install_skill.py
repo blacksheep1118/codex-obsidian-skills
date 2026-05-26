@@ -144,7 +144,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Install bundled Codex skills.")
     parser.add_argument("--skill", action="append", default=[], help="Skill name to install. May be repeated.")
     parser.add_argument("--all", action="store_true", help="Install every skill under skill/. This is the default.")
-    parser.add_argument("--destination", type=Path, help="Destination skills directory. Defaults to $CODEX_HOME/skills.")
+    parser.add_argument(
+        "--destination",
+        type=Path,
+        help="Destination skills directory. Defaults to CODEX_HOME/skills or the user home .codex/skills directory.",
+    )
     parser.add_argument("--codex-home", type=Path, help="Codex home used to derive the destination.")
     parser.add_argument("--dry-run", action="store_true", help="Print actions without writing files.")
     parser.add_argument("--self-check", action="store_true", help="Validate installed skill metadata after copying.")

@@ -8,18 +8,34 @@ For vault-only organization, duplicate-note cleanup, or link repair that does no
 
 ## Install
 
-Clone this repository, then install this skill into the matching Codex skill directory:
+Clone this repository, then install this skill into the matching Codex skill directory. By default this is `~/.codex/skills` on macOS/Linux and `%USERPROFILE%\.codex\skills` on Windows, unless `CODEX_HOME` is set.
+
+macOS/Linux:
 
 ```bash
-git clone https://github.com/blacksheep1118/codex-obsidian-skills.git /tmp/codex-obsidian-skills
-cd /tmp/codex-obsidian-skills
+git clone https://github.com/blacksheep1118/codex-obsidian-skills.git "${TMPDIR:-/tmp}/codex-obsidian-skills"
+cd "${TMPDIR:-/tmp}/codex-obsidian-skills"
 python3 scripts/install_skill.py --skill ppt-to-md-for-obsidian --self-check
 ```
+
+Windows PowerShell:
+
+```powershell
+git clone https://github.com/blacksheep1118/codex-obsidian-skills.git "$env:TEMP\codex-obsidian-skills"
+cd "$env:TEMP\codex-obsidian-skills"
+py scripts\install_skill.py --skill ppt-to-md-for-obsidian --self-check
+```
+
+On Windows, replace `py` with `python` if the Python launcher is not installed.
 
 Install runtime dependencies when you want to run the bundled extraction scripts locally:
 
 ```bash
 python3 -m pip install -r ~/.codex/skills/ppt-to-md-for-obsidian/requirements.txt
+```
+
+```powershell
+py -m pip install -r "$env:USERPROFILE\.codex\skills\ppt-to-md-for-obsidian\requirements.txt"
 ```
 
 ## What It Produces
@@ -72,6 +88,10 @@ Install development/test dependencies:
 python3 -m pip install -r requirements-dev.txt
 ```
 
+```powershell
+py -m pip install -r requirements-dev.txt
+```
+
 Example prompts:
 
 ```text
@@ -96,6 +116,10 @@ For deterministic extraction from `.pptx`:
 python3 scripts/extract_pptx_text.py path/to/slides.pptx --out extracted.md
 ```
 
+```powershell
+py scripts\extract_pptx_text.py path\to\slides.pptx --out extracted.md
+```
+
 The script extracts slide text, table cells, and speaker notes when available. It is intended as a raw input aid; Codex should still rewrite the output into clean notes.
 
 By default it sorts shapes by approximate visual position, detects slide titles, and emits placeholders for images or charts.
@@ -108,6 +132,12 @@ For old `.ppt` files, install LibreOffice and convert first:
 python3 scripts/convert_ppt_to_pptx.py path/to/slides.ppt --out-dir converted_pptx
 ```
 
+```powershell
+py scripts\convert_ppt_to_pptx.py path\to\slides.ppt --out-dir converted_pptx
+```
+
+The converter searches for `soffice`, `soffice.exe`, `libreoffice`, `libreoffice.exe`, the standard macOS app path, and common Windows LibreOffice install paths. If LibreOffice is installed elsewhere, pass `--soffice` with the executable path.
+
 Then run the PPTX extractor on the converted file.
 
 ## PDF Text Extraction
@@ -116,6 +146,10 @@ For PDF courseware:
 
 ```bash
 python3 scripts/extract_pdf_text.py path/to/slides.pdf --out extracted.md
+```
+
+```powershell
+py scripts\extract_pdf_text.py path\to\slides.pdf --out extracted.md
 ```
 
 The PDF extractor uses `pypdf` by default and falls back to `pdfplumber` if installed.
@@ -128,6 +162,10 @@ Clean common extraction artifacts before rewriting:
 python3 scripts/clean_latex_from_ppt.py extracted.md --unicode-math --out cleaned.md
 ```
 
+```powershell
+py scripts\clean_latex_from_ppt.py extracted.md --unicode-math --out cleaned.md
+```
+
 This handles zero-width characters, control characters, repeated LaTeX backslashes, and common Unicode math symbols on math-like lines.
 
 ## Obsidian Link Check
@@ -136,6 +174,10 @@ Check a vault or notes directory:
 
 ```bash
 python3 scripts/check_obsidian_links.py examples/sample-course/notes
+```
+
+```powershell
+py scripts\check_obsidian_links.py examples\sample-course\notes
 ```
 
 The checker covers Markdown links, `[[wiki]]`, `[[path/to/file]]`, and `[[path/to/file|alias]]`.
@@ -148,6 +190,10 @@ Check generated course notes before finishing:
 python3 scripts/check_course_notes.py examples/sample-course/notes
 ```
 
+```powershell
+py scripts\check_course_notes.py examples\sample-course\notes
+```
+
 The checker verifies the overview page, detailed and concise review pages, review links, empty files, conflict markers, template residue, fenced code blocks, and block math delimiters.
 
 ## One-command Pipeline
@@ -156,6 +202,10 @@ Use the pipeline to convert/extract/clean sources and create a manifest:
 
 ```bash
 python3 scripts/ppt_to_obsidian_pipeline.py --config skill-config.example.yaml
+```
+
+```powershell
+py scripts\ppt_to_obsidian_pipeline.py --config skill-config.example.yaml
 ```
 
 The pipeline supports `.ppt`, `.pptx`, and `.pdf` sources. It writes:
@@ -193,7 +243,8 @@ See [references/modes.md](references/modes.md) for mode-specific guidance.
 
 GitHub Actions validates:
 
-- Python syntax for scripts across Python 3.9, 3.11, and 3.12.
+- Python syntax for scripts across Ubuntu, macOS, and Windows.
+- Python 3.9, 3.11, and 3.12 on Ubuntu; Python 3.11 on macOS and Windows.
 - pytest unit tests.
 - `SKILL.md` frontmatter.
 - `agents/openai.yaml` YAML and default prompt.

@@ -11,7 +11,7 @@ import re
 import sys
 from typing import Iterable
 from urllib.parse import quote, unquote, urljoin, urlparse, urlsplit, urlunsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request, url2pathname, urlopen
 
 
 VIDEO_HOST_RE = re.compile(r"(youtube|youtu\.be|bilibili|vimeo|coursera|edx|khanacademy|ocw|mit\.edu)", re.I)
@@ -112,7 +112,7 @@ def normalize_url(url: str) -> str:
 def read_source(source_url: str, timeout: float = 15.0) -> str:
     parsed = urlparse(source_url)
     if parsed.scheme == "file":
-        return Path(unquote(parsed.path)).read_text(encoding="utf-8", errors="replace")
+        return Path(url2pathname(parsed.path)).read_text(encoding="utf-8", errors="replace")
     request = Request(source_url, headers={"User-Agent": "codex-obsidian-skills/1.0"})
     with urlopen(request, timeout=timeout) as response:
         content_type = response.headers.get("content-type", "")

@@ -4,11 +4,22 @@ Run checks after creating or updating Obsidian notes.
 
 ## Basic Shell Checks
 
+macOS/Linux:
+
 ```bash
 find notes -name '*.md' | wc -l
 find notes -name '.DS_Store' -print
 rg -n '<<<<<<<|=======|>>>>>>>' notes --glob '*.md'
 rg -n '相关知识链接|TODO|FIXME|待补|待完善' notes --glob '*.md'
+```
+
+Windows PowerShell:
+
+```powershell
+(Get-ChildItem notes -Recurse -Filter *.md).Count
+Get-ChildItem notes -Recurse -Force -Filter .DS_Store
+Select-String -Path (Get-ChildItem notes -Recurse -Filter *.md).FullName -Pattern '<<<<<<<|=======|>>>>>>>'
+Select-String -Path (Get-ChildItem notes -Recurse -Filter *.md).FullName -Pattern '相关知识链接|TODO|FIXME|待补|待完善'
 ```
 
 Adjust `notes` to the resolved vault path.
@@ -19,6 +30,10 @@ Check Obsidian links:
 
 ```bash
 python3 scripts/check_obsidian_links.py notes
+```
+
+```powershell
+py scripts\check_obsidian_links.py notes
 ```
 
 The checker covers:

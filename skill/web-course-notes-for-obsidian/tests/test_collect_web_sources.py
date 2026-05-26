@@ -7,7 +7,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.collect_web_sources import build_manifest, classify_url, collect_sources, collect_page
+from scripts.collect_web_sources import build_manifest, classify_url, collect_sources, collect_page, normalize_url
 
 
 def test_classify_url_detects_learning_resource_types():
@@ -49,3 +49,7 @@ def test_collect_page_accepts_file_uri_with_spaces(tmp_path: Path):
     assert page.title == "Course With Spaces"
     assert page.links[0].kind == "slides"
     assert "week%201.pptx" in page.links[0].url
+
+
+def test_normalize_url_preserves_windows_file_drive_colon():
+    assert normalize_url("file:///C:/Users/Test/course index.html") == "file:///C:/Users/Test/course%20index.html"

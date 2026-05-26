@@ -3,17 +3,17 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PPT_SKILL = ROOT / "skill" / "ppt-to-md-for-obsidian"
 VAULT_SKILL = ROOT / "skill" / "obsidian-vault-organizer"
 WEB_SKILL = ROOT / "skill" / "web-course-notes-for-obsidian"
-TMP = Path(os.environ.get("TMPDIR", "/tmp"))
+TMP = Path(tempfile.gettempdir())
 INSTALL_TMP = TMP / "codex-obsidian-skills-validate-install"
 PIPELINE_TMP = TMP / "codex-obsidian-skills-pipeline-out"
 

@@ -6,18 +6,34 @@ Use this skill when the source of truth is already a vault or notes directory. I
 
 ## Install
 
-Clone this repository, then install this skill into the matching Codex skill directory:
+Clone this repository, then install this skill into the matching Codex skill directory. By default this is `~/.codex/skills` on macOS/Linux and `%USERPROFILE%\.codex\skills` on Windows, unless `CODEX_HOME` is set.
+
+macOS/Linux:
 
 ```bash
-git clone https://github.com/blacksheep1118/codex-obsidian-skills.git /tmp/codex-obsidian-skills
-cd /tmp/codex-obsidian-skills
+git clone https://github.com/blacksheep1118/codex-obsidian-skills.git "${TMPDIR:-/tmp}/codex-obsidian-skills"
+cd "${TMPDIR:-/tmp}/codex-obsidian-skills"
 python3 scripts/install_skill.py --skill obsidian-vault-organizer --self-check
 ```
+
+Windows PowerShell:
+
+```powershell
+git clone https://github.com/blacksheep1118/codex-obsidian-skills.git "$env:TEMP\codex-obsidian-skills"
+cd "$env:TEMP\codex-obsidian-skills"
+py scripts\install_skill.py --skill obsidian-vault-organizer --self-check
+```
+
+On Windows, replace `py` with `python` if the Python launcher is not installed.
 
 If you want to run the bundled skill validator, install PyYAML:
 
 ```bash
 python3 -m pip install PyYAML
+```
+
+```powershell
+py -m pip install PyYAML
 ```
 
 The Obsidian link checker itself only uses the Python standard library.
@@ -81,6 +97,10 @@ Run the bundled checker against a local vault or notes directory:
 python3 scripts/check_obsidian_links.py path/to/notes
 ```
 
+```powershell
+py scripts\check_obsidian_links.py path\to\notes
+```
+
 It covers Markdown links, `[[wiki]]`, `[[path/to/file]]`, and `[[path/to/file|alias]]`.
 
 ## Quality Check
@@ -89,6 +109,10 @@ Run the read-only quality checker against a local vault or notes directory:
 
 ```bash
 python3 scripts/check_vault_quality.py path/to/notes
+```
+
+```powershell
+py scripts\check_vault_quality.py path\to\notes
 ```
 
 It reports empty files, conflict markers, unbalanced code fences, unbalanced block math, duplicate note stems, and leftover template text.
@@ -102,6 +126,11 @@ Validate the skill metadata and bundled-resource references:
 ```bash
 python3 scripts/validate_skill.py
 python3 -m compileall scripts
+```
+
+```powershell
+py scripts\validate_skill.py
+py -m compileall scripts
 ```
 
 ## License
