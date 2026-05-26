@@ -7,12 +7,19 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import sys
 
 
 OVERVIEW_NAMES = ("00_课程总览.md", "00_学习地图.md")
 DETAIL_REVIEW = "知识点详细版_含公式.md"
 CONCISE_REVIEW = "知识点精简复习版_含公式.md"
 TEMPLATE_RE = re.compile(r"(相关知识链接|TODO|FIXME|TBD|待补|待完善)")
+
+
+def configure_output_encoding() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
 
 
 @dataclass(frozen=True)
@@ -75,6 +82,7 @@ def find_course_note_issues(root: Path) -> list[CourseNoteIssue]:
 
 
 def main() -> int:
+    configure_output_encoding()
     parser = argparse.ArgumentParser(description="Check PPT-to-Obsidian course-note outputs.")
     parser.add_argument("root", type=Path, help="Course notes directory")
     args = parser.parse_args()

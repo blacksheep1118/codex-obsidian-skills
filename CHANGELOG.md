@@ -10,6 +10,7 @@ All notable changes to this repository are documented here.
 - Added Windows-aware LibreOffice discovery, platform-neutral temporary directories, Windows-style `file://` URL normalization tests, and macOS/Windows CI coverage.
 - Pinned development pytest dependencies below 9.0 and kept platform-specific LibreOffice paths as raw strings so Python 3.9 and Windows validation paths remain installable and stable.
 - Updated GitHub Actions checkout/setup-python actions to v6 and declared read-only contents permission for validation jobs.
+- Forced UTF-8 output for validation CLIs that print Obsidian paths, avoiding Windows non-UTF-8 console failures.
 
 ## v0.1.0 - 2026-05-26
 

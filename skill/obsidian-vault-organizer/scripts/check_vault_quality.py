@@ -7,9 +7,16 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import sys
 
 
 TEMPLATE_RE = re.compile(r"(相关知识链接|TODO|FIXME|TBD|待补|待完善)")
+
+
+def configure_output_encoding() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
 
 
 @dataclass(frozen=True)
@@ -71,6 +78,7 @@ def find_vault_issues(root: Path, allow_duplicate_stems: bool = False) -> list[V
 
 
 def main() -> int:
+    configure_output_encoding()
     parser = argparse.ArgumentParser(description="Check Markdown vault quality issues.")
     parser.add_argument("root", type=Path, help="Vault or notes directory")
     parser.add_argument("--allow-duplicate-stems", action="store_true")

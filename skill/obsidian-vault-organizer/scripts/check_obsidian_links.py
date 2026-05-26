@@ -7,11 +7,18 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import sys
 from urllib.parse import unquote
 
 
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
 WIKI_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
+
+
+def configure_output_encoding() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
 
 
 @dataclass(frozen=True)
@@ -106,6 +113,7 @@ def print_issue(root: Path, issue: LinkIssue) -> None:
 
 
 def main() -> int:
+    configure_output_encoding()
     parser = argparse.ArgumentParser(description="Check Obsidian Markdown links.")
     parser.add_argument("root", type=Path, help="Vault or notes directory")
     parser.add_argument("--allow-self-links", action="store_true")
