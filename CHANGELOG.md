@@ -9,6 +9,7 @@ All notable changes to this repository are documented here.
 - Added cross-platform install, update, validation, and development documentation for macOS/Linux shells and Windows PowerShell.
 - Added Windows-aware LibreOffice discovery, platform-neutral temporary directories, Windows-style `file://` URL normalization tests, and macOS/Windows CI coverage.
 - Pinned development pytest dependencies below 9.0 and kept platform-specific LibreOffice paths as raw strings so Python 3.9 and Windows validation paths remain installable and stable.
+- Updated GitHub Actions checkout/setup-python actions to v6 and declared read-only contents permission for validation jobs.
 
 ## v0.1.0 - 2026-05-26
 
