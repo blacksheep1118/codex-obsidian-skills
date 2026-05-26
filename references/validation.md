@@ -31,6 +31,18 @@ Compile scripts:
 python3 -m compileall scripts
 ```
 
+Run tests:
+
+```bash
+python3 -m pytest
+```
+
+Run the deterministic pipeline:
+
+```bash
+python3 scripts/ppt_to_obsidian_pipeline.py --config skill-config.example.yaml
+```
+
 ## Review Page Coverage
 
 Each course/topic directory should have:

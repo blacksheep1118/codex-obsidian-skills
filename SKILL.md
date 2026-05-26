@@ -29,7 +29,9 @@ Keep the detailed review and concise review as two separate files. Do not replac
 2. Extract slide text while preserving slide order.
    - For `.pptx`, use `scripts/extract_pptx_text.py` when a deterministic text dump helps.
    - For legacy `.ppt`, use `scripts/convert_ppt_to_pptx.py` to convert with LibreOffice first, then extract.
+   - For `.pdf` courseware, use `scripts/extract_pdf_text.py`.
    - If the extracted text contains formula noise, run `scripts/clean_latex_from_ppt.py` before rewriting.
+   - For repeatable runs, use `scripts/ppt_to_obsidian_pipeline.py` to extract, clean, and write a manifest.
    - If extraction is noisy, use slide titles, visible bullets, formulas, filenames, and course order together instead of trusting raw text blindly.
 
 3. Rewrite into primary notes.
@@ -66,6 +68,10 @@ Choose one mode before rewriting:
 
 See `references/modes.md` when the mode is ambiguous or the user asks for a specific output style.
 
+## Configuration
+
+Use `skill-config.example.yaml` as a starting point for repeatable conversions. It defines the source directory, output directory, mode, cleanup settings, LibreOffice conversion path, and Obsidian naming preferences.
+
 ## Quality Bar
 
 Good notes should answer:
@@ -88,8 +94,10 @@ Poor notes usually look like:
 
 - `scripts/extract_pptx_text.py`: extract ordered text, tables, and notes from `.pptx` files.
 - `scripts/convert_ppt_to_pptx.py`: convert legacy `.ppt` files to `.pptx` with LibreOffice.
+- `scripts/extract_pdf_text.py`: extract raw text from `.pdf` courseware.
 - `scripts/check_obsidian_links.py`: check Markdown and Obsidian wiki links.
 - `scripts/clean_latex_from_ppt.py`: normalize formula and Unicode noise from slide extraction.
+- `scripts/ppt_to_obsidian_pipeline.py`: run conversion, extraction, cleanup, and manifest creation.
 - `references/obsidian-style.md`: local style guide for note writing and cross-linking.
 - `references/validation.md`: lightweight validation checks for Obsidian Markdown outputs.
 - `references/modes.md`: conversion mode guidance for course notes, group presentations, and exam review.

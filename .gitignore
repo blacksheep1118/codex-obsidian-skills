@@ -3,3 +3,7 @@ __pycache__/
 .DS_Store
 *.tmp
 *.log
+build/
+converted_pptx/
+.pytest_cache/
+.ruff_cache/

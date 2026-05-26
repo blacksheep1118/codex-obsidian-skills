@@ -11,6 +11,7 @@ Best for lecture PPT/PPTX files.
 - Explain concepts, formulas, examples, assumptions, and boundaries.
 - Create or update `00_课程总览.md`.
 - Add detailed and concise review pages.
+- Use `scripts/ppt_to_obsidian_pipeline.py` when the same course will be processed repeatedly.
 
 ## Research Group Presentation
 
@@ -20,6 +21,7 @@ Best for paper-sharing, lab meeting, and project update slides.
 - Keep citation information when present.
 - Separate "paper claims" from "speaker interpretation".
 - Add links to related methods or course concepts when useful.
+- Preserve raw extracted slides in case claims need to be checked against the original talk.
 
 ## Exam Review Material
 
@@ -29,3 +31,4 @@ Best for final review slides, question banks, and answer-key style material.
 - Preserve detailed explanations in the detailed review page.
 - Keep the concise review page short enough for final-pass scanning.
 - Avoid generic study plans unless the user explicitly asks for them.
+- Treat formulas and typical question patterns as first-class sections.

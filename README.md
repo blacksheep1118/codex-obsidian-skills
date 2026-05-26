@@ -1,6 +1,6 @@
 # skill-ppt-to-md-for-obsidian
 
-Codex skill for converting PPT/PPTX courseware into Obsidian-ready Markdown notes.
+Codex skill for converting PPT/PPTX/PDF courseware into Obsidian-ready Markdown notes.
 
 The skill is designed for lecture slides that need to become usable study notes, not slide transcripts. It emphasizes Chinese course notes, formulas, numbered chapter files, course maps, cross-links, and detailed plus concise review pages.
 
@@ -18,6 +18,11 @@ The skill is designed for lecture slides that need to become usable study notes,
 .
 ├── SKILL.md
 ├── README.md
+├── LICENSE
+├── pyproject.toml
+├── requirements.txt
+├── requirements-dev.txt
+├── skill-config.example.yaml
 ├── agents/
 │   └── openai.yaml
 ├── examples/
@@ -26,7 +31,9 @@ The skill is designed for lecture slides that need to become usable study notes,
 │   ├── check_obsidian_links.py
 │   ├── clean_latex_from_ppt.py
 │   ├── convert_ppt_to_pptx.py
+│   ├── extract_pdf_text.py
 │   ├── extract_pptx_text.py
+│   ├── ppt_to_obsidian_pipeline.py
 │   └── validate_skill_repo.py
 └── references/
     ├── modes.md
@@ -37,6 +44,18 @@ The skill is designed for lecture slides that need to become usable study notes,
 ## Usage
 
 Install or copy this repository as a Codex skill, then ask Codex to convert courseware into Obsidian notes.
+
+Install runtime dependencies:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+Install development/test dependencies:
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+```
 
 Example prompts:
 
@@ -62,6 +81,8 @@ python3 scripts/extract_pptx_text.py path/to/slides.pptx --out extracted.md
 
 The script extracts slide text, table cells, and speaker notes when available. It is intended as a raw input aid; Codex should still rewrite the output into clean notes.
 
+By default it sorts shapes by approximate visual position, detects slide titles, and emits placeholders for images or charts.
+
 ## Legacy PPT Conversion
 
 For old `.ppt` files, install LibreOffice and convert first:
@@ -71,6 +92,16 @@ python3 scripts/convert_ppt_to_pptx.py path/to/slides.ppt --out-dir converted_pp
 ```
 
 Then run the PPTX extractor on the converted file.
+
+## PDF Text Extraction
+
+For PDF courseware:
+
+```bash
+python3 scripts/extract_pdf_text.py path/to/slides.pdf --out extracted.md
+```
+
+The PDF extractor uses `pypdf` by default and falls back to `pdfplumber` if installed.
 
 ## Formula Cleanup
 
@@ -91,6 +122,21 @@ python3 scripts/check_obsidian_links.py examples/sample-course/notes
 ```
 
 The checker covers Markdown links, `[[wiki]]`, `[[path/to/file]]`, and `[[path/to/file|alias]]`.
+
+## One-command Pipeline
+
+Use the pipeline to convert/extract/clean sources and create a manifest:
+
+```bash
+python3 scripts/ppt_to_obsidian_pipeline.py --config skill-config.example.yaml
+```
+
+The pipeline supports `.ppt`, `.pptx`, and `.pdf` sources. It writes:
+
+- `raw_extracted/`
+- `cleaned/`
+- `pipeline_manifest.md`
+- optional `notes_skeleton/`
 
 ## Examples
 
@@ -116,12 +162,14 @@ See [references/modes.md](references/modes.md) for mode-specific guidance.
 
 GitHub Actions validates:
 
-- Python syntax for scripts.
+- Python syntax for scripts across Python 3.9, 3.11, and 3.12.
+- pytest unit tests.
 - `SKILL.md` frontmatter.
 - `agents/openai.yaml` YAML and default prompt.
 - README local links.
 - Sample PPTX extraction.
 - Formula cleanup.
+- Pipeline execution.
 - Sample Obsidian link integrity.
 
 ## Design Principles
@@ -135,4 +183,4 @@ GitHub Actions validates:
 
 ## License
 
-Add a license if this repository will be shared publicly.
+MIT. See [LICENSE](LICENSE).
