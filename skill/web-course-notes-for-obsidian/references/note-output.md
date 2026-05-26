@@ -10,6 +10,36 @@ Each collection folder should contain:
 - `00_学习地图.md`,
 - one or more numbered source or chapter notes.
 
+## Detailed Note Standard
+
+Script-created notes are scaffolds, not final deliverables. A final note should be comparable to nearby notes in the destination vault folder and should not contain `status: scaffold`, `待补充`, or TODO placeholders.
+
+Before finalizing, inspect 1-3 existing notes in the target category and match the local style for:
+
+- navigation links and backlinks,
+- section depth,
+- formula formatting and variable explanations,
+- examples, experiments, or application notes,
+- concise review summaries.
+
+For paper-like, PDF, or single-resource notes, prefer this structure:
+
+- `相关` and `导航`,
+- `来源` and `材料定位`,
+- `问题背景`,
+- `方法总览`,
+- `关键机制`,
+- `关键公式与变量`,
+- `实验与案例` or `证据`,
+- `方法比较`,
+- `优点`,
+- `缺点`,
+- `未解决的问题`,
+- `复现或应用要点`,
+- `精简复习`.
+
+Use source URLs for provenance, but rewrite explanations in your own words. Do not copy long source passages.
+
 ## Video Course Site
 
 Prefer:

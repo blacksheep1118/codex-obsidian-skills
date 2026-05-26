@@ -41,7 +41,7 @@ py -m pip install -r requirements-dev.txt
 - A collection folder inside the user's Obsidian notes directory, either under a matching existing category or under `网络资源/`.
 - `source_manifest.md` with URLs, titles, descriptions, and detected resource types.
 - `00_学习地图.md` as the entry point for each imported web resource collection.
-- Obsidian Markdown notes from course videos, slide pages, book chapters, or mixed learning pages.
+- Detailed Obsidian Markdown notes from course videos, slide pages, book chapters, direct PDFs, or mixed learning pages.
 - `00_课程总览.md`, `00_学习地图.md`, or `00_阅读地图.md`.
 - Detailed and concise review pages when the source is course-like.
 - Source-linked concept notes with visible provenance.
@@ -84,7 +84,7 @@ python3 scripts/collect_web_sources.py https://openaccess.thecvf.com/content_cvp
 
 ## Create Notes In A Vault
 
-Create a folder and starter notes from one or more URLs:
+Create a folder and detailed note scaffolds from one or more URLs:
 
 ```bash
 python3 scripts/create_web_notes.py https://openaccess.thecvf.com/content_cvpr_2016/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf --notes-dir ~/Desktop/solvenotes/notes
@@ -95,6 +95,8 @@ py scripts\create_web_notes.py https://openaccess.thecvf.com/content_cvpr_2016/p
 ```
 
 The script inspects existing top-level folders under `--notes-dir`. For CVPR/image resources it prefers an existing `计算机视觉` folder; otherwise it creates `网络资源/<collection-title>/`. Use `--category <folder>` to force a destination category.
+
+`create_web_notes.py` is a deterministic placement and scaffolding helper. Its generated notes are marked `status: scaffold`; Codex should then read or extract the accessible source content, inspect nearby notes in the destination category, and replace the scaffold placeholders with a finished note before reporting the task as complete.
 
 ## Validation
 

@@ -10,7 +10,7 @@ This is a skill collection, not a single monolithic skill. Each installable skil
 
 | Skill | Use it when | Main outputs |
 | --- | --- | --- |
-| [`web-course-notes-for-obsidian`](skill/web-course-notes-for-obsidian) | The task starts from course video websites, PPT/slide websites, book websites, direct PDF/PPT URLs, or mixed online learning URLs. | Source manifests, classified note folders, URL-linked learning maps, chapter notes, reading notes, review pages. |
+| [`web-course-notes-for-obsidian`](skill/web-course-notes-for-obsidian) | The task starts from course video websites, PPT/slide websites, book websites, direct PDF/PPT URLs, or mixed online learning URLs. | Source manifests, classified note folders, URL-linked learning maps, detailed note scaffolds, chapter notes, reading notes, review pages. |
 | [`ppt-to-md-for-obsidian`](skill/ppt-to-md-for-obsidian) | The task starts from local PPT, PPTX, PDF courseware, or slide-derived files. | Extracted text, cleaned Markdown input, chapter notes, course maps, review pages, Obsidian links. |
 | [`obsidian-vault-organizer`](skill/obsidian-vault-organizer) | The task starts from an existing Obsidian vault or Markdown note directory. | Link audits, repaired references, merged duplicate notes, navigation pages, vault cleanup reports. |
 
@@ -189,6 +189,7 @@ When a task includes both source courseware and an existing vault, start with `p
 The web course notes skill includes:
 
 - `collect_web_sources.py`: collect titles, descriptions, and learning-resource links from course video, slide, book, and mixed learning URLs.
+- `create_web_notes.py`: classify URL collections into existing note folders, write `source_manifest.md`, and create detailed note scaffolds that must be expanded from source content before delivery.
 - `validate_skill.py`: validate skill metadata and bundled-resource references.
 
 The PPT skill includes deterministic helpers for the fragile parts of courseware conversion:

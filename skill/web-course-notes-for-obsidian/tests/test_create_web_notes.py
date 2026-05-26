@@ -38,7 +38,18 @@ def test_create_web_notes_classifies_cvpr_pdf_into_existing_vision_folder(tmp_pa
     assert (collection_dir / "source_manifest.md").exists()
     note = collection_dir / "01_Zhu From Noise Modeling CVPR 2016 paper.md"
     assert note.exists()
-    assert "source_type: pdf" in note.read_text(encoding="utf-8")
+    note_text = note.read_text(encoding="utf-8")
+    assert "source_type: pdf" in note_text
+    assert "status: scaffold" in note_text
+    assert "## 问题背景" in note_text
+    assert "## 关键公式与变量" in note_text
+    assert "## 方法比较" in note_text
+    assert "## 精简复习" in note_text
+    assert "## 初步笔记" not in note_text
+
+    map_text = (collection_dir / "00_学习地图.md").read_text(encoding="utf-8")
+    assert "## 完成标准" in map_text
+    assert "脚手架不能作为最终笔记交付" in map_text
 
 
 def test_create_web_notes_uses_network_resource_folder_when_no_category_matches(tmp_path: Path):

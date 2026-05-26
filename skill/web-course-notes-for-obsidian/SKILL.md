@@ -17,7 +17,7 @@ For each course, book, or topic collection, prefer:
 
 - A topic folder inside the user's notes directory. Reuse an existing category folder when the source clearly belongs there; otherwise create a new folder such as `网络资源/<collection-title>/`.
 - `00_学习地图.md` or `00_课程总览.md` as the entry point.
-- Numbered notes such as `01_导论.md`, `02_核心概念.md`, or chapter-based names.
+- Numbered detailed notes such as `01_导论.md`, `02_核心概念.md`, paper notes, or chapter-based names.
 - `source_manifest.md` with URLs, titles, source types, access status, and what each source contributed.
 - `知识点详细版_含公式.md` when the material is course-like.
 - `知识点精简复习版_含公式.md` or `快速复习.md` for review.
@@ -40,26 +40,31 @@ Keep source URLs in notes or frontmatter so provenance stays visible.
 3. Place notes in the vault.
    - If the user provides an Obsidian notes directory, inspect existing top-level folders and classify the collection into the closest existing folder.
    - If no existing folder fits, create a new folder under the notes directory, preferably `网络资源/<collection-title>/`.
-   - Use `scripts/create_web_notes.py --notes-dir <notes-dir> <url...>` to create the collection folder, `source_manifest.md`, `00_学习地图.md`, and starter notes.
+   - Use `scripts/create_web_notes.py --notes-dir <notes-dir> <url...>` to create the collection folder, `source_manifest.md`, `00_学习地图.md`, and detailed note scaffolds.
    - Use `--category <folder>` when the user or context clearly identifies the destination category.
+   - Treat script-created scaffolds as unfinished. Do not deliver them as final notes until the accessible source content has been read, extracted, and rewritten into the scaffold.
 
 4. Extract only appropriate content.
    - Prefer official transcripts/captions for videos when available.
    - Prefer page headings, abstracts, tables of contents, slide titles, and user-provided excerpts for books.
-   - For local or downloadable PPT/PDF files, hand off to `$ppt-to-md-for-obsidian`.
+   - For direct PDF/PPT URLs, record the URL first, then extract the accessible content when allowed. If the source becomes a local courseware file, hand off to `$ppt-to-md-for-obsidian`.
    - If the user supplies an existing Obsidian vault, use `$obsidian-vault-organizer` after drafting.
 
 5. Generate notes.
    - Use Chinese by default when the user writes Chinese.
+   - Inspect 1-3 nearby notes in the target category before writing final notes, then match their density, navigation style, formula treatment, and review style.
    - Convert fragments into explanations, not web-page dumps.
    - Add formulas, variable meanings, examples, assumptions, and failure cases when present.
+   - For paper-like resources, include problem background, method overview, mechanism details, formulas and variables, experiments or evidence, comparison with related methods, advantages, limits, open questions, reproduction/application notes, and a concise review section.
    - Link concepts where they first become relevant.
    - Cite source URLs near the sections they support.
+   - Remove scaffold residue before final delivery. A note that still contains `status: scaffold`, `待补充`, or TODO-style placeholders is incomplete and must be reported as unfinished, not presented as done.
 
 6. Validate before finishing.
    - Check local Obsidian links with `$obsidian-vault-organizer`.
    - Check that `source_manifest.md` covers every URL the user supplied.
    - Check that generated notes do not contain long copied passages from books or web pages.
+   - Check that final notes are comparable in detail to existing notes in the destination folder.
 
 ## Source Policy
 
@@ -72,6 +77,6 @@ Read `references/note-output.md` when deciding how to structure notes for course
 ## Bundled Resources
 
 - `scripts/collect_web_sources.py`: collect titles, descriptions, and learning-resource links from URL or local HTML inputs.
-- `scripts/create_web_notes.py`: classify sources into a notes directory, create a collection folder, and write `source_manifest.md`, `00_学习地图.md`, and starter notes.
+- `scripts/create_web_notes.py`: classify sources into a notes directory, create a collection folder, and write `source_manifest.md`, `00_学习地图.md`, and detailed note scaffolds that must be expanded before final delivery.
 - `references/source-policy.md`: source access, copyright, attribution, and safety rules.
 - `references/note-output.md`: note structures for video courses, PPT sites, book sites, and mixed web learning resources.

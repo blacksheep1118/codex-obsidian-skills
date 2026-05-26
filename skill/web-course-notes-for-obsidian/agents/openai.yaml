@@ -1,7 +1,7 @@
 interface:
   display_name: "Web Course Notes"
-  short_description: "Turn web learning URLs into classified Obsidian notes"
-  default_prompt: "Use $web-course-notes-for-obsidian to collect accessible course video, PPT, book, and direct PDF sources, classify them into a notes folder, then generate Obsidian-ready notes with source links, learning maps, and review pages."
+  short_description: "Turn web learning URLs into detailed Obsidian notes"
+  default_prompt: "Use $web-course-notes-for-obsidian to collect accessible course video, PPT, book, and direct PDF sources, classify them into a notes folder, create detailed scaffolds, then expand them into source-linked Obsidian notes, learning maps, and review pages."
 
 policy:
   allow_implicit_invocation: true
