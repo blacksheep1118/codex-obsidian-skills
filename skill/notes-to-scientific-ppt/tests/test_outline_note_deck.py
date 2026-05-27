@@ -59,12 +59,49 @@ def test_outline_note_deck_creates_scientific_brief(tmp_path: Path):
     assert "# Blind Denoising" in text
     assert "## Source Inventory" in text
     assert "## Extracted Note Structure" in text
+    assert "## Evidence Ledger" in text
     assert "## Suggested Scientific Deck Spine" in text
+    assert "Deck Mode: paper-reading" in text
+    assert "## Draft Slide Backlog" in text
     assert "## Coverage Checklist" in text
     assert "科研严谨风" in text
     assert "问题背景" in text
     assert "关键公式" in text
+    assert "equation-to-intuition bridge" in text
+    assert "result/comparison table" in text
     assert "https://example.com/paper.pdf" in text
+
+
+def test_outline_note_deck_supports_explicit_proposal_mode(tmp_path: Path):
+    note = tmp_path / "proposal.md"
+    note.write_text(
+        "\n".join(
+            [
+                "# Restoration Proposal",
+                "",
+                "## 研究假设",
+                "",
+                "更稳定的退化建模可以提升泛化。",
+                "",
+                "## 里程碑",
+                "",
+                "- 数据整理",
+                "- 基线复现",
+                "",
+                "## 风险",
+                "",
+                "真实噪声与合成噪声分布不一致。",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_script(str(note), "--mode", "proposal", "--max-slides", "8")
+
+    assert "# Restoration Proposal" in result.stdout
+    assert "Deck Mode: proposal" in result.stdout
+    assert "Data requirements and evaluation plan" in result.stdout
+    assert "Risks, mitigations, and fallback paths" in result.stdout
 
 
 def test_outline_note_deck_fails_without_markdown(tmp_path: Path):

@@ -89,6 +89,8 @@ def main() -> int:
             str(TMP / "scientific_deck_brief.md"),
             "--title",
             "Blind Image Denoising",
+            "--mode",
+            "paper-reading",
         ],
         cwd=NOTES_PPT_SKILL,
     )

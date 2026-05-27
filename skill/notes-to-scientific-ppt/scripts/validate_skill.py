@@ -81,6 +81,7 @@ def validate_required_files() -> None:
         "scripts/outline_note_deck.py",
         "scripts/validate_skill.py",
         "references/scientific-deck-style.md",
+        "references/deck-modes.md",
         "references/deck-qa.md",
     ]
     for target in required:

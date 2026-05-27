@@ -19,6 +19,7 @@ For each course, book, or topic collection, prefer:
 - `00_学习地图.md` or `00_课程总览.md` as the entry point.
 - Numbered detailed notes such as `01_导论.md`, `02_核心概念.md`, paper notes, or chapter-based names.
 - `source_manifest.md` with URLs, titles, source types, access status, and what each source contributed.
+- Per-link notes such as `L01_<title>.md` when the source is a reading list, topic preview, paper list, syllabus, bibliography, or the user asks for each link to be handled separately.
 - `知识点详细版_含公式.md` when the material is course-like.
 - `知识点精简复习版_含公式.md` or `快速复习.md` for review.
 
@@ -35,6 +36,7 @@ Keep source URLs in notes or frontmatter so provenance stays visible.
    - Use `scripts/collect_web_sources.py` when a deterministic URL inventory helps.
    - Direct PDF/PPT/transcript/book URLs should be recorded as resources without attempting to parse binary content as HTML.
    - Capture titles, canonical URLs, descriptions, source type, and links to slides, videos, transcripts, chapters, and PDFs.
+   - For client-rendered pages, record both the visible page URL and any legitimate public data endpoint or static bundle used only to locate the endpoint. Mark helper URLs as provenance, not learning material.
    - Record inaccessible or ambiguous sources instead of silently skipping them.
 
 3. Place notes in the vault.
@@ -55,16 +57,21 @@ Keep source URLs in notes or frontmatter so provenance stays visible.
    - Inspect 1-3 nearby notes in the target category before writing final notes, then match their density, navigation style, formula treatment, and review style.
    - Convert fragments into explanations, not web-page dumps.
    - Add formulas, variable meanings, examples, assumptions, and failure cases when present.
+   - For reading lists and paper lists, create one independent note per source link when the user asks for detailed organization or when the list is the main artifact. Each per-link note should include source role, problem addressed, method or content mechanism, connection to the topic, limitations, and what to inspect when reading or reproducing. Do not stop at a table of links.
    - For paper-like resources, include problem background, method overview, mechanism details, formulas and variables, experiments or evidence, comparison with related methods, advantages, limits, open questions, reproduction/application notes, and a concise review section.
    - Link concepts where they first become relevant.
    - Cite source URLs near the sections they support.
    - Remove scaffold residue before final delivery. A note that still contains `status: scaffold`, `待补充`, or TODO-style placeholders is incomplete and must be reported as unfinished, not presented as done.
+   - Avoid templated per-link notes. Repeated headings are acceptable only if the body contains source-specific mechanisms, formulas, datasets, risks, or reading questions. Replace phrases like "important", "valuable", and "helpful" with concrete reasons and checks.
 
 6. Validate before finishing.
    - Check local Obsidian links with `$obsidian-vault-organizer`.
    - Check that `source_manifest.md` covers every URL the user supplied.
+   - For each URL in `source_manifest.md`, verify there is a corresponding per-link note when per-link notes were requested or the source is a reading list. Include helper endpoints and client-rendered provenance URLs as separate notes if they are listed in the manifest.
    - Check that generated notes do not contain long copied passages from books or web pages.
    - Check that final notes are comparable in detail to existing notes in the destination folder.
+   - Run an anti-template audit on per-link notes: flag very short notes, identical heading patterns, vague "value/importance" language without concrete mechanisms, and notes that lack limitations or reading/reproduction checks.
+   - If a quality issue is found late, either fix it before delivery or add a `质量审查` note that clearly states what is complete, what is only a guide, and what would require full source-level reading.
 
 ## Source Policy
 

@@ -13,7 +13,7 @@ This is a skill collection, not a single monolithic skill. Each installable skil
 | [`web-course-notes-for-obsidian`](skill/web-course-notes-for-obsidian) | The task starts from course video websites, PPT/slide websites, book websites, direct PDF/PPT URLs, or mixed online learning URLs. | Source manifests, classified note folders, URL-linked learning maps, detailed note scaffolds, chapter notes, reading notes, review pages. |
 | [`ppt-to-md-for-obsidian`](skill/ppt-to-md-for-obsidian) | The task starts from local PPT, PPTX, PDF courseware, or slide-derived files. | Extracted text, cleaned Markdown input, chapter notes, course maps, review pages, Obsidian links. |
 | [`obsidian-vault-organizer`](skill/obsidian-vault-organizer) | The task starts from an existing Obsidian vault or Markdown note directory. | Link audits, repaired references, merged duplicate notes, navigation pages, vault cleanup reports. |
-| [`notes-to-scientific-ppt`](skill/notes-to-scientific-ppt) | The task starts from Obsidian or Markdown notes and asks for a PPT/PPTX research presentation. | Source inventories, scientific claim spines, deck briefs, rigorous PPTX deck plans, speaker-note guidance. |
+| [`notes-to-scientific-ppt`](skill/notes-to-scientific-ppt) | The task starts from Obsidian or Markdown notes and asks for a PPT/PPTX research presentation. | Source inventories, evidence ledgers, scientific claim spines, draft slide backlogs, rigorous PPTX deck plans, speaker-note guidance. |
 
 The skills are split so their trigger boundaries stay clear. Use `web-course-notes-for-obsidian` when the task starts from URLs. Use `ppt-to-md-for-obsidian` when the task starts from local slide/courseware files. Use `obsidian-vault-organizer` when the task is vault cleanup. Use `notes-to-scientific-ppt` when the task starts from notes and the desired output is a research PPT.
 
@@ -229,7 +229,7 @@ The vault organizer skill includes:
 
 The notes-to-scientific-ppt skill includes:
 
-- `outline_note_deck.py`: scan Markdown or Obsidian notes and create a source inventory, scientific deck spine, and coverage checklist before PPT construction.
+- `outline_note_deck.py`: scan Markdown or Obsidian notes and create a source inventory, evidence ledger, mode-specific scientific deck spine, draft slide backlog, and coverage checklist before PPT construction.
 - `validate_skill.py`: validate skill metadata and bundled-resource references.
 
 Root management tools include:
@@ -321,7 +321,7 @@ cd skill/notes-to-scientific-ppt
 python3 -m compileall scripts
 python3 -m pytest
 python3 scripts/validate_skill.py
-python3 scripts/outline_note_deck.py examples/sample-notes --out "${TMPDIR:-/tmp}/scientific_deck_brief.md" --title "Blind Image Denoising"
+python3 scripts/outline_note_deck.py examples/sample-notes --out "${TMPDIR:-/tmp}/scientific_deck_brief.md" --title "Blind Image Denoising" --mode paper-reading
 ```
 
 ```powershell
@@ -329,7 +329,7 @@ cd skill\notes-to-scientific-ppt
 py -m compileall scripts
 py -m pytest
 py scripts\validate_skill.py
-py scripts\outline_note_deck.py examples\sample-notes --out "$env:TEMP\scientific_deck_brief.md" --title "Blind Image Denoising"
+py scripts\outline_note_deck.py examples\sample-notes --out "$env:TEMP\scientific_deck_brief.md" --title "Blind Image Denoising" --mode paper-reading
 ```
 
 ## Documentation

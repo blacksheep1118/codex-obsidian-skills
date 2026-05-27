@@ -39,7 +39,9 @@ py -m pip install -r requirements-dev.txt
 ## What It Produces
 
 - A deck brief that inventories source notes, headings, links, figures, tables, formulas, and missing evidence.
+- An evidence ledger that maps notes to proof objects, assumptions, and structural gaps.
 - A scientific claim spine for the PPT.
+- A draft slide backlog for turning note sections into claim-title slides or appendix items.
 - An editable PPTX deck when paired with the bundled `Presentations` skill.
 - Optional speaker notes and appendix slides for formulas, raw evidence, and extended comparisons.
 
@@ -56,6 +58,8 @@ python3 scripts/outline_note_deck.py examples/sample-notes --out "${TMPDIR:-/tmp
 ```powershell
 py scripts\outline_note_deck.py examples\sample-notes --out "$env:TEMP\scientific_deck_brief.md" --title "Blind Image Denoising"
 ```
+
+Use `--mode paper-reading`, `--mode proposal`, `--mode progress-report`, `--mode teaching`, or `--mode defense` when the talk type is known. The default `--mode auto` infers the mode from headings and note content.
 
 The deck brief is not the final deck. It is a source audit and planning artifact used before building slides.
 

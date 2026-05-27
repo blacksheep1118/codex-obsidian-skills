@@ -22,6 +22,12 @@ Prefer these deliverables:
 
 Use Chinese by default when the user writes Chinese.
 
+## Required Inputs
+
+Accept one or more Markdown files, Obsidian notes, folders, or a vault path. If the user does not specify audience, talk length, or deck mode, infer them from the notes and state the assumptions in the deck brief.
+
+Ask only when a missing input would materially change the deck, such as defense vs teaching audience, a mandatory template, or whether unpublished figures may be used.
+
 ## Workflow
 
 1. Confirm the presentation frame.
@@ -30,10 +36,11 @@ Use Chinese by default when the user writes Chinese.
    - Preserve source note paths and source URLs for provenance.
 
 2. Audit the notes before writing slides.
-   - Use `scripts/outline_note_deck.py <note-or-folder...> --out <deck_brief.md>` when a deterministic source inventory helps.
+   - Use `scripts/outline_note_deck.py <note-or-folder...> --out <deck_brief.md>` when a deterministic source inventory helps. Use `--mode` when the deck type is known.
    - Read the important notes, not only the headings. Follow local Obsidian links when they are needed to understand definitions, formulas, or evidence.
    - Extract research question, motivation, assumptions, methods, formulas, variables, figures, tables, experiments, limitations, and open questions.
    - Treat unsupported claims as gaps. Do not invent metrics, experiments, citations, or conclusions.
+   - Use the brief's evidence ledger and draft slide backlog to decide what belongs in main slides, appendix, or missing-input questions.
 
 3. Build the scientific claim spine.
    - Use claim titles, not vague section labels. Each slide title should say the point the slide proves.
@@ -45,6 +52,7 @@ Use Chinese by default when the user writes Chinese.
    - For project/proposal decks, prefer: problem, prior gap, hypothesis, method, data, evaluation, milestones, risks, expected contribution.
    - For teaching decks, prefer: concept ladder, examples, mechanism diagrams, worked formulas, common mistakes, summary.
    - Read `references/scientific-deck-style.md` before designing a substantial deck.
+   - Read `references/deck-modes.md` when choosing between paper-reading, proposal, progress-report, teaching, or defense modes.
 
 5. Build the PPTX.
    - Use the bundled `Presentations` skill when available for editable PPTX creation, rendering, and export.
@@ -59,9 +67,20 @@ Use Chinese by default when the user writes Chinese.
    - Check evidence slides for source traceability and no invented facts.
    - Render previews/contact sheet if a PPTX is produced, then iterate weak slides before final delivery.
 
+## Output Contract
+
+The final response should include:
+
+- final PPTX path when a deck was produced,
+- deck brief path,
+- source coverage summary,
+- unresolved assumptions or missing evidence,
+- validation performed, including preview/render checks when applicable.
+
 ## Bundled Resources
 
-- `scripts/outline_note_deck.py`: scan Markdown/Obsidian notes and create a source inventory, scientific deck spine, and coverage checklist.
+- `scripts/outline_note_deck.py`: scan Markdown/Obsidian notes and create a source inventory, evidence ledger, mode-specific scientific deck spine, draft slide backlog, and coverage checklist.
 - `scripts/validate_skill.py`: validate this skill's structure and referenced bundled resources.
 - `references/scientific-deck-style.md`: style and content rules for detailed, vivid, research-rigorous decks.
+- `references/deck-modes.md`: mode-specific slide spine and proof-object guidance.
 - `references/deck-qa.md`: QA gates for scientific accuracy, slide density, evidence, formulas, and visual polish.
