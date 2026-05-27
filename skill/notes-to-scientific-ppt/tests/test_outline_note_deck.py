@@ -69,6 +69,7 @@ def test_outline_note_deck_creates_scientific_brief(tmp_path: Path):
     assert "关键公式" in text
     assert "equation-to-intuition bridge" in text
     assert "result/comparison table" in text
+    assert "[formula/algorithm] Turn `关键公式`" in text
     assert "https://example.com/paper.pdf" in text
 
 
@@ -96,7 +97,7 @@ def test_outline_note_deck_supports_explicit_proposal_mode(tmp_path: Path):
         encoding="utf-8",
     )
 
-    result = run_script(str(note), "--mode", "proposal", "--max-slides", "8")
+    result = run_script(str(note), "--mode", "proposal", "--max-slides", "12")
 
     assert "# Restoration Proposal" in result.stdout
     assert "Deck Mode: proposal" in result.stdout

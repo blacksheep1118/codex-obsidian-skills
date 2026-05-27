@@ -439,6 +439,26 @@ def slide_role(heading: Heading) -> str:
     return "supporting concept"
 
 
+def proof_object_for_role(role: str, summary: NoteSummary) -> str:
+    if role == "problem framing":
+        return "problem contrast or motivation evidence"
+    if role == "method/mechanism":
+        return "mechanism diagram"
+    if role == "formula/algorithm":
+        return "equation-to-intuition bridge" if summary.math_block_count else "algorithm sketch with variable checklist"
+    if role == "evidence/results":
+        if summary.table_count:
+            return "result/comparison table"
+        if summary.image_count:
+            return "annotated result figure"
+        return "evidence summary with missing table/figure flagged"
+    if role == "limitations":
+        return "limitation/failure-case slide"
+    if role == "discussion":
+        return "discussion prompts and implication map"
+    return ", ".join(proof_objects(summary)[:2])
+
+
 def draft_slide_backlog(summaries: list[NoteSummary], root: Path | None, mode: str) -> list[str]:
     lines = [
         "",
@@ -453,7 +473,7 @@ def draft_slide_backlog(summaries: list[NoteSummary], root: Path | None, mode: s
         for heading in [heading for heading in summary.headings if 2 <= heading.level <= 3][:10]:
             item_count += 1
             role = slide_role(heading)
-            proof = ", ".join(proof_objects(summary)[:2])
+            proof = proof_object_for_role(role, summary)
             lines.append(
                 f"- [{role}] Turn `{heading.text}` into a claim slide or appendix item. Source: `{source}`. Proof object: {proof}."
             )
