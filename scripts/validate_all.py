@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PPT_SKILL = ROOT / "skill" / "ppt-to-md-for-obsidian"
 VAULT_SKILL = ROOT / "skill" / "obsidian-vault-organizer"
 WEB_SKILL = ROOT / "skill" / "web-course-notes-for-obsidian"
+NOTES_PPT_SKILL = ROOT / "skill" / "notes-to-scientific-ppt"
 TMP = Path(tempfile.gettempdir())
 INSTALL_TMP = TMP / "codex-obsidian-skills-validate-install"
 PIPELINE_TMP = TMP / "codex-obsidian-skills-pipeline-out"
@@ -74,6 +75,22 @@ def main() -> int:
             "--dry-run",
         ],
         cwd=WEB_SKILL,
+    )
+
+    run([py, "-m", "compileall", "scripts"], cwd=NOTES_PPT_SKILL)
+    run([py, "-m", "pytest"], cwd=NOTES_PPT_SKILL)
+    run([py, "scripts/validate_skill.py"], cwd=NOTES_PPT_SKILL)
+    run(
+        [
+            py,
+            "scripts/outline_note_deck.py",
+            "examples/sample-notes",
+            "--out",
+            str(TMP / "scientific_deck_brief.md"),
+            "--title",
+            "Blind Image Denoising",
+        ],
+        cwd=NOTES_PPT_SKILL,
     )
 
     print("\nvalidate_all ok")

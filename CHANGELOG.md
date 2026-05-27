@@ -15,6 +15,7 @@ All notable changes to this repository are documented here.
 - Added direct web-resource note creation so URL inputs can be classified into an existing notes folder, create `source_manifest.md`, and add detailed Obsidian note scaffolds.
 - Forced UTF-8 output for web source and note-creation CLIs so Windows can print Chinese note paths.
 - Strengthened the web note workflow so generated URL notes use detailed vault-style scaffolds and must be expanded from source content before final delivery.
+- Added `notes-to-scientific-ppt` for turning Obsidian or Markdown notes into detailed, vivid, research-rigorous PPT deck briefs and slide plans.
 
 ## v0.1.0 - 2026-05-26
 
