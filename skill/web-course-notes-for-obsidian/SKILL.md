@@ -81,6 +81,19 @@ Read `references/source-policy.md` when a source is authenticated, paywalled, co
 
 Read `references/note-output.md` when deciding how to structure notes for course videos, slide sites, book sites, or mixed web resources.
 
+## Output Contract
+
+The final response should include:
+
+- collection folder path and whether it reused an existing category or created a new one,
+- `source_manifest.md` path and source coverage summary for every user-supplied URL,
+- note files created or updated, including per-link notes when required,
+- inaccessible, authenticated, paywalled, ambiguous, or copyright-limited sources,
+- validation performed, including source coverage, scaffold residue, link checks, and anti-template review when applicable,
+- remaining source gaps that would require full reading, login access, or user-provided material.
+
+If the run only produced scaffolds, say they are unfinished scaffolds and do not present them as final notes.
+
 ## Bundled Resources
 
 - `scripts/collect_web_sources.py`: collect titles, descriptions, and learning-resource links from URL or local HTML inputs.

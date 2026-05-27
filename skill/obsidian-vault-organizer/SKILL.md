@@ -15,6 +15,8 @@ Use this skill for vault-first work. If the main task is extracting or convertin
 
 When the user asks for a dry run, audit and report planned edits only. Include broken links, duplicate note stems, proposed merges, proposed renames, source files that should stay read-only, and validation commands to run. Do not modify files until the user approves the plan.
 
+Do not create backup copies or backup directories unless the user explicitly asks. Use dry-run reports, git diffs, and validation output as the default safety mechanism.
+
 ## Workflow
 
 1. Resolve the project, vault, and source boundaries.
@@ -65,6 +67,18 @@ When the user asks for a dry run, audit and report planned edits only. Include b
 Good vault organization should make the note system easier to navigate without hiding source provenance or local conventions. The final vault should have clear entry points, stable filenames, useful cross-links, no accidental source-file edits, and no new duplicate same-topic notes.
 
 Avoid generic study templates, empty boilerplate sections, broad rewrites unrelated to the request, and moving source materials into the vault without explicit permission.
+
+## Output Contract
+
+The final response should include:
+
+- vault path and scope that were actually inspected,
+- files created, updated, merged, renamed, or intentionally left untouched,
+- source-file safety status, especially if source materials were found near notes,
+- validation performed, including link and quality checks when run,
+- unresolved broken links, duplicate candidates, naming conflicts, or local-guidance assumptions.
+
+For dry-run work, clearly separate proposed edits from applied edits and do not claim changes were made.
 
 ## Bundled Resources
 

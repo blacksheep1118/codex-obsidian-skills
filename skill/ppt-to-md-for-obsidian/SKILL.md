@@ -11,6 +11,10 @@ Convert slide-based course material into an Obsidian note system, not a raw slid
 
 When writing into an existing project or vault, first load project-local guidance such as `AGENT.md`, `agent.md`, and files under `agent/`. Keep source files read-only unless the user explicitly asks to rename, move, or delete them. For vault-only organization work, use `$obsidian-vault-organizer`.
 
+## Handoff Boundaries
+
+Use this skill while source extraction or slide-order reconstruction is still part of the task. Once notes have been drafted and the remaining work is only link repair, duplicate cleanup, navigation restructuring, or vault-wide validation, switch to `$obsidian-vault-organizer`. If the user starts from public URLs instead of local files, use `$web-course-notes-for-obsidian` first and return here only after a permitted PPT/PDF has become a local source file.
+
 ## Default Outputs
 
 For each course or topic directory, prefer this structure:
@@ -90,6 +94,18 @@ Poor notes usually look like:
 - formulas without variable meaning,
 - duplicated link blocks,
 - course overviews that become too long to navigate.
+
+## Output Contract
+
+The final response should include:
+
+- output folder and the main note files created or updated,
+- source coverage summary by PPT/PPTX/PDF file, including any extraction gaps,
+- review-page status for detailed and concise versions,
+- validation performed, including link and course-note checks when run,
+- unresolved assumptions, noisy formulas, missing slides, or source files that still need manual review.
+
+If only a dry run or audit was requested, report planned changes and validation commands without writing notes.
 
 ## Bundled Resources
 

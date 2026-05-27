@@ -28,6 +28,10 @@ Accept one or more Markdown files, Obsidian notes, folders, or a vault path. If 
 
 Ask only when a missing input would materially change the deck, such as defense vs teaching audience, a mandatory template, or whether unpublished figures may be used.
 
+## Handoff Boundaries
+
+Use this skill after the source material already exists as notes or a note folder. If the user starts from public URLs, use `$web-course-notes-for-obsidian` first. If the user starts from local PPT/PPTX/PDF courseware, use `$ppt-to-md-for-obsidian` first. If the notes need substantial vault cleanup, broken-link repair, or duplicate merging before deck construction, use `$obsidian-vault-organizer` before building the deck.
+
 ## Workflow
 
 1. Confirm the presentation frame.
@@ -73,9 +77,12 @@ The final response should include:
 
 - final PPTX path when a deck was produced,
 - deck brief path,
+- deck mode, assumed audience, and talk length,
 - source coverage summary,
 - unresolved assumptions or missing evidence,
-- validation performed, including preview/render checks when applicable.
+- validation performed, including proof-object review and preview/render checks when applicable.
+
+If only a deck brief or plan was requested, do not claim a PPTX was produced.
 
 ## Bundled Resources
 
