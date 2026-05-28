@@ -59,3 +59,56 @@ def test_course_note_checker_requires_review_pages(tmp_path: Path):
     assert result.returncode == 1
     assert "MISSING_REVIEW_PAGE" in result.stdout
     assert "MISSING_REVIEW_LINK" in result.stdout
+
+
+def test_course_note_checker_strict_depth_reports_thin_generic_notes(tmp_path: Path):
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "00_课程总览.md").write_text(
+        "# 课程总览\n\n- [[知识点详细版_含公式]]\n- [[知识点精简复习版_含公式]]\n",
+        encoding="utf-8",
+    )
+    (notes / "01_主题.md").write_text("# 主题\n\n正文太少。\n", encoding="utf-8")
+    (notes / "知识点详细版_含公式.md").write_text("# 详细\n\n例题模板：先写定义再套公式。\n", encoding="utf-8")
+    (notes / "知识点精简复习版_含公式.md").write_text("# 精简\n\n核心公式。\n", encoding="utf-8")
+
+    result = run_command(
+        "skill/ppt-to-md-for-obsidian/scripts/check_course_notes.py",
+        "--strict-depth",
+        "--min-chapter-lines",
+        "5",
+        "--min-detailed-lines",
+        "5",
+        str(notes),
+    )
+
+    assert result.returncode == 1
+    assert "THIN_CHAPTER_NOTE" in result.stdout
+    assert "THIN_DETAILED_REVIEW" in result.stdout
+    assert "GENERIC_TEMPLATE_RESIDUE" in result.stdout
+
+
+def test_course_note_checker_allows_single_exam_review_with_audit(tmp_path: Path):
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    exam_body = "\n".join(f"- 知识点 {index}：定义、公式、例题和易错点。" for index in range(1, 6))
+    (notes / "00_机器学习课程总览.md").write_text(
+        "# 机器学习课程总览\n\n- [[机器学习考试复习笔记]]\n",
+        encoding="utf-8",
+    )
+    (notes / "机器学习考试复习笔记.md").write_text(f"# 机器学习考试复习笔记\n\n{exam_body}\n", encoding="utf-8")
+    (notes / "99_内容覆盖审查.md").write_text("# 内容覆盖审查\n\n- 已核对来源。\n", encoding="utf-8")
+    (notes / "source_manifest.md").write_text("# Source Manifest\n\n- source.pdf\n", encoding="utf-8")
+
+    result = run_command(
+        "skill/ppt-to-md-for-obsidian/scripts/check_course_notes.py",
+        "--strict-depth",
+        "--allow-exam-review",
+        "--require-coverage-audit",
+        "--min-exam-review-lines",
+        "5",
+        str(notes),
+    )
+
+    assert result.returncode == 0
+    assert "course_note_issues 0" in result.stdout

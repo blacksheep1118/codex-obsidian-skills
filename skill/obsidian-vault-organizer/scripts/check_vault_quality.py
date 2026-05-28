@@ -11,6 +11,15 @@ import sys
 
 
 TEMPLATE_RE = re.compile(r"(相关知识链接|TODO|FIXME|TBD|待补|待完善)")
+STRICT_STUDY_RE = re.compile(
+    r"(待补充|占位|空话|套话|泛泛|交作业式|神谕|需要注意的是|"
+    r"P\(UO\)|L\(UO\)|软件工程：风险管理复习与 RMMM|"
+    r"这个公式把项目状态转成可量化的控制指标|若等待图成环，则可能发生死锁|"
+    r"关键不是背结论|信息如何进入价格|收益、方差、估值或技术指标)"
+)
+REPORT_NOTE_NAME_RE = re.compile(r"(^|_)(审查|复查|报告|覆盖审查|一致性严格审查)")
+BRIDGE_NOTE_RE = re.compile(r"本页保留旧路径，正文请读 \[\[[^\]]+\]\]。")
+WIKI_LINK_RE = re.compile(r"\[\[[^\]]+\]\]")
 
 
 def configure_output_encoding() -> None:
@@ -39,28 +48,60 @@ def is_conflict_marker(line: str, has_conflict_edges: bool) -> bool:
     return stripped.startswith("<<<<<<<") or stripped.startswith(">>>>>>>") or (has_conflict_edges and stripped == "=======")
 
 
-def find_vault_issues(root: Path, allow_duplicate_stems: bool = False) -> list[VaultIssue]:
+def is_bridge_note(text: str) -> bool:
+    stripped = text.strip()
+    if len(stripped) > 260:
+        return False
+    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+    return bool(lines and lines[0].startswith("# ") and "旧入口" in lines[0] and BRIDGE_NOTE_RE.search(stripped))
+
+
+def find_vault_issues(
+    root: Path,
+    allow_duplicate_stems: bool = False,
+    strict_study: bool = False,
+    forbid_report_notes: bool = False,
+) -> list[VaultIssue]:
     files = markdown_files(root)
     issues: list[VaultIssue] = []
     stems: dict[str, list[Path]] = {}
 
     for path in files:
-        stems.setdefault(path.stem, []).append(path)
         text = path.read_text(encoding="utf-8", errors="replace")
         stripped = text.strip()
+        if not is_bridge_note(text):
+            stems.setdefault(path.stem, []).append(path)
         has_conflict_edges = "<<<<<<<" in text and ">>>>>>>" in text
+        lines = text.splitlines()
+
+        if forbid_report_notes and REPORT_NOTE_NAME_RE.search(path.stem):
+            issues.append(relative_issue(root, path, "report_note", "audit/report-style note is present in the vault"))
 
         if not stripped:
             issues.append(relative_issue(root, path, "empty_file", "Markdown file has no content"))
             continue
 
-        for line_number, line in enumerate(text.splitlines(), start=1):
+        for line_number, line in enumerate(lines, start=1):
             if is_conflict_marker(line, has_conflict_edges):
                 issues.append(relative_issue(root, path, "conflict_marker", f"line {line_number} contains merge conflict marker"))
             if TEMPLATE_RE.search(line):
                 issues.append(relative_issue(root, path, "template_residue", f"line {line_number} contains leftover template text"))
+            if strict_study and STRICT_STUDY_RE.search(line):
+                issues.append(relative_issue(root, path, "strict_study_residue", f"line {line_number} contains strict study-note residue"))
+            if strict_study and line.strip() == "## 知识链接":
+                issues.append(relative_issue(root, path, "link_dump_section", f"line {line_number} contains a tail-style knowledge-link dump heading"))
+            if strict_study and line.startswith("关联阅读：") and len(WIKI_LINK_RE.findall(line)) > 4:
+                issues.append(relative_issue(root, path, "dense_related_links", f"line {line_number} contains too many related links for one concept"))
+            if strict_study and line.startswith("关联阅读：") and WIKI_LINK_RE.search(line):
+                previous = ""
+                for prior in reversed(lines[: line_number - 1]):
+                    if prior.strip():
+                        previous = prior.strip()
+                        break
+                if previous.startswith("#") or previous.startswith("相关笔记") or previous.startswith("关联阅读"):
+                    issues.append(relative_issue(root, path, "poor_link_context", f"line {line_number} is not attached to a concrete concept paragraph"))
 
-        fence_count = sum(1 for line in text.splitlines() if line.strip().startswith("```"))
+        fence_count = sum(1 for line in lines if line.strip().startswith("```"))
         if fence_count % 2:
             issues.append(relative_issue(root, path, "unbalanced_fence", "odd number of fenced code block delimiters"))
 
@@ -82,6 +123,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Check Markdown vault quality issues.")
     parser.add_argument("root", type=Path, help="Vault or notes directory")
     parser.add_argument("--allow-duplicate-stems", action="store_true")
+    parser.add_argument("--strict-study", action="store_true", help="flag common study-note filler, stale titles, and old formula residue")
+    parser.add_argument("--forbid-report-notes", action="store_true", help="flag audit/report-style Markdown notes in the checked tree")
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -90,7 +133,12 @@ def main() -> int:
     if not root.is_dir():
         parser.error(f"root must be a directory: {root}")
 
-    issues = find_vault_issues(root, allow_duplicate_stems=args.allow_duplicate_stems)
+    issues = find_vault_issues(
+        root,
+        allow_duplicate_stems=args.allow_duplicate_stems,
+        strict_study=args.strict_study,
+        forbid_report_notes=args.forbid_report_notes,
+    )
     print(f"vault_quality_issues {len(issues)}")
     for issue in issues:
         print(f"{issue.kind.upper()}: {issue.path}: {issue.message}")

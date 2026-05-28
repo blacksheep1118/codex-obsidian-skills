@@ -1,7 +1,7 @@
 interface:
-  display_name: "PPT to Obsidian Notes"
-  short_description: "Convert PPT/PPTX courseware into Obsidian notes"
-  default_prompt: "Use $ppt-to-md-for-obsidian to convert these lecture slides into Obsidian-ready Markdown notes with formulas, links, and review pages."
+  display_name: "PPT/PDF to Obsidian Notes"
+  short_description: "Convert courseware into checked Obsidian notes"
+  default_prompt: "Use $ppt-to-md-for-obsidian to convert these lecture slides or PDFs into Obsidian-ready Markdown notes with formulas, source coverage, links, and review pages."
 
 policy:
   allow_implicit_invocation: true

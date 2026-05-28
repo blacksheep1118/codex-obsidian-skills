@@ -15,7 +15,7 @@ Use this skill for vault-first work. If the main task is extracting or convertin
 
 When the user asks for a dry run, audit and report planned edits only. Include broken links, duplicate note stems, proposed merges, proposed renames, source files that should stay read-only, and validation commands to run. Do not modify files until the user approves the plan.
 
-Do not create backup copies or backup directories unless the user explicitly asks. Use dry-run reports, git diffs, and validation output as the default safety mechanism.
+Do not create backup copies, backup directories, audit notes, coverage notes, or report Markdown files inside the vault unless the user explicitly asks for a file artifact. Use the chat response, git diffs, and validation output as the default safety mechanism. If the user says to output findings directly, do not write a report file; remove stale report links when a previously generated report file is deleted.
 
 ## Workflow
 
@@ -23,6 +23,8 @@ Do not create backup copies or backup directories unless the user explicitly ask
    - Identify the vault from explicit paths, `.obsidian`, notes-like directories, or dense Markdown collections.
    - Identify source materials separately from notes.
    - Treat source files as read-only unless the user explicitly asks to rename, move, delete, or reorganize them.
+   - For source-consistency claims, build a source-to-note map first. Do not claim a note is source-consistent unless its corresponding source file has been opened or extracted in the current task.
+   - When course-note source checking requires PPT/PPTX text and no dedicated converter skill/tool is available, use `scripts/extract_presentation_text.py` to create temporary source text for comparison. Use the extracted text as evidence for manual note repair, not as an automatic note generator.
 
 2. Load local guidance before editing.
    - Read `AGENT.md`, `agent.md`, and relevant files under `agent/` when present.
@@ -46,11 +48,28 @@ Do not create backup copies or backup directories unless the user explicitly ask
    - Preserve Chinese as the default language when the vault uses Chinese.
    - Keep standard English technical terms where appropriate.
    - Add formula variable meanings, assumptions, examples, failure cases, and boundaries when useful.
+   - For course notes, process one source or one chapter at a time when the user requests strict checking; avoid broad mechanical rewrites that hide source-consistency errors.
+   - When checking all courses, finish and validate one course directory before moving to the next. If a course lacks source materials, say that directly and limit the claim to note quality and link integrity.
+   - Treat project-local standalone systems, such as concept indexes, research-method notes, or job-prep/topic notes, as independent note systems when local guidance says they do not mirror a source directory. Do not invent a source map for them; validate internal consistency, link integrity, and concrete explanations instead.
+   - Keep generated review pages clearly labeled as review pages when they do not correspond to a single source file.
+   - Remove generic filler, repeated section templates, stale cross-course links, and report-style audit prose from study notes.
+   - In strict study-note cleanup, do not delete `相关：`, `关联阅读`, `## 相关导航`, or similar link blocks until every useful wiki link has been migrated either inline at the first relevant concept or into a short explained `知识链接` section. A clean link check only proves existing links resolve; it does not prove that knowledge links were preserved.
+   - Before and after broad note cleanup, compare wiki-link coverage against the pre-cleanup baseline when Git history or a saved inventory is available. Report total link count, per-course link deltas, and the files with the largest losses. Treat unexplained large link loss as a regression even when `broken_links` is zero.
+   - When removing a stale navigation/report link, classify it explicitly as stale, unrelated, duplicate, or replaced. Do not remove cross-course concept links merely because they appear in a bottom block; preserve links that point to prerequisite concepts, follow-up chapters, source chapters, concept indexes, formulas, examples, or comparison methods.
+   - After link migration, check link placement, not only link count. Avoid tail `## 知识链接` dumps and large one-line related-link clusters. A `关联阅读` link should sit immediately after the paragraph that mentions the same concept, formula, method, dataset, metric, or failure mode. If a link only matches a broad word such as "model", "system", "recovery", "classification", or "neural network" and has no specific local anchor, remove it instead of keeping it as a weak cross-link.
+   - After rewriting chapter notes from sources, rebuild the course overview and review pages from the repaired chapter content instead of keeping old generated summaries; stale summaries are treated as quality defects even when links still resolve.
+   - When a chapter title, source boundary, or scope changes during repair, update the course overview, short review page, detailed review page, and any local navigation that repeats that title before moving to the next course. A clean chapter directory with stale review pages is not complete.
+   - If a note or directory is renamed for clarity, preserve old wiki-link entry points with short bridge notes when the old path may still be referenced. Bridge notes must be explicit redirects to the new note, not duplicate content.
+   - Treat formula explanations that mention unrelated domains, such as project earned-value terms in architecture notes or transaction/deadlock text outside database/OS context, as source-mismatch residues. Replace them only after checking the corresponding source.
    - See `references/obsidian-style.md` for style guidance.
 
 6. Validate before finishing.
    - Run `scripts/check_obsidian_links.py` for Markdown and Obsidian wiki links when the vault is local.
+   - Treat code-like double brackets such as R `x[[1]]` or array examples as potential false wiki links for simple link checkers. Escape them as `x\[\[1\]\]`, rephrase them, or improve the checker before claiming link validation is clean.
    - Run `scripts/check_vault_quality.py` for conflict markers, empty files, unbalanced block math, duplicate note stems, and leftover template text.
+   - For strict course-note cleanup, also run `scripts/check_vault_quality.py --strict-study --forbid-report-notes` on the affected note directory, then use targeted `rg` checks for source keywords, stale titles, unrelated-domain formula explanations, and boilerplate phrases found during the cleanup.
+   - Run the targeted residue scan over chapter notes, overviews, and generated review pages together. Review pages often preserve old formula snippets and cross-course links after chapters have been fixed.
+   - Classify residue-scan hits before editing. Words such as "report", "audit", "review", or "template" can be legitimate course terms in software engineering, databases, security, CS231n, or project courses; remove them only when they are stale note scaffolding, not when they are part of the taught concept.
    - See `references/validation.md` for lightweight checks.
 
 ## Common Tasks
@@ -66,7 +85,7 @@ Do not create backup copies or backup directories unless the user explicitly ask
 
 Good vault organization should make the note system easier to navigate without hiding source provenance or local conventions. The final vault should have clear entry points, stable filenames, useful cross-links, no accidental source-file edits, and no new duplicate same-topic notes.
 
-Avoid generic study templates, empty boilerplate sections, broad rewrites unrelated to the request, and moving source materials into the vault without explicit permission.
+Avoid generic study templates, empty boilerplate sections, report files masquerading as notes, broad rewrites unrelated to the request, and moving source materials into the vault without explicit permission.
 
 ## Output Contract
 
@@ -84,6 +103,7 @@ For dry-run work, clearly separate proposed edits from applied edits and do not 
 
 - `scripts/check_obsidian_links.py`: check Markdown links and Obsidian wiki links.
 - `scripts/check_vault_quality.py`: check empty files, conflict markers, unbalanced fences/math, duplicate note stems, and template residue.
+- `scripts/extract_presentation_text.py`: extract PPTX and legacy PPT text into temporary files for source-consistency audits.
 - `references/project-vault-workflow.md`: path discovery, local guidance loading, and editing boundaries.
 - `references/obsidian-style.md`: note writing, formulas, links, navigation, and review page style.
 - `references/validation.md`: lightweight validation checks for vault edits.

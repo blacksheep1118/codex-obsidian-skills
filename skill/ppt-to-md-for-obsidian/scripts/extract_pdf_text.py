@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Extract PDF text into Markdown.
 
-Uses pypdf by default and falls back to pdfplumber when installed. The output
-is raw source material for note rewriting.
+Uses pypdf by default and falls back to pdfplumber or the pdftotext CLI when
+available. The output is raw source material for note rewriting.
 """
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import subprocess
 import sys
 
 
@@ -38,12 +39,33 @@ def extract_with_pdfplumber(path: Path) -> list[str]:
     return pages
 
 
+def extract_with_pdftotext(path: Path) -> list[str]:
+    try:
+        result = subprocess.run(
+            ["pdftotext", "-layout", str(path), "-"],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return []
+
+    pages = result.stdout.split("\f")
+    if pages and not pages[-1].strip():
+        pages = pages[:-1]
+    return [page.strip("\n") for page in pages]
+
+
 def extract_pdf(path: Path) -> str:
     pages = extract_with_pypdf(path)
     if not pages:
         pages = extract_with_pdfplumber(path)
     if not pages:
-        sys.exit("Missing dependency: install pypdf or pdfplumber to extract PDF text.")
+        pages = extract_with_pdftotext(path)
+    if not pages:
+        sys.exit("Missing dependency: install pypdf, pdfplumber, or pdftotext to extract PDF text.")
 
     out = [f"# Extracted PDF Text: {path.name}", ""]
     for idx, text in enumerate(pages, start=1):

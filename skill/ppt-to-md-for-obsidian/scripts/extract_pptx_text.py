@@ -11,7 +11,17 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
+import re
 import sys
+from zipfile import ZipFile
+import xml.etree.ElementTree as ET
+
+
+NS = {
+    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
+}
+SLIDE_XML_RE = re.compile(r"ppt/slides/slide(\d+)\.xml$")
 
 
 @dataclass
@@ -80,6 +90,71 @@ def extract_notes(slide):
     return chunks
 
 
+def xml_shape_position(shape: ET.Element) -> tuple[int, int]:
+    off = shape.find(".//a:xfrm/a:off", NS)
+    if off is None:
+        return 0, 0
+    return int(off.attrib.get("y", "0") or 0), int(off.attrib.get("x", "0") or 0)
+
+
+def xml_shape_text(shape: ET.Element) -> str:
+    paragraphs = []
+    for paragraph in shape.findall(".//a:p", NS):
+        text = "".join(node.text or "" for node in paragraph.findall(".//a:t", NS)).strip()
+        if text:
+            paragraphs.append(text)
+    return "\n".join(paragraphs)
+
+
+def sorted_slide_xml_names(archive: ZipFile) -> list[str]:
+    matches = []
+    for name in archive.namelist():
+        match = SLIDE_XML_RE.fullmatch(name)
+        if match:
+            matches.append((int(match.group(1)), name))
+    return [name for _, name in sorted(matches)]
+
+
+def extract_pptx_with_zip(path: Path, include_slide_title: bool = True) -> str:
+    out = [f"# Extracted PPTX Text: {path.name}", ""]
+    with ZipFile(path) as archive:
+        slide_names = sorted_slide_xml_names(archive)
+        for idx, slide_name in enumerate(slide_names, start=1):
+            root = ET.fromstring(archive.read(slide_name))
+            records = []
+            seen = set()
+            for shape in root.findall(".//p:sp", NS) + root.findall(".//p:graphicFrame", NS):
+                text = xml_shape_text(shape).strip()
+                if not text:
+                    continue
+                top, left = xml_shape_position(shape)
+                key = (text, top, left)
+                if key in seen:
+                    continue
+                records.append(ShapeRecord(top=top, left=left, text=text, kind="text"))
+                seen.add(key)
+            records.sort(key=lambda record: (record.top, record.left))
+
+            title = slide_title(records) if include_slide_title else None
+            if title:
+                out.append(f"## Slide {idx}: {title}")
+            else:
+                out.append(f"## Slide {idx}")
+            out.append("")
+
+            if records:
+                for record in records:
+                    for line in record.text.splitlines():
+                        line = line.strip()
+                        if line:
+                            out.append(f"- {line}")
+            else:
+                out.append("- [No visible text extracted]")
+            out.append("")
+
+    return "\n".join(out).rstrip() + "\n"
+
+
 def slide_title(records: list[ShapeRecord]) -> str | None:
     for record in records:
         if record.kind != "text":
@@ -95,10 +170,7 @@ def extract_pptx(path: Path, include_media_placeholders: bool = True, include_sl
     try:
         from pptx import Presentation
     except ImportError:
-        sys.exit(
-            "Missing dependency: python-pptx. Install it with "
-            "`python -m pip install python-pptx` in the active environment."
-        )
+        return extract_pptx_with_zip(path, include_slide_title=include_slide_title)
 
     prs = Presentation(str(path))
     out = [f"# Extracted PPTX Text: {path.name}", ""]
