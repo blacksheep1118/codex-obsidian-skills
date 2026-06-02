@@ -61,6 +61,25 @@ def test_course_note_checker_requires_review_pages(tmp_path: Path):
     assert "MISSING_REVIEW_LINK" in result.stdout
 
 
+def test_course_note_checker_accepts_course_prefixed_review_pages(tmp_path: Path):
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "00_游戏数值策划学习总览.md").write_text(
+        "# 游戏数值策划学习总览\n\n"
+        "- [[游戏数值策划知识点详细版_含公式]]\n"
+        "- [[游戏数值策划知识点精简复习版_含公式]]\n",
+        encoding="utf-8",
+    )
+    (notes / "01_主题.md").write_text("# 主题\n\n正文。\n", encoding="utf-8")
+    (notes / "游戏数值策划知识点详细版_含公式.md").write_text("# 详细\n\n核心机制。\n", encoding="utf-8")
+    (notes / "游戏数值策划知识点精简复习版_含公式.md").write_text("# 精简\n\n核心公式。\n", encoding="utf-8")
+
+    result = run_command("skill/ppt-to-md-for-obsidian/scripts/check_course_notes.py", str(notes))
+
+    assert result.returncode == 0
+    assert "course_note_issues 0" in result.stdout
+
+
 def test_course_note_checker_strict_depth_reports_thin_generic_notes(tmp_path: Path):
     notes = tmp_path / "notes"
     notes.mkdir()

@@ -13,6 +13,8 @@ import sys
 OVERVIEW_NAMES = ("00_课程总览.md", "00_学习地图.md")
 DETAIL_REVIEW = "知识点详细版_含公式.md"
 CONCISE_REVIEW = "知识点精简复习版_含公式.md"
+DETAIL_REVIEW_RE = re.compile(r"^(?:.+)?知识点详细版_含公式\.md$")
+CONCISE_REVIEW_RE = re.compile(r"^(?:.+)?知识点精简复习版_含公式\.md$")
 TEMPLATE_RE = re.compile(r"(相关知识链接|TODO|FIXME|TBD|待补|待完善)")
 STRICT_TEMPLATE_RE = re.compile(r"(例题模板|高频答题模板|答题模板|空话|套话|占位|\.\.\.)")
 EXAM_REVIEW_RE = re.compile(r"(考试复习|复习笔记)")
@@ -47,7 +49,7 @@ def find_overview(root: Path) -> Path | None:
         path = root / name
         if path.exists():
             return path
-    for pattern in ("00_*课程总览.md", "00_*学习地图.md"):
+    for pattern in ("00_*课程总览.md", "00_*学习地图.md", "00_*总览.md"):
         matches = sorted(root.glob(pattern))
         if matches:
             return matches[0]
@@ -60,6 +62,30 @@ def count_nonblank_lines(text: str) -> int:
 
 def is_exam_review(path: Path) -> bool:
     return bool(EXAM_REVIEW_RE.search(path.stem))
+
+
+def find_review_pair(root: Path) -> tuple[Path | None, Path | None]:
+    exact_detail = root / DETAIL_REVIEW
+    exact_concise = root / CONCISE_REVIEW
+    detail = exact_detail if exact_detail.exists() else None
+    concise = exact_concise if exact_concise.exists() else None
+
+    if detail is None:
+        detail_matches = sorted(path for path in root.glob("*.md") if DETAIL_REVIEW_RE.match(path.name))
+        detail = detail_matches[0] if detail_matches else None
+    if concise is None:
+        concise_matches = sorted(path for path in root.glob("*.md") if CONCISE_REVIEW_RE.match(path.name))
+        concise = concise_matches[0] if concise_matches else None
+
+    return detail, concise
+
+
+def is_detailed_review(path: Path, detail_review: Path | None) -> bool:
+    return detail_review is not None and path == detail_review
+
+
+def is_review_page(path: Path, detail_review: Path | None, concise_review: Path | None) -> bool:
+    return path in {review for review in (detail_review, concise_review) if review is not None}
 
 
 def is_conflict_marker(line: str, has_conflict_edges: bool) -> bool:
@@ -82,19 +108,20 @@ def find_course_note_issues(
 
     overview = find_overview(root)
     if overview is None:
-        issues.append(CourseNoteIssue(Path("."), "missing_overview", "expected 00_课程总览.md, 00_学习地图.md, or a 00_*课程总览.md variant"))
+        issues.append(CourseNoteIssue(Path("."), "missing_overview", "expected 00_课程总览.md, 00_学习地图.md, or a local 00_*总览.md / 00_*学习地图.md variant"))
 
-    exact_review_paths = [root / DETAIL_REVIEW, root / CONCISE_REVIEW]
+    detail_review, concise_review = find_review_pair(root)
     exam_review_paths = [path for path in files if is_exam_review(path)]
-    if all(path.exists() for path in exact_review_paths):
-        review_targets = exact_review_paths
+    if detail_review is not None and concise_review is not None:
+        review_targets = [detail_review, concise_review]
     elif allow_exam_review and exam_review_paths:
         review_targets = exam_review_paths
     else:
-        review_targets = exact_review_paths
-        for required in exact_review_paths:
-            if not required.exists():
-                issues.append(relative_issue(root, required, "missing_review_page", "expected review page is missing"))
+        review_targets = [root / DETAIL_REVIEW, root / CONCISE_REVIEW]
+        if detail_review is None:
+            issues.append(relative_issue(root, root / DETAIL_REVIEW, "missing_review_page", "expected detailed review page is missing"))
+        if concise_review is None:
+            issues.append(relative_issue(root, root / CONCISE_REVIEW, "missing_review_page", "expected concise review page is missing"))
 
     if require_coverage_audit:
         if not any(COVERAGE_AUDIT_RE.search(path.name) for path in files):
@@ -124,11 +151,11 @@ def find_course_note_issues(
 
         if strict_depth:
             nonblank_lines = count_nonblank_lines(text)
-            if path.name == DETAIL_REVIEW and nonblank_lines < min_detailed_lines:
+            if is_detailed_review(path, detail_review) and nonblank_lines < min_detailed_lines:
                 issues.append(relative_issue(root, path, "thin_detailed_review", f"detailed review has {nonblank_lines} nonblank lines, expected at least {min_detailed_lines}"))
             elif is_exam_review(path) and nonblank_lines < min_exam_review_lines:
                 issues.append(relative_issue(root, path, "thin_exam_review", f"exam review has {nonblank_lines} nonblank lines, expected at least {min_exam_review_lines}"))
-            elif CHAPTER_NOTE_RE.match(path.name) and path.name not in (DETAIL_REVIEW, CONCISE_REVIEW) and not is_exam_review(path):
+            elif CHAPTER_NOTE_RE.match(path.name) and not is_review_page(path, detail_review, concise_review) and not is_exam_review(path):
                 if nonblank_lines < min_chapter_lines:
                     issues.append(relative_issue(root, path, "thin_chapter_note", f"chapter note has {nonblank_lines} nonblank lines, expected at least {min_chapter_lines}"))
 

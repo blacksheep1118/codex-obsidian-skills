@@ -19,7 +19,7 @@ Use this skill while source extraction or slide-order reconstruction is still pa
 
 For each course or topic directory, prefer this structure:
 
-- `00_课程总览.md` or `00_学习地图.md` as the navigation entry.
+- `00_课程总览.md`, `00_学习地图.md`, or a local `00_*总览.md` variant as the navigation entry.
 - Numbered chapter notes such as `01_绪论.md`, `02_知识表示.md`.
 - `知识点详细版_含公式.md` as the full review page.
 - `知识点精简复习版_含公式.md` as the fast review page.
@@ -27,6 +27,7 @@ For each course or topic directory, prefer this structure:
 - `99_内容覆盖审查.md` when the user asks for a strict check, exam review, or source-coverage assurance.
 
 Keep the detailed review and concise review as two separate files. Do not replace the detailed version with the concise version.
+When an existing vault uses course-prefixed review pages, preserve that convention, for example `游戏数值策划知识点详细版_含公式.md` and `游戏数值策划知识点精简复习版_含公式.md`.
 If the user explicitly asks for one exam review file instead of two review pages, keep the single file but make the overview link it and validate with `--allow-exam-review`.
 
 ## Workflow
@@ -76,6 +77,7 @@ If the user explicitly asks for one exam review file instead of two review pages
 7. Validate before finishing.
    - Check broken links and self-links with `scripts/check_obsidian_links.py`.
    - Check course-note output structure with `scripts/check_course_notes.py`.
+   - The course-note checker accepts either exact review filenames or local course-prefixed review filenames; do not rename working review pages only to satisfy a generic template.
    - For long courseware or strict review requests, run `scripts/check_course_notes.py --strict-depth --require-coverage-audit`. Add `--allow-exam-review` when using one exam review file instead of the two default review pages.
    - Check empty files, conflict markers, leftover template phrases such as `相关知识链接`, and review-page coverage.
    - Run a direct keyword/formula sweep against source-derived terms before the final response. Missing hits should be explained as out of scope, noisy extraction, or corrected before delivery.
