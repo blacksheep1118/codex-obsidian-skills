@@ -16,6 +16,8 @@ def test_all_skills_have_output_contracts_and_validation():
     for skill_dir in SKILL_DIRS:
         text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
 
+        assert "## Quick Start" in text, skill_dir.name
+        assert "## Evidence And Assumption Gate" in text, skill_dir.name
         assert "## Output Contract" in text, skill_dir.name
         assert "final response" in text.lower(), skill_dir.name
         assert "Validate before finishing" in text, skill_dir.name
@@ -33,3 +35,14 @@ def test_skill_frontmatter_is_trigger_oriented():
         assert f"name: {skill_dir.name}" in frontmatter, skill_dir.name
         assert "description:" in frontmatter, skill_dir.name
         assert "Use when" in frontmatter, skill_dir.name
+
+
+def test_skills_keep_progressive_disclosure_links_close_to_workflow():
+    for skill_dir in SKILL_DIRS:
+        text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+
+        quick_start_index = text.index("## Quick Start")
+        output_contract_index = text.index("## Output Contract")
+
+        assert quick_start_index < output_contract_index, skill_dir.name
+        assert "## Bundled Resources" in text[output_contract_index:], skill_dir.name

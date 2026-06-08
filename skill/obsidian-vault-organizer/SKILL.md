@@ -17,6 +17,18 @@ When the user asks for a dry run, audit and report planned edits only. Include b
 
 Do not create backup copies, backup directories, audit notes, coverage notes, or report Markdown files inside the vault unless the user explicitly asks for a file artifact. Use the chat response, git diffs, and validation output as the default safety mechanism. If the user says to output findings directly, do not write a report file; remove stale report links when a previously generated report file is deleted.
 
+## Quick Start
+
+1. Resolve the vault root, source-material boundaries, local guidance, and requested edit scope.
+2. Audit links, duplicate note stems, empty files, conflict markers, and local navigation before editing.
+3. Build an edit plan that separates source safety, note cleanup, link repair, and generated review-page updates.
+4. Apply the smallest coherent set of vault edits, preserving local naming and useful cross-links.
+5. Run link and quality validation before claiming the vault is organized.
+
+## Evidence And Assumption Gate
+
+Treat existing notes, local guidance, source files opened in the current task, git history, and validator output as evidence. Mark source-consistency claims as assumptions unless the corresponding source material was opened or extracted. If source files are absent, limit the result to vault quality, navigation, and link integrity rather than claiming source fidelity.
+
 ## Workflow
 
 1. Resolve the project, vault, and source boundaries.

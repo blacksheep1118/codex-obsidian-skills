@@ -32,6 +32,18 @@ Ask only when a missing input would materially change the deck, such as defense 
 
 Use this skill after the source material already exists as notes or a note folder. If the user starts from public URLs, use `$web-course-notes-for-obsidian` first. If the user starts from local PPT/PPTX/PDF courseware, use `$ppt-to-md-for-obsidian` first. If the notes need substantial vault cleanup, broken-link repair, or duplicate merging before deck construction, use `$obsidian-vault-organizer` before building the deck.
 
+## Quick Start
+
+1. Resolve source notes, audience, deck mode, talk length, and any required template.
+2. Generate or update a deck brief with source inventory, evidence ledger, claim spine, and missing-input questions.
+3. Convert notes into slide claims only where there is evidence or an explicitly marked inference.
+4. Assign each main slide a proof object such as a mechanism diagram, formula bridge, result table, comparison matrix, or failure-case panel.
+5. Run proof-object, formula, evidence, and preview/render checks before the final response.
+
+## Evidence And Assumption Gate
+
+Treat note files, linked notes, source URLs, figures, tables, formulas, experiments, and user-provided constraints as evidence. Mark inferred audience, timing, missing metrics, unsupported comparisons, and unpublished-figure permissions as assumptions. Do not invent citations, results, ablations, datasets, or conclusions to make a slide story smoother.
+
 ## Workflow
 
 1. Confirm the presentation frame.

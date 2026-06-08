@@ -346,6 +346,7 @@ py scripts\outline_note_deck.py examples\sample-notes --out "$env:TEMP\scientifi
 - Keep each skill directory independently installable.
 - Keep the root README user-facing; keep skill behavior inside each `SKILL.md`.
 - Keep each skill's trigger boundary, handoff path, output contract, and validation expectations explicit.
+- Keep each skill's quick start and evidence/assumption gate close to the workflow so agents can scope work before editing.
 - Prefer scripts for deterministic, repeatable work such as extraction, cleanup, and link checks.
 - Prefer references for longer style or workflow guidance that should be loaded only when needed.
 - Avoid moving source files unless the user explicitly requests it.

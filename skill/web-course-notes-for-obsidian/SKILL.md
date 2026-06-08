@@ -25,6 +25,18 @@ For each course, book, or topic collection, prefer:
 
 Keep source URLs in notes or frontmatter so provenance stays visible.
 
+## Quick Start
+
+1. Classify each URL as course, video, slide/PPT, PDF, book/chapter, reading list, or mixed catalog.
+2. Build `source_manifest.md` before drafting notes, including access status and what each source contributes.
+3. Choose the target category by inspecting nearby folders and notes when a notes directory is provided.
+4. Expand scaffolds into detailed source-linked notes only after accessible content has been read or extracted.
+5. Run source-coverage, scaffold-residue, link, and anti-template checks before the final response.
+
+## Evidence And Assumption Gate
+
+Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, PDFs, slides, and user-provided excerpts as evidence. Mark inaccessible, authenticated, paywalled, ambiguous, or client-rendered helper URLs separately. Do not infer detailed claims from a URL title alone; report remaining source gaps when full reading or login access is required.
+
 ## Workflow
 
 1. Clarify source boundaries.

@@ -15,6 +15,18 @@ When writing into an existing project or vault, first load project-local guidanc
 
 Use this skill while source extraction or slide-order reconstruction is still part of the task. Once notes have been drafted and the remaining work is only link repair, duplicate cleanup, navigation restructuring, or vault-wide validation, switch to `$obsidian-vault-organizer`. If the user starts from public URLs instead of local files, use `$web-course-notes-for-obsidian` first and return here only after a permitted PPT/PDF has become a local source file.
 
+## Quick Start
+
+1. Resolve source files, target note folder, local guidance, and conversion mode.
+2. Extract or inventory the source with the bundled scripts before rewriting.
+3. Build a source-to-note coverage map for slides/pages, formulas, examples, and exam-scope terms.
+4. Write or update notes only after coverage gaps and assumptions are explicit.
+5. Run link, course-note, residue, and coverage checks before the final response.
+
+## Evidence And Assumption Gate
+
+Treat slide/page text, visible titles, formulas, filenames, course order, and user-provided scope as evidence. Mark anything inferred from noisy extraction as an assumption, and do not present it as source coverage unless it has been checked against an extracted or visible source. For missing or unreadable source sections, report the gap and its impact on the output instead of silently filling it.
+
 ## Default Outputs
 
 For each course or topic directory, prefer this structure:

@@ -19,6 +19,7 @@ All notable changes to this repository are documented here.
 - Improved `notes-to-scientific-ppt` with mode routing, evidence ledgers, and draft slide backlogs inspired by public skill patterns for trigger clarity, progressive disclosure, and deterministic helper scripts.
 - Refined notes-to-PPT draft slide proof objects so formula, method, evidence, and limitation sections get role-specific visual guidance.
 - Added public-skill-inspired output contracts, handoff boundaries, and validation expectations across all four skills, plus regression coverage to keep those contracts present.
+- Added quick starts and evidence/assumption gates across all four skills, with tests that keep those public-skill-inspired workflow guardrails present.
 
 ## v0.1.0 - 2026-05-26
 
