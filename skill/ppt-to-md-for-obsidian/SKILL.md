@@ -47,9 +47,11 @@ If the user explicitly asks for one exam review file instead of two review pages
 3. Do a source coverage pass before writing the final notes.
    - Build a source-to-output map by file, chapter, slide/page range, and major headings.
    - Pull out formulas, algorithms, examples, derivation steps, definitions, assumptions, and warnings from each source file.
-   - Compare this map with the requested exam scope. Mark topics as `included`, `out of scope by user`, `source noisy`, or `missing`.
+   - For exam-review requests, treat the exam outline or teacher-provided scope as a first-class source alongside PPT/PDF files. Preserve exact outline terms and common compact/space variants in the coverage map, for example `CPU性能公式` and `CPU 性能公式`.
+   - Compare the source map with the requested exam scope. Mark topics as `included`, `out of scope by user`, `source noisy`, or `missing`.
    - If the material is long or the user asks for strict checking, write a `source_manifest.md` plus `99_内容覆盖审查.md` instead of relying on memory.
    - Do not claim completion from a short outline. If the notes do not yet explain the mechanisms, formulas, and examples from the source, keep expanding them.
+   - If a keyword sweep reports a missing topic, verify whether the miss is caused by wording variation before treating it as absent; then add the source wording near the relevant concept or document why it is out of scope.
 
 4. Rewrite into primary notes.
    - Use Chinese as the main language; keep standard English terms such as `Transformer`, `BERT`, `CLIP`, `SVM`.
@@ -57,10 +59,14 @@ If the user explicitly asks for one exam review file instead of two review pages
    - Add variables and assumptions directly after formulas.
    - Use `$$ ... $$` for block formulas.
    - For exam material, include definitions, formula meanings, derivation logic, calculation examples, decision rules, common traps, and boundary conditions.
+   - If the user asks for `（简答）` marks, place the mark on the local heading or bullet where the answer should be memorized; do not create a detached list of brief-answer topics.
+   - Write worked examples as followable calculations: known conditions, formula choice, substitution, intermediate value, conclusion, and the common mistake to avoid. When the source only gives the final answer, reconstruct the missing steps from the surrounding formula and state any assumption.
+   - For zero-base standalone review files, do not write `see PPT`, `as above`, or source-dependent shortcuts. Include the definition, formula variables, decision rule, and example steps in the file itself.
    - For probability/statistics, write the likelihood, posterior, risk, estimator bias, or gradient formula before explaining it in words.
    - For algorithms, include the update rule, stopping condition, convergence intuition, and at least one failure case when relevant.
    - Avoid generic study plans, empty templates, and repeated bridge sentences.
    - Avoid headings or filler such as `例题模板`, `高频答题模板`, `套话`, `空话`, or placeholder-like wording. Write the actual question-solving rule instead.
+   - Reduce repeated contrast frames such as `不是...而是...`; use direct definitions, conditions, and consequences instead.
 
 5. Build Obsidian navigation.
    - Add or update the course overview.
@@ -81,6 +87,9 @@ If the user explicitly asks for one exam review file instead of two review pages
    - For long courseware or strict review requests, run `scripts/check_course_notes.py --strict-depth --require-coverage-audit`. Add `--allow-exam-review` when using one exam review file instead of the two default review pages.
    - Check empty files, conflict markers, leftover template phrases such as `相关知识链接`, and review-page coverage.
    - Run a direct keyword/formula sweep against source-derived terms before the final response. Missing hits should be explained as out of scope, noisy extraction, or corrected before delivery.
+   - When the user requests multiple strict check rounds, make them distinct: one file-quality round for fences, residue, anchors, and whitespace; one outline/source coverage round for exact terms, formulas, and examples; one vault/repository round for links, course structure, diff status, and upload scope. Rerun affected checks after the last edit.
+   - For residue scans, read each hit in context before deleting it. Avoid false positives such as `指令系统的使用方法` being treated as generic `使用方法` filler.
+   - Before committing or uploading, run Git status in the target repository, stage only the intended files, and report unrelated dirty files without modifying them.
 
 ## Conversion Modes
 
@@ -125,6 +134,7 @@ The final response should include:
 - review-page status for detailed and concise versions,
 - strict-depth status when used, including the exact thresholds or reason it was not used,
 - validation performed, including link, course-note, formula-fence, and keyword checks when run,
+- for upload requests, the target repository, branch, commit hash, push result, and any unrelated dirty files left untouched,
 - unresolved assumptions, noisy formulas, missing slides, or source files that still need manual review.
 
 If only a dry run or audit was requested, report planned changes and validation commands without writing notes.
