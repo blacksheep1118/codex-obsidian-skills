@@ -97,13 +97,16 @@ If the user explicitly asks for one exam review file instead of two review pages
 7. Validate before finishing.
    - Check broken links and self-links with `scripts/check_obsidian_links.py`.
    - Check course-note output structure with `scripts/check_course_notes.py`.
-   - For strict PPT/PDF coverage audits, run `scripts/check_source_coverage.py` with explicit `source=notes` directory mappings. Use it to verify source-file mapping, `PPT/PDF 页级补充索引` fields, and source-vs-generated example labels.
+   - For strict PPT/PDF coverage audits, run `scripts/check_source_coverage.py` with explicit `source=notes` directory mappings. Add `--require-course-prefixed-source-refs` when source files live outside the notes repo, so bare filenames such as `lecture 1.pptx` are rejected in favor of root-relative paths such as `编译原理/lecture 1.pptx`.
+   - Do not accept `course_note_issues 0` as sufficient source coverage by itself. Also require `missing_source_mappings 0`, `source_table_issues 0`, `note_source_ownership_issues 0`, and `coverage_evidence_issues 0` from `scripts/check_source_coverage.py`.
+   - Treat `CHAPTER_MISMATCH_SOURCE_LINK` and `CHAPTER_MISMATCH_NOTE_SOURCE` as blockers. They usually mean a page-level supplement or source_manifest row was copied into the wrong chapter note, such as a 第八章 PDF mapped to a 第五章 note.
    - The course-note checker accepts either exact review filenames or local course-prefixed review filenames; do not rename working review pages only to satisfy a generic template.
    - For long courseware or strict review requests, run `scripts/check_course_notes.py --strict-depth --require-coverage-audit`. Add `--allow-exam-review` when using one exam review file instead of the two default review pages. If a vault contains many non-course index folders, run this checker per course directory instead of against the vault root, and report the thresholds used.
    - Check empty files, conflict markers, leftover template phrases such as `相关知识链接`, and review-page coverage.
    - Run a direct keyword/formula sweep against source-derived terms before the final response. Missing hits should be explained as out of scope, noisy extraction, or corrected before delivery.
    - When the user requests multiple strict check rounds, make them distinct: one file-quality round for fences, residue, anchors, and whitespace; one outline/source coverage round for exact terms, formulas, and examples; one vault/repository round for links, course structure, diff status, and upload scope. Rerun affected checks after the last edit.
    - For residue scans, read each hit in context before deleting it. Avoid false positives such as `指令系统的使用方法` being treated as generic `使用方法` filler.
+   - After migrating source index lines between notes, rerun `scripts/check_source_coverage.py` and a direct `rg` for the moved source filenames in the old target notes. The old notes should no longer cite those source files except in intentional audit summaries.
    - Before committing or uploading, run Git status in the target repository, stage only the intended files, and report unrelated dirty files without modifying them.
 
 ## Conversion Modes
@@ -161,7 +164,7 @@ If only a dry run or audit was requested, report planned changes and validation 
 - `scripts/extract_pdf_text.py`: extract raw text from `.pdf` courseware.
 - `scripts/check_obsidian_links.py`: check Markdown and Obsidian wiki links.
 - `scripts/check_course_notes.py`: check course overview, review pages, empty files, conflict markers, template residue, and formula fences.
-- `scripts/check_source_coverage.py`: check PPT/PDF source-file mapping, page-level supplement index fields, and source/generated example evidence.
+- `scripts/check_source_coverage.py`: check PPT/PDF source-file mapping, page-level supplement index fields, source/generated example evidence, canonical source refs, chapter ownership, and hidden residue.
 - `scripts/clean_latex_from_ppt.py`: normalize formula and Unicode noise from slide extraction.
 - `scripts/ppt_to_obsidian_pipeline.py`: run conversion, extraction, cleanup, and manifest creation.
 - `references/obsidian-style.md`: local style guide for note writing and cross-linking.

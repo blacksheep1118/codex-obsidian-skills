@@ -92,6 +92,26 @@ Use stricter thresholds when the source material is large:
 python3 scripts/check_course_notes.py --strict-depth --allow-exam-review --require-coverage-audit --min-chapter-lines 250 --min-exam-review-lines 800 notes
 ```
 
+Strict source ownership check for repositories where sources live beside the notes vault:
+
+```bash
+python3 scripts/check_source_coverage.py \
+  --source-root /path/to/course-root \
+  --notes-root /path/to/course-root/notes \
+  --mapping '数学模型=数学模型,编译原理=编译原理' \
+  --require-course-prefixed-source-refs
+```
+
+For this check, do not treat `course_note_issues 0` as enough. The strict source pass should also show:
+
+- `missing_source_mappings 0`
+- `text_hygiene_issues 0`
+- `source_table_issues 0`
+- `note_source_ownership_issues 0`
+- `coverage_evidence_issues 0`
+
+Treat `CHAPTER_MISMATCH_SOURCE_LINK`, `CHAPTER_MISMATCH_NOTE_SOURCE`, and `NONCANONICAL_SOURCE_REF` as blockers before delivery or upload.
+
 ## Review Page Coverage
 
 Each course/topic directory should have:
@@ -114,6 +134,8 @@ For multi-file courseware, produce a source coverage note before final delivery.
 - which formulas, examples, or diagrams were noisy and need manual review.
 
 Do not treat a short concept list as sufficient coverage when the source includes derivations, examples, algorithms, or calculation procedures.
+
+When moving page-level supplement lines between notes, rerun the source ownership check and a direct `rg` for the moved source filenames in the old notes. The old notes should not retain source-evidence lines for the moved PPT/PDF.
 
 ## Link Checks
 

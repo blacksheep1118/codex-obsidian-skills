@@ -64,6 +64,7 @@ py -m pip install -r "$env:USERPROFILE\.codex\skills\ppt-to-md-for-obsidian\requ
 ├── scripts/
 │   ├── check_obsidian_links.py
 │   ├── check_course_notes.py
+│   ├── check_source_coverage.py
 │   ├── clean_latex_from_ppt.py
 │   ├── convert_ppt_to_pptx.py
 │   ├── extract_pdf_text.py
@@ -196,6 +197,20 @@ py scripts\check_course_notes.py examples\sample-course\notes
 
 The checker verifies the overview page, detailed and concise review pages, review links, empty files, conflict markers, template residue, fenced code blocks, and block math delimiters.
 
+## Source Coverage Evidence Check
+
+For strict PPT/PDF coverage audits, especially when source files live outside the notes repo, run the source coverage checker with explicit source-to-notes mappings:
+
+```bash
+python3 scripts/check_source_coverage.py \
+  --source-root /path/to/course-root \
+  --notes-root /path/to/course-root/notes \
+  --mapping '数学模型=数学模型,编译原理=编译原理' \
+  --require-course-prefixed-source-refs
+```
+
+The checker verifies source-file references, page-level supplement index fields, source/generated example evidence, canonical root-relative source paths, chapter ownership, hidden control characters, and stale manual-review labels.
+
 ## One-command Pipeline
 
 Use the pipeline to convert/extract/clean sources and create a manifest:
@@ -254,6 +269,7 @@ GitHub Actions validates:
 - Pipeline execution.
 - Sample Obsidian link integrity.
 - Course-note output quality.
+- Source coverage evidence checks.
 
 ## Design Principles
 
