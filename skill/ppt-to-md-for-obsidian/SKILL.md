@@ -50,7 +50,7 @@ If the user explicitly asks for one exam review file instead of two review pages
 
 2. Extract slide text while preserving slide order.
    - For `.pptx`, use `scripts/extract_pptx_text.py` when a deterministic text dump helps.
-   - For legacy `.ppt`, use `scripts/convert_ppt_to_pptx.py` to convert with LibreOffice first, then extract.
+   - For legacy `.ppt`, use `scripts/convert_ppt_to_pptx.py` to convert with LibreOffice first, then extract. If LibreOffice is unavailable or conversion fails, do not stop at “unavailable”: attempt an OLE/CFB text-record pass when the project provides one, count text records, and mark any 0-record files as text/OCR limits rather than claimed coverage.
    - For `.pdf` courseware, use `scripts/extract_pdf_text.py`.
    - If the extracted text contains formula noise, run `scripts/clean_latex_from_ppt.py` before rewriting.
    - For repeatable runs, use `scripts/ppt_to_obsidian_pipeline.py` to extract, clean, and write a manifest.
@@ -59,6 +59,8 @@ If the user explicitly asks for one exam review file instead of two review pages
 3. Do a source coverage pass before writing the final notes.
    - Build a source-to-output map by file, chapter, slide/page range, and major headings.
    - Pull out formulas, algorithms, examples, derivation steps, definitions, assumptions, and warnings from each source file.
+   - Every source-derived example must carry a traceable marker such as `（/课程/文件或章节 p.N）`. If PPT/PDF text extraction has no standalone example, generate an auxiliary question and label it with `生成：PPT/PDF 未提供独立可抽取例题`.
+   - Do not leave long-lived `需复核`, `人工确认`, or “open the slides manually” states. When a weak keyword hit has enough file/page/topic evidence, write it into the target note under `## PPT/PDF 页级补充索引`; when it is image-only or OCR-limited, record the limitation without inventing content.
    - For exam-review requests, treat the exam outline or teacher-provided scope as a first-class source alongside PPT/PDF files. Preserve exact outline terms and common compact/space variants in the coverage map, for example `CPU性能公式` and `CPU 性能公式`.
    - Compare the source map with the requested exam scope. Mark topics as `included`, `out of scope by user`, `source noisy`, or `missing`.
    - If the material is long or the user asks for strict checking, write a `source_manifest.md` plus `99_内容覆盖审查.md` instead of relying on memory.
@@ -95,8 +97,9 @@ If the user explicitly asks for one exam review file instead of two review pages
 7. Validate before finishing.
    - Check broken links and self-links with `scripts/check_obsidian_links.py`.
    - Check course-note output structure with `scripts/check_course_notes.py`.
+   - For strict PPT/PDF coverage audits, run `scripts/check_source_coverage.py` with explicit `source=notes` directory mappings. Use it to verify source-file mapping, `PPT/PDF 页级补充索引` fields, and source-vs-generated example labels.
    - The course-note checker accepts either exact review filenames or local course-prefixed review filenames; do not rename working review pages only to satisfy a generic template.
-   - For long courseware or strict review requests, run `scripts/check_course_notes.py --strict-depth --require-coverage-audit`. Add `--allow-exam-review` when using one exam review file instead of the two default review pages.
+   - For long courseware or strict review requests, run `scripts/check_course_notes.py --strict-depth --require-coverage-audit`. Add `--allow-exam-review` when using one exam review file instead of the two default review pages. If a vault contains many non-course index folders, run this checker per course directory instead of against the vault root, and report the thresholds used.
    - Check empty files, conflict markers, leftover template phrases such as `相关知识链接`, and review-page coverage.
    - Run a direct keyword/formula sweep against source-derived terms before the final response. Missing hits should be explained as out of scope, noisy extraction, or corrected before delivery.
    - When the user requests multiple strict check rounds, make them distinct: one file-quality round for fences, residue, anchors, and whitespace; one outline/source coverage round for exact terms, formulas, and examples; one vault/repository round for links, course structure, diff status, and upload scope. Rerun affected checks after the last edit.
@@ -158,6 +161,7 @@ If only a dry run or audit was requested, report planned changes and validation 
 - `scripts/extract_pdf_text.py`: extract raw text from `.pdf` courseware.
 - `scripts/check_obsidian_links.py`: check Markdown and Obsidian wiki links.
 - `scripts/check_course_notes.py`: check course overview, review pages, empty files, conflict markers, template residue, and formula fences.
+- `scripts/check_source_coverage.py`: check PPT/PDF source-file mapping, page-level supplement index fields, and source/generated example evidence.
 - `scripts/clean_latex_from_ppt.py`: normalize formula and Unicode noise from slide extraction.
 - `scripts/ppt_to_obsidian_pipeline.py`: run conversion, extraction, cleanup, and manifest creation.
 - `references/obsidian-style.md`: local style guide for note writing and cross-linking.

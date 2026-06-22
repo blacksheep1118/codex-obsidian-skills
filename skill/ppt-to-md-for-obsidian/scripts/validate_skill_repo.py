@@ -87,6 +87,7 @@ def validate_required_files() -> None:
         "agents/openai.yaml",
         "scripts/check_obsidian_links.py",
         "scripts/check_course_notes.py",
+        "scripts/check_source_coverage.py",
         "scripts/clean_latex_from_ppt.py",
         "scripts/convert_ppt_to_pptx.py",
         "scripts/extract_pdf_text.py",
