@@ -36,6 +36,24 @@ class CourseNoteIssue:
     message: str
 
 
+def count_unescaped_pipes(line: str) -> int:
+    count = 0
+    escaped = False
+    for char in line:
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "|":
+            count += 1
+    return count
+
+
+TABLE_SEPARATOR_RE = re.compile(r"^\s*\|\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|\s*$")
+
+
 def relative_issue(root: Path, path: Path, kind: str, message: str) -> CourseNoteIssue:
     return CourseNoteIssue(path.relative_to(root), kind, message)
 
@@ -93,6 +111,46 @@ def is_conflict_marker(line: str, has_conflict_edges: bool) -> bool:
     return stripped.startswith("<<<<<<<") or stripped.startswith(">>>>>>>") or (has_conflict_edges and stripped == "=======")
 
 
+def find_table_issues(root: Path, path: Path, text: str) -> list[CourseNoteIssue]:
+    issues: list[CourseNoteIssue] = []
+    in_table = False
+    expected_columns: int | None = None
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if line.lstrip().startswith("|") and line.rstrip().endswith("|"):
+            columns = count_unescaped_pipes(line) - 1
+            if TABLE_SEPARATOR_RE.match(line):
+                if expected_columns is None:
+                    expected_columns = columns
+                elif columns != expected_columns:
+                    issues.append(
+                        relative_issue(
+                            root,
+                            path,
+                            "broken_table",
+                            f"line {line_number} has {columns} columns, expected {expected_columns}",
+                        )
+                    )
+                in_table = True
+                continue
+
+            if not in_table:
+                expected_columns = columns
+                in_table = True
+            elif expected_columns is not None and columns != expected_columns:
+                issues.append(
+                    relative_issue(
+                        root,
+                        path,
+                        "broken_table",
+                        f"line {line_number} has {columns} columns, expected {expected_columns}; escape literal | as \\| or avoid wiki-link aliases inside tables",
+                    )
+                )
+        else:
+            in_table = False
+            expected_columns = None
+    return issues
+
+
 def find_course_note_issues(
     root: Path,
     *,
@@ -148,6 +206,7 @@ def find_course_note_issues(
             issues.append(relative_issue(root, path, "unbalanced_fence", "odd number of fenced code block delimiters"))
         if text.count("$$") % 2:
             issues.append(relative_issue(root, path, "unbalanced_math", "odd number of block math delimiters"))
+        issues.extend(find_table_issues(root, path, text))
 
         if strict_depth:
             nonblank_lines = count_nonblank_lines(text)

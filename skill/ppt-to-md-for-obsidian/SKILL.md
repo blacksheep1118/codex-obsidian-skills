@@ -55,6 +55,7 @@ If the user explicitly asks for one exam review file instead of two review pages
    - If the extracted text contains formula noise, run `scripts/clean_latex_from_ppt.py` before rewriting.
    - For repeatable runs, use `scripts/ppt_to_obsidian_pipeline.py` to extract, clean, and write a manifest.
    - If extraction is noisy, use slide titles, visible bullets, formulas, filenames, and course order together instead of trusting raw text blindly.
+   - If attempting visual validation, verify that rendered images/contact sheets cover every page or slide. A QuickLook thumbnail that produces one image for a multi-slide PPTX is only a cover preview, not page-level visual evidence.
 
 3. Do a source coverage pass before writing the final notes.
    - Build a source-to-output map by file, chapter, slide/page range, and major headings.
@@ -64,6 +65,7 @@ If the user explicitly asks for one exam review file instead of two review pages
    - For exam-review requests, treat the exam outline or teacher-provided scope as a first-class source alongside PPT/PDF files. Preserve exact outline terms and common compact/space variants in the coverage map, for example `CPU性能公式` and `CPU 性能公式`.
    - Compare the source map with the requested exam scope. Mark topics as `included`, `out of scope by user`, `source noisy`, or `missing`.
    - If the material is long or the user asks for strict checking, write a `source_manifest.md` plus `99_内容覆盖审查.md` instead of relying on memory.
+   - Keep coverage statuses internally consistent. Distinguish image-only/unreadable visual pages from real content gaps, and do not describe a single unresolved example as the only uncertainty when separate visual pages still need confirmation.
    - Do not claim completion from a short outline. If the notes do not yet explain the mechanisms, formulas, and examples from the source, keep expanding them.
    - If a keyword sweep reports a missing topic, verify whether the miss is caused by wording variation before treating it as absent; then add the source wording near the relevant concept or document why it is out of scope.
 
@@ -87,6 +89,8 @@ If the user explicitly asks for one exam review file instead of two review pages
    - Link concepts where they first become relevant.
    - Avoid dumping large link lists at the end of every note.
    - Use wiki links such as `[[课程目录/文件名|显示文本]]`.
+   - Inside Markdown tables, avoid wiki-link aliases such as `[[课程目录/文件名|显示文本]]` because the alias pipe can split the table cell. Prefer `[[课程目录/文件名]]` in tables, or put the alias link outside the table.
+   - Escape literal pipes in table cells, including regular expressions such as `` `a\|b` ``.
 
 6. Add review pages.
    - The detailed version should retain the full course mechanism and formulas.
@@ -96,7 +100,7 @@ If the user explicitly asks for one exam review file instead of two review pages
 
 7. Validate before finishing.
    - Check broken links and self-links with `scripts/check_obsidian_links.py`.
-   - Check course-note output structure with `scripts/check_course_notes.py`.
+   - Check course-note output structure with `scripts/check_course_notes.py`; it also catches unbalanced fences/math, stale residue, and malformed Markdown tables.
    - For strict PPT/PDF coverage audits, run `scripts/check_source_coverage.py` with explicit `source=notes` directory mappings. Add `--require-course-prefixed-source-refs` when source files live outside the notes repo, so bare filenames such as `lecture 1.pptx` are rejected in favor of root-relative paths such as `编译原理/lecture 1.pptx`.
    - Do not accept `course_note_issues 0` as sufficient source coverage by itself. Also require `missing_source_mappings 0`, `source_table_issues 0`, `note_source_ownership_issues 0`, and `coverage_evidence_issues 0` from `scripts/check_source_coverage.py`.
    - Treat `CHAPTER_MISMATCH_SOURCE_LINK` and `CHAPTER_MISMATCH_NOTE_SOURCE` as blockers. They usually mean a page-level supplement or source_manifest row was copied into the wrong chapter note, such as a 第八章 PDF mapped to a 第五章 note.
@@ -106,6 +110,7 @@ If the user explicitly asks for one exam review file instead of two review pages
    - Run a direct keyword/formula sweep against source-derived terms before the final response. Missing hits should be explained as out of scope, noisy extraction, or corrected before delivery.
    - When the user requests multiple strict check rounds, make them distinct: one file-quality round for fences, residue, anchors, and whitespace; one outline/source coverage round for exact terms, formulas, and examples; one vault/repository round for links, course structure, diff status, and upload scope. Rerun affected checks after the last edit.
    - For residue scans, read each hit in context before deleting it. Avoid false positives such as `指令系统的使用方法` being treated as generic `使用方法` filler.
+   - When writing a validation report, state that the residue scan passed without repeating blocked marker words in the report itself; otherwise the report can create the next residue hit.
    - After migrating source index lines between notes, rerun `scripts/check_source_coverage.py` and a direct `rg` for the moved source filenames in the old target notes. The old notes should no longer cite those source files except in intentional audit summaries.
    - Before committing or uploading, run Git status in the target repository, stage only the intended files, and report unrelated dirty files without modifying them.
 

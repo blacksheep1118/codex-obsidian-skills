@@ -4,7 +4,7 @@ Codex skill for converting PPT/PPTX/PDF courseware into Obsidian-ready Markdown 
 
 The skill is designed for lecture slides that need to become usable study notes, not slide transcripts. It emphasizes Chinese course notes, formulas, numbered chapter files, course maps, cross-links, and detailed plus concise review pages.
 
-For vault-only organization, duplicate-note cleanup, or link repair that does not require slide extraction, use the companion [`obsidian-vault-organizer`](../obsidian-vault-organizer) skill.
+For vault-only organization, duplicate-note cleanup, or link repair that does not require slide extraction, use the companion `obsidian-vault-organizer` skill.
 
 ## Install
 
