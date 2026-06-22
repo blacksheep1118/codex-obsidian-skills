@@ -8,6 +8,17 @@ import sys
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_source_coverage.py"
 
 
+def run_checker(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), *args],
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+
+
 def write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -46,20 +57,13 @@ def test_check_source_coverage_passes_with_mapping_and_examples(tmp_path: Path) 
         "## PPT/PDF 页级补充索引\n\n- 来源：`x`，页/slide：1；主题：x；补充题：需复核。\n",
     )
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--source-root",
-            str(source_root),
-            "--notes-root",
-            str(notes_root),
-            "--mapping",
-            "课程A=课程A笔记",
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "课程A=课程A笔记",
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -85,20 +89,13 @@ def test_check_source_coverage_reports_missing_mapping_and_bad_example(tmp_path:
         ),
     )
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--source-root",
-            str(source_root),
-            "--notes-root",
-            str(notes_root),
-            "--mapping",
-            "课程A=课程A笔记",
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "课程A=课程A笔记",
     )
 
     assert result.returncode == 1
@@ -128,20 +125,13 @@ def test_check_source_coverage_reports_manual_review_residue(tmp_path: Path) -> 
         ),
     )
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--source-root",
-            str(source_root),
-            "--notes-root",
-            str(notes_root),
-            "--mapping",
-            "课程A=课程A笔记",
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "课程A=课程A笔记",
     )
 
     assert result.returncode == 1
@@ -177,21 +167,14 @@ def test_check_source_coverage_reports_chapter_mismatch_in_tables_and_notes(tmp_
         ),
     )
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--source-root",
-            str(source_root),
-            "--notes-root",
-            str(notes_root),
-            "--mapping",
-            "数学模型=数学模型",
-            "--require-course-prefixed-source-refs",
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "数学模型=数学模型",
+        "--require-course-prefixed-source-refs",
     )
 
     assert result.returncode == 1
@@ -218,21 +201,14 @@ def test_check_source_coverage_requires_course_prefixed_source_refs(tmp_path: Pa
         "| token | 源资料例题：识别 token。 | 源资料：（/编译原理/lecture 1 p.1） |\n",
     )
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--source-root",
-            str(source_root),
-            "--notes-root",
-            str(notes_root),
-            "--mapping",
-            "编译原理=编译原理",
-            "--require-course-prefixed-source-refs",
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "编译原理=编译原理",
+        "--require-course-prefixed-source-refs",
     )
 
     assert result.returncode == 1
@@ -264,21 +240,14 @@ def test_check_source_coverage_does_not_treat_lecture_subparts_as_chapter_confli
         ),
     )
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--source-root",
-            str(source_root),
-            "--notes-root",
-            str(notes_root),
-            "--mapping",
-            "编译原理=编译原理",
-            "--require-course-prefixed-source-refs",
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "编译原理=编译原理",
+        "--require-course-prefixed-source-refs",
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
