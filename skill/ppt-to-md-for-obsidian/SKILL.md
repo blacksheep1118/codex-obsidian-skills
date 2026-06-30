@@ -1,6 +1,6 @@
 ---
 name: ppt-to-md-for-obsidian
-description: Use when converting PowerPoint PPT/PPTX/PDF lecture slides, courseware, or slide-derived materials into Obsidian-ready Markdown notes, course maps, cross-links, and review pages. Use $obsidian-vault-organizer instead for vault-only organization, repair, duplicate-note cleanup, or cross-link validation that does not require slide or courseware extraction.
+description: Use when converting PowerPoint PPT/PPTX/PDF lecture slides, courseware, or slide-derived materials into Obsidian-ready Markdown notes, course maps, cross-links, review pages, strict source-coverage audits, source-labeled worked examples, and generated auxiliary questions. Use $obsidian-vault-organizer instead for vault-only organization, repair, duplicate-note cleanup, or cross-link validation that does not require slide or courseware extraction.
 ---
 
 # PPT To Markdown For Obsidian
@@ -9,7 +9,7 @@ description: Use when converting PowerPoint PPT/PPTX/PDF lecture slides, coursew
 
 Convert slide-based course material into an Obsidian note system, not a raw slide transcript. The output should be readable as standalone study notes with concept explanation, mechanisms, formulas, examples, boundaries, and useful cross-links.
 
-When writing into an existing project or vault, first load project-local guidance such as `AGENT.md`, `agent.md`, and files under `agent/`. Keep source files read-only unless the user explicitly asks to rename, move, or delete them. For vault-only organization work, use `$obsidian-vault-organizer`.
+When writing into an existing project or vault, first load project-local guidance such as `AGENT.md`, `agent.md`, and files under `agent/`. Treat project-local guidance and scripts as the source of truth when they are stricter or more current than this skill. Keep source files read-only unless the user explicitly asks to rename, move, or delete them. For vault-only organization work, use `$obsidian-vault-organizer`.
 
 ## Handoff Boundaries
 
@@ -21,7 +21,7 @@ Use this skill while source extraction or slide-order reconstruction is still pa
 2. Extract or inventory the source with the bundled scripts before rewriting.
 3. Build a source-to-note coverage map for slides/pages, formulas, examples, and exam-scope terms.
 4. Write or update notes only after coverage gaps and assumptions are explicit.
-5. Run link, course-note, residue, and coverage checks before the final response.
+5. Run project-local link, note-quality, residue, example, and coverage checks before the final response; use bundled checks only when the project has no equivalent.
 
 ## Evidence And Assumption Gate
 
@@ -37,6 +37,7 @@ For each course or topic directory, prefer this structure:
 - `知识点精简复习版_含公式.md` as the fast review page.
 - `source_manifest.md` when multiple source files are involved or extraction order could be disputed.
 - `99_内容覆盖审查.md` when the user asks for a strict check, exam review, or source-coverage assurance.
+- A centralized quality/audit directory only when local guidance asks for vault-wide generated reports, for example `99_质量审查/`; do not scatter generated QA indexes through course directories.
 
 Keep the detailed review and concise review as two separate files. Do not replace the detailed version with the concise version.
 When an existing vault uses course-prefixed review pages, preserve that convention, for example `游戏数值策划知识点详细版_含公式.md` and `游戏数值策划知识点精简复习版_含公式.md`.
@@ -61,6 +62,7 @@ If the user explicitly asks for one exam review file instead of two review pages
    - Build a source-to-output map by file, chapter, slide/page range, and major headings.
    - Pull out formulas, algorithms, examples, derivation steps, definitions, assumptions, and warnings from each source file.
    - Every source-derived example must carry a traceable marker such as `（/课程/文件或章节 p.N）`. If PPT/PDF text extraction has no standalone example, generate an auxiliary question and label it with `生成：PPT/PDF 未提供独立可抽取例题`.
+   - Every example must include a detailed explanation, not just an answer. Include the tested concept, known conditions, formula or rule choice, substitution or reasoning steps, conclusion, and the common mistake or boundary condition to avoid.
    - Do not leave long-lived `需复核`, `人工确认`, or “open the slides manually” states. When a weak keyword hit has enough file/page/topic evidence, write it into the target note under `## PPT/PDF 页级补充索引`; when it is image-only or OCR-limited, record the limitation without inventing content.
    - For exam-review requests, treat the exam outline or teacher-provided scope as a first-class source alongside PPT/PDF files. Preserve exact outline terms and common compact/space variants in the coverage map, for example `CPU性能公式` and `CPU 性能公式`.
    - Compare the source map with the requested exam scope. Mark topics as `included`, `out of scope by user`, `source noisy`, or `missing`.
@@ -99,9 +101,10 @@ If the user explicitly asks for one exam review file instead of two review pages
    - A single exam review page still needs full derivations, examples, and comparison tables when those are in scope. It should not collapse into a formula list.
 
 7. Validate before finishing.
-   - Check broken links and self-links with `scripts/check_obsidian_links.py`.
-   - Check course-note output structure with `scripts/check_course_notes.py`; it also catches unbalanced fences/math, stale residue, and malformed Markdown tables.
-   - For strict PPT/PDF coverage audits, run `scripts/check_source_coverage.py` with explicit `source=notes` directory mappings. Add `--require-course-prefixed-source-refs` when source files live outside the notes repo, so bare filenames such as `lecture 1.pptx` are rejected in favor of root-relative paths such as `编译原理/lecture 1.pptx`.
+   - Prefer project-local validators from `AGENT.md` when present. For solvenotes-style repositories, run the local checker set named check_all_notes.py, check_links.py, check_examples.py, check_frontmatter.py, check_markdown_tables.py, check_formulas.py, check_headings.py, check_special_dirs.py, check_source_coverage.py, and the generated-file `--check` scripts.
+   - If the project has no equivalent validators, check broken links and self-links with `scripts/check_obsidian_links.py`.
+   - If the project has no equivalent validators, check course-note output structure with `scripts/check_course_notes.py`; it also catches unbalanced fences/math, stale residue, and malformed Markdown tables.
+   - For strict PPT/PDF coverage audits, run the project-local source coverage checker first. If only the bundled `scripts/check_source_coverage.py` is available, run it with explicit `source=notes` directory mappings. Add `--require-course-prefixed-source-refs` when source files live outside the notes repo, so bare filenames such as `lecture 1.pptx` are rejected in favor of root-relative paths such as `编译原理/lecture 1.pptx`.
    - Do not accept `course_note_issues 0` as sufficient source coverage by itself. Also require `missing_source_mappings 0`, `source_table_issues 0`, `note_source_ownership_issues 0`, and `coverage_evidence_issues 0` from `scripts/check_source_coverage.py`.
    - Treat `CHAPTER_MISMATCH_SOURCE_LINK` and `CHAPTER_MISMATCH_NOTE_SOURCE` as blockers. They usually mean a page-level supplement or source_manifest row was copied into the wrong chapter note, such as a 第八章 PDF mapped to a 第五章 note.
    - The course-note checker accepts either exact review filenames or local course-prefixed review filenames; do not rename working review pages only to satisfy a generic template.
@@ -157,6 +160,7 @@ The final response should include:
 - review-page status for detailed and concise versions,
 - strict-depth status when used, including the exact thresholds or reason it was not used,
 - validation performed, including link, course-note, formula-fence, and keyword checks when run,
+- whether generated audit artifacts were kept in the project-designated central location and avoided Obsidian workspace/state files,
 - for upload requests, the target repository, branch, commit hash, push result, and any unrelated dirty files left untouched,
 - unresolved assumptions, noisy formulas, missing slides, or source files that still need manual review.
 
