@@ -58,8 +58,13 @@ def relative_issue(root: Path, path: Path, kind: str, message: str) -> CourseNot
     return CourseNoteIssue(path.relative_to(root), kind, message)
 
 
-def markdown_files(root: Path) -> list[Path]:
-    return sorted(path for path in root.rglob("*.md") if ".git" not in path.parts)
+def markdown_files(root: Path, skip_dirs: set[str] | None = None) -> list[Path]:
+    skip_dirs = skip_dirs or set()
+    return sorted(
+        path
+        for path in root.rglob("*.md")
+        if ".git" not in path.parts and not any(part in skip_dirs for part in path.relative_to(root).parts[:-1])
+    )
 
 
 def find_overview(root: Path) -> Path | None:
@@ -154,6 +159,7 @@ def find_table_issues(root: Path, path: Path, text: str) -> list[CourseNoteIssue
 def find_course_note_issues(
     root: Path,
     *,
+    skip_dirs: set[str] | None = None,
     strict_depth: bool = False,
     allow_exam_review: bool = False,
     require_coverage_audit: bool = False,
@@ -162,7 +168,7 @@ def find_course_note_issues(
     min_exam_review_lines: int = 250,
 ) -> list[CourseNoteIssue]:
     issues: list[CourseNoteIssue] = []
-    files = markdown_files(root)
+    files = markdown_files(root, skip_dirs=skip_dirs)
 
     overview = find_overview(root)
     if overview is None:
@@ -236,6 +242,7 @@ def main() -> int:
     parser.add_argument("--min-chapter-lines", type=int, default=80, help="minimum nonblank lines for numbered chapter notes in strict mode")
     parser.add_argument("--min-detailed-lines", type=int, default=250, help="minimum nonblank lines for the detailed review in strict mode")
     parser.add_argument("--min-exam-review-lines", type=int, default=250, help="minimum nonblank lines for exam review files in strict mode")
+    parser.add_argument("--skip-dir", action="append", default=[], help="directory name to exclude from recursive Markdown checks; may be repeated")
     parser.add_argument("root", type=Path, help="Course notes directory")
     args = parser.parse_args()
 
@@ -247,6 +254,7 @@ def main() -> int:
 
     issues = find_course_note_issues(
         root,
+        skip_dirs=set(args.skip_dir),
         strict_depth=args.strict_depth,
         allow_exam_review=args.allow_exam_review,
         require_coverage_audit=args.require_coverage_audit,

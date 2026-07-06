@@ -26,6 +26,16 @@ py scripts\install_skill.py --skill notes-to-scientific-ppt --self-check
 
 On Windows, replace `py` with `python` if the Python launcher is not installed.
 
+Install runtime dependencies when generating PPTX decks locally:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+```powershell
+py -m pip install -r requirements.txt
+```
+
 Install development dependencies only when running tests:
 
 ```bash
@@ -42,7 +52,7 @@ py -m pip install -r requirements-dev.txt
 - An evidence ledger that maps notes to proof objects, assumptions, and structural gaps.
 - A scientific claim spine for the PPT.
 - A draft slide backlog for turning note sections into claim-title slides or appendix items.
-- An editable PPTX deck when paired with the bundled `Presentations` skill.
+- An editable PPTX skeleton generated from the brief, with claim, formula, evidence/table, limitations, and appendix slides.
 - Optional speaker notes and appendix slides for formulas, raw evidence, and extended comparisons.
 
 The skill is designed for lab meetings, paper reading talks, thesis defenses, research proposals, progress reports, and technical teaching decks.
@@ -62,6 +72,24 @@ py scripts\outline_note_deck.py examples\sample-notes --out "$env:TEMP\scientifi
 Use `--mode paper-reading`, `--mode proposal`, `--mode progress-report`, `--mode teaching`, or `--mode defense` when the talk type is known. The default `--mode auto` infers the mode from headings and note content.
 
 The deck brief is not the final deck. It is a source audit and planning artifact used before building slides.
+
+Use `--language zh|en|auto` to control brief headings. `auto` emits Chinese headings when the notes are primarily Chinese.
+
+For Obsidian vaults, `--follow-links --vault-root <vault> --max-depth <n>` follows local wiki links from the input notes so linked formulas, evidence notes, or limitation notes can be included in the brief.
+
+## Build A PPTX Skeleton
+
+Build an editable PPTX skeleton from a brief:
+
+```bash
+python3 scripts/build_scientific_deck.py "${TMPDIR:-/tmp}/scientific_deck_brief.md" --out "${TMPDIR:-/tmp}/scientific_deck.pptx"
+```
+
+```powershell
+py scripts\build_scientific_deck.py "$env:TEMP\scientific_deck_brief.md" --out "$env:TEMP\scientific_deck.pptx"
+```
+
+The skeleton consumes the Suggested Scientific Deck Spine and Draft Slide Backlog. It creates editable placeholders for title, claim, formula, evidence/table, limitations, and appendix index slides. It does not paste note paragraphs into slides; replace placeholders with source-grounded proof objects before final delivery.
 
 ## Validation
 

@@ -80,6 +80,16 @@ Strict course-note check for long courseware, exam review, or user-requested cov
 python3 scripts/check_course_notes.py --strict-depth --require-coverage-audit notes
 ```
 
+Exclude non-course generated index or audit folders by directory name when validating a broader notes tree:
+
+```bash
+python3 scripts/check_course_notes.py --skip-dir 概念索引 --skip-dir 生成审查 notes
+```
+
+```powershell
+py scripts\check_course_notes.py --skip-dir 概念索引 --skip-dir 生成审查 notes
+```
+
 If the user requested one exam review file instead of separate detailed and concise review pages:
 
 ```bash
@@ -122,7 +132,7 @@ Each course/topic directory should have:
 
 When the user explicitly requests a single exam review file, the two-review-page requirement may be replaced by one `考试复习` or `复习笔记` file, but the overview must link it and strict-depth validation should use `--allow-exam-review`.
 
-`概念索引`-style cross-course index directories may be exempt when they are not a course.
+`概念索引`-style cross-course index directories may be exempt when they are not a course. Use `--skip-dir <name>` for each exempt directory name instead of placing this decision in the pipeline config.
 
 ## Source Coverage Audit
 

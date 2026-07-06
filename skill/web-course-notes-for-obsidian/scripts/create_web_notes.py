@@ -40,6 +40,7 @@ CATEGORY_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 TOKEN_RE = re.compile(r"[a-z0-9]+", re.I)
+CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,13 @@ def safe_path_name(value: str, fallback: str = "untitled", max_length: int = 80)
 
 def yaml_string(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def resolve_language(language: str, pages: list[PageRecord], sources: list[str]) -> str:
+    if language in {"zh", "en"}:
+        return language
+    context = " ".join([*sources, *(page.title for page in pages), *(page.description for page in pages)])
+    return "zh" if CJK_RE.search(context) else "en"
 
 
 def context_for_pages(pages: list[PageRecord]) -> str:
@@ -139,7 +147,7 @@ def available_file(path: Path, content: str) -> Path:
     raise RuntimeError(f"could not find an available path near {path}")
 
 
-def page_note_content(page: PageRecord, index: int, created: date, display_title: str | None = None) -> str:
+def page_note_content_zh(page: PageRecord, index: int, created: date, display_title: str | None = None) -> str:
     title = display_title or page.title or title_from_url(page.url)
     description = page.description.strip() if page.description.strip() else "待补充: 摘要、课程简介或章节定位。"
     lines = [
@@ -288,7 +296,145 @@ def page_note_content(page: PageRecord, index: int, created: date, display_title
     return "\n".join(lines)
 
 
-def map_content(title: str, pages: list[PageRecord], note_names: list[str], created: date) -> str:
+def page_note_content_en(page: PageRecord, index: int, created: date, display_title: str | None = None) -> str:
+    title = display_title or page.title or title_from_url(page.url)
+    description = page.description.strip() if page.description.strip() else "To complete: summary, course context, or chapter role."
+    lines = [
+        "---",
+        f"title: {yaml_string(title)}",
+        f"source_url: {yaml_string(page.url)}",
+        f"source_type: {page.kind}",
+        f"access_status: {page.access_status}",
+        f"note_index: {index}",
+        f"created: {created.isoformat()}",
+        "status: scaffold",
+        "---",
+        "",
+        f"# {title}",
+        "",
+        "<!-- scaffold: read or extract the accessible source, then replace every placeholder before final delivery. -->",
+        "",
+        "## Related",
+        "",
+        "- [[00_学习地图]]",
+        "- [[source_manifest]]",
+        "",
+        "## Navigation",
+        "",
+        "- Parent entry: [[00_学习地图]]",
+        "- Suggested order: background, core idea, mechanisms, formulas or evidence, limitations, then review.",
+        "",
+        "## Source",
+        "",
+        f"- Type: `{page.kind}`",
+        f"- Access status: `{page.access_status}`",
+        f"- Main link: [{title}]({page.url})",
+        f"- Source description: {description}",
+    ]
+    if page.error:
+        lines.append(f"- Access error: {page.error}")
+
+    if page.links:
+        lines.extend(["", "### Discovered Learning Links", ""])
+        for link in page.links:
+            lines.append(f"- `{link.kind}` [{link.title}]({link.url})")
+
+    lines.extend(
+        [
+            "",
+            "## Source Role",
+            "",
+            "- To complete: identify whether this is a course, paper, chapter, slide deck, documentation page, or resource list.",
+            "- To complete: state the target reader, prerequisites, and why this source matters.",
+            "- To complete: connect this source to existing vault topics.",
+            "",
+            "## Problem Background",
+            "",
+            "- To complete: the concrete problem this source addresses.",
+            "- To complete: why the problem matters and where it appears.",
+            "- To complete: what prior or simpler approaches miss.",
+            "",
+            "## Core Idea",
+            "",
+            "1. To complete: summarize the main idea in one sentence.",
+            "2. To complete: list inputs, outputs, assumptions, and main stages.",
+            "3. To complete: explain the source's contribution or learning value.",
+            "",
+            "## Key Mechanisms",
+            "",
+            "### Mechanism One",
+            "",
+            "- To complete: intuitive explanation.",
+            "- To complete: what difficulty it solves.",
+            "- To complete: required data, parameters, structure, or steps.",
+            "",
+            "### Mechanism Two",
+            "",
+            "- To complete: intuitive explanation.",
+            "- To complete: how it interacts with the first mechanism.",
+            "- To complete: failure cases or limits.",
+            "",
+            "## Formulas Or Evidence",
+            "",
+            "$$",
+            "\\text{To complete: insert the core formula or evidence pattern when present.}",
+            "$$",
+            "",
+            "- To complete: variable meanings, assumptions, and intuition.",
+            "- To complete: source evidence, datasets, examples, or chapter references.",
+            "",
+            "## Comparison",
+            "",
+            "| Dimension | This source | Related method or note | Impact |",
+            "| --- | --- | --- | --- |",
+            "| Problem setting | To complete | To complete | To complete |",
+            "| Assumptions | To complete | To complete | To complete |",
+            "| Strengths | To complete | To complete | To complete |",
+            "| Limits | To complete | To complete | To complete |",
+            "",
+            "## Limitations",
+            "",
+            "- To complete: missing evidence, narrow assumptions, implementation cost, or reading gaps.",
+            "- To complete: what a reader should verify before relying on this source.",
+            "",
+            "## Reproduction Or Application Notes",
+            "",
+            "- To complete: data, tools, models, parameters, or environment needed.",
+            "- To complete: minimum practical next step.",
+            "- To complete: fragile details that may affect results.",
+            "",
+            "## Quick Review",
+            "",
+            "- One-sentence summary: To complete.",
+            "- Three keywords: To complete / To complete / To complete.",
+            "- Most confusing point: To complete.",
+            "- Priority reread section: To complete.",
+            "",
+            "## Questions To Answer After Reading",
+            "",
+            "- What specific problem does this source address?",
+            "- What assumptions does the main idea require?",
+            "- Which formula, evidence, or process matters most?",
+            "- Where does this source work well, and where can it fail?",
+            "- Which existing vault topics should link here?",
+            "",
+            "## Related Files",
+            "",
+            "- [[00_学习地图]]",
+            "- [[source_manifest]]",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def page_note_content(page: PageRecord, index: int, created: date, display_title: str | None = None, language: str = "zh") -> str:
+    if language == "en":
+        return page_note_content_en(page, index, created, display_title)
+    return page_note_content_zh(page, index, created, display_title)
+
+
+def map_content_zh(title: str, pages: list[PageRecord], note_names: list[str], created: date) -> str:
     lines = [
         f"# {title}",
         "",
@@ -316,7 +462,7 @@ def map_content(title: str, pages: list[PageRecord], note_names: list[str], crea
             "",
             "## 完成标准",
             "",
-            "- 主笔记不再包含 `status: scaffold`、`待补充` 或 TODO 占位。",
+            "- 主笔记不再包含脚手架状态、中文占位词或未完成标记。",
             "- `问题背景`、`方法总览`、`关键机制`、`关键公式与变量`、`实验与案例`、`方法比较`和`精简复习`都有实质内容。",
             "- 关键公式解释了变量含义、直觉、适用条件和局限。",
             "- `source_manifest.md` 覆盖用户提供的每个 URL，最终笔记中的关键判断能追溯到来源。",
@@ -327,6 +473,50 @@ def map_content(title: str, pages: list[PageRecord], note_names: list[str], crea
     return "\n".join(lines)
 
 
+def map_content_en(title: str, pages: list[PageRecord], note_names: list[str], created: date) -> str:
+    lines = [
+        f"# {title}",
+        "",
+        f"Created: {created.isoformat()}",
+        "",
+        "## Entry Notes",
+        "",
+    ]
+    for note_name in note_names:
+        lines.append(f"- [[{note_name}]]")
+
+    lines.extend(["", "## Source List", ""])
+    for page in pages:
+        lines.append(f"- `{page.kind}` `{page.access_status}` [{page.title}]({page.url})")
+
+    lines.extend(
+        [
+            "",
+            "## Organization Rules",
+            "",
+            "- `create_web_notes.py` only creates the folder, source manifest, and detailed scaffolds. Scaffolds are not final deliverables.",
+            "- Read or extract accessible source content before replacing placeholders with finished study notes.",
+            "- Keep source URLs near claims and connect new concepts to existing vault notes.",
+            "- For books and long pages, write transformed study notes rather than copying long passages.",
+            "",
+            "## Completion Standard",
+            "",
+            "- Main notes no longer contain scaffold status, placeholder phrases, or unfinished markers.",
+            "- Background, core idea, mechanisms, formulas or evidence, comparison, limitations, and quick review contain source-specific content.",
+            "- `source_manifest.md` covers every user-provided URL and records inaccessible sources.",
+            "- Final delivery has run `scripts/check_web_notes.py` plus the vault link checker when applicable.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def map_content(title: str, pages: list[PageRecord], note_names: list[str], created: date, language: str = "zh") -> str:
+    if language == "en":
+        return map_content_en(title, pages, note_names, created)
+    return map_content_zh(title, pages, note_names, created)
+
+
 def create_notes(
     sources: list[str],
     notes_dir: Path,
@@ -335,9 +525,11 @@ def create_notes(
     folder: str | None = None,
     title: str | None = None,
     timeout: float = 15.0,
+    language: str = "zh",
     dry_run: bool = False,
 ) -> CreatedNotes:
     pages = collect_sources(sources, timeout=timeout)
+    resolved_language = resolve_language(language, pages, sources)
     today = date.today()
     chosen_title = collection_title(pages, title)
     category_dir = choose_category_dir(notes_dir, f"{chosen_title} {context_for_pages(pages)}", category)
@@ -351,22 +543,23 @@ def create_notes(
         display_title = title if title and len(pages) == 1 else page.title or title_from_url(page.url)
         note_title = safe_path_name(display_title, f"source-{index}")
         note_name = f"{index:02d}_{note_title}"
-        content = page_note_content(page, index, today, display_title)
+        content = page_note_content(page, index, today, display_title, resolved_language)
         note_path = available_file(collection_dir / f"{note_name}.md", content)
         note_paths.append(note_path)
         note_names.append(note_path.stem)
 
-    map_path = available_file(collection_dir / "00_学习地图.md", map_content(chosen_title, pages, note_names, today))
+    map_body = map_content(chosen_title, pages, note_names, today, resolved_language)
+    map_path = available_file(collection_dir / "00_学习地图.md", map_body)
     manifest_path = available_file(collection_dir / "source_manifest.md", manifest)
     files = (map_path, manifest_path, *note_paths)
 
     if not dry_run:
         collection_dir.mkdir(parents=True, exist_ok=True)
-        map_path.write_text(map_content(chosen_title, pages, note_names, today), encoding="utf-8")
+        map_path.write_text(map_body, encoding="utf-8")
         manifest_path.write_text(manifest, encoding="utf-8")
         for index, (note_path, page) in enumerate(zip(note_paths, pages), start=1):
             display_title = title if title and len(pages) == 1 else page.title or title_from_url(page.url)
-            note_path.write_text(page_note_content(page, index, today, display_title), encoding="utf-8")
+            note_path.write_text(page_note_content(page, index, today, display_title, resolved_language), encoding="utf-8")
 
     return CreatedNotes(collection_dir=collection_dir, files=files)
 
@@ -380,6 +573,7 @@ def main() -> int:
     parser.add_argument("--folder", help="Collection folder name under the selected category")
     parser.add_argument("--title", help="Title used for 00_学习地图.md")
     parser.add_argument("--timeout", type=float, default=15.0, help="HTTP timeout in seconds")
+    parser.add_argument("--language", choices=["zh", "en", "auto"], default="zh", help="Scaffold language. Defaults to zh for backward-compatible Chinese scaffolds.")
     parser.add_argument("--dry-run", action="store_true", help="Print target paths without writing files")
     args = parser.parse_args()
 
@@ -391,6 +585,7 @@ def main() -> int:
             folder=args.folder,
             title=args.title,
             timeout=args.timeout,
+            language=args.language,
             dry_run=args.dry_run,
         )
     except OSError as exc:

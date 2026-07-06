@@ -15,5 +15,3 @@ obsidian:
   course_name: "示例课程"
   overview_name: "00_课程总览.md"
   create_review_placeholders: true
-  skip_review_dirs:
-    - "概念索引"

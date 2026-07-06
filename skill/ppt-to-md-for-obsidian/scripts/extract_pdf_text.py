@@ -8,9 +8,40 @@ available. The output is raw source material for note rewriting.
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 import sys
+
+
+MIN_TEXT_CHARS_PER_PAGE = 20
+
+
+class PdfExtractionError(RuntimeError):
+    """Raised when no PDF text extraction backend can provide page data."""
+
+
+@dataclass(frozen=True)
+class PdfBackendResult:
+    name: str
+    pages: list[str]
+    error: str | None = None
+
+    @property
+    def page_count(self) -> int:
+        return len(self.pages)
+
+    @property
+    def text_char_count(self) -> int:
+        return sum(len(page.strip()) for page in self.pages)
+
+    @property
+    def empty_page_count(self) -> int:
+        return sum(1 for page in self.pages if not page.strip())
+
+    @property
+    def nonempty_page_count(self) -> int:
+        return self.page_count - self.empty_page_count
 
 
 def extract_with_pypdf(path: Path) -> list[str]:
@@ -58,16 +89,64 @@ def extract_with_pdftotext(path: Path) -> list[str]:
     return [page.strip("\n") for page in pages]
 
 
+def low_text_coverage(result: PdfBackendResult) -> bool:
+    if not result.pages:
+        return True
+    if result.text_char_count == 0:
+        return True
+    return result.text_char_count < result.page_count * MIN_TEXT_CHARS_PER_PAGE
+
+
+def backend_sort_key(result: PdfBackendResult) -> tuple[int, int, int]:
+    return (result.nonempty_page_count, result.text_char_count, result.page_count)
+
+
+def choose_backend(path: Path) -> PdfBackendResult:
+    backends = [
+        ("pypdf", extract_with_pypdf),
+        ("pdfplumber", extract_with_pdfplumber),
+        ("pdftotext", extract_with_pdftotext),
+    ]
+    attempted: list[PdfBackendResult] = []
+    best: PdfBackendResult | None = None
+
+    for name, extractor in backends:
+        try:
+            pages = extractor(path)
+            result = PdfBackendResult(name=name, pages=pages)
+        except Exception as exc:
+            result = PdfBackendResult(name=name, pages=[], error=str(exc))
+        attempted.append(result)
+
+        if result.pages and (best is None or backend_sort_key(result) > backend_sort_key(best)):
+            best = result
+        if result.pages and not low_text_coverage(result):
+            return result
+
+    if best is not None:
+        return best
+
+    details = "; ".join(f"{result.name}: {result.error or 'no pages'}" for result in attempted)
+    raise PdfExtractionError(
+        "Missing dependency or no readable pages: install pypdf, pdfplumber, or pdftotext to extract PDF text."
+        f" Attempts: {details}"
+    )
+
+
 def extract_pdf(path: Path) -> str:
-    pages = extract_with_pypdf(path)
-    if not pages:
-        pages = extract_with_pdfplumber(path)
-    if not pages:
-        pages = extract_with_pdftotext(path)
-    if not pages:
-        sys.exit("Missing dependency: install pypdf, pdfplumber, or pdftotext to extract PDF text.")
+    result = choose_backend(path)
+    pages = result.pages
 
     out = [f"# Extracted PDF Text: {path.name}", ""]
+    out.extend(
+        [
+            f"- Backend: `{result.name}`",
+            f"- Pages: {result.page_count}",
+            f"- Empty text pages: {result.empty_page_count}",
+            f"- Text characters: {result.text_char_count}",
+            "",
+        ]
+    )
     for idx, text in enumerate(pages, start=1):
         out.append(f"## Page {idx}")
         out.append("")
@@ -91,7 +170,11 @@ def main() -> int:
     if args.pdf.suffix.lower() != ".pdf":
         parser.error("input must be a .pdf file")
 
-    md = extract_pdf(args.pdf)
+    try:
+        md = extract_pdf(args.pdf)
+    except PdfExtractionError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
     if args.out:
         args.out.write_text(md, encoding="utf-8")
     else:

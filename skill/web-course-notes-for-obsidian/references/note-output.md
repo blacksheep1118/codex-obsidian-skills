@@ -12,7 +12,15 @@ Each collection folder should contain:
 
 ## Detailed Note Standard
 
-Script-created notes are scaffolds, not final deliverables. A final note should be comparable to nearby notes in the destination vault folder and should not contain `status: scaffold`, `待补充`, or TODO placeholders.
+Script-created notes are scaffolds, not final deliverables. A final note should be comparable to nearby notes in the destination vault folder and should not contain `status: scaffold`, `待补充`, `To complete`, or TODO placeholders.
+
+Before final delivery, run:
+
+```bash
+python3 scripts/check_web_notes.py <collection-dir> --source <user-url-or-local-source>
+```
+
+Repeat `--source` for every user-supplied URL or local HTML file. Add `--per-link-notes` when the source is a reading list, paper list, syllabus, bibliography, or the user asked for per-link notes.
 
 Before finalizing, inspect 1-3 existing notes in the target category and match the local style for:
 
@@ -78,4 +86,6 @@ Summarize and explain. Do not copy long passages.
 
 ## Mixed Learning Resource List
 
-Create `source_manifest.md` first, then group notes by topic rather than by URL. Use URL-level provenance under each section so later edits can trace where each claim came from.
+Create `source_manifest.md` first, then group notes by topic rather than by URL unless the user asks for per-link notes. The manifest should preserve inaccessible sources with access status and error summaries instead of dropping them. Use URL-level provenance under each section so later edits can trace where each claim came from.
+
+When per-link notes are required, each learning resource in `source_manifest.md` needs either a corresponding note that cites the URL or an explicit skipped/inaccessible status.

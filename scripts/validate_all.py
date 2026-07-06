@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -17,12 +19,37 @@ NOTES_PPT_SKILL = ROOT / "skill" / "notes-to-scientific-ppt"
 TMP = Path(tempfile.gettempdir())
 INSTALL_TMP = TMP / "codex-obsidian-skills-validate-install"
 PIPELINE_TMP = TMP / "codex-obsidian-skills-pipeline-out"
+DEFAULT_TIMEOUT_SECONDS = int(os.environ.get("VALIDATE_ALL_TIMEOUT_SECONDS", "180"))
 
 
-def run(command: list[str], cwd: Path = ROOT) -> None:
-    printable = " ".join(command)
-    print(f"\n:: {cwd.relative_to(ROOT) if cwd != ROOT else '.'}$ {printable}")
-    subprocess.run(command, cwd=cwd, check=True)
+def format_command(command: list[str]) -> str:
+    return " ".join(shlex.quote(part) for part in command)
+
+
+def format_cwd(cwd: Path) -> str:
+    try:
+        return str(cwd.relative_to(ROOT)) if cwd != ROOT else "."
+    except ValueError:
+        return str(cwd)
+
+
+def report_failure(command: list[str], cwd: Path, returncode: int | str) -> None:
+    print("\nvalidation command failed", file=sys.stderr, flush=True)
+    print(f"cwd: {cwd}", file=sys.stderr, flush=True)
+    print(f"command: {format_command(command)}", file=sys.stderr, flush=True)
+    print(f"return code: {returncode}", file=sys.stderr, flush=True)
+
+
+def run(command: list[str], cwd: Path = ROOT, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> None:
+    print(f"\n:: {format_cwd(cwd)}$ {format_command(command)}", flush=True)
+    try:
+        subprocess.run(command, cwd=cwd, check=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        report_failure(command, cwd, f"timeout after {timeout}s")
+        raise SystemExit(124) from None
+    except subprocess.CalledProcessError as exc:
+        report_failure(command, cwd, exc.returncode)
+        raise SystemExit(exc.returncode) from None
 
 
 def main() -> int:
@@ -30,7 +57,7 @@ def main() -> int:
 
     run([py, "-m", "compileall", "scripts"])
     run([py, "scripts/check_openai_yaml_sync.py"])
-    run([py, "scripts/check_shared_link_checker.py"])
+    run([py, "scripts/sync_shared_resources.py", "--check"])
     run([py, "scripts/install_skill.py", "--all", "--dry-run", "--self-check"])
     run([py, "scripts/install_skill.py", "--all", "--destination", str(INSTALL_TMP), "--self-check"])
     run([py, "scripts/update_installed_skills.py", "--all", "--destination", str(INSTALL_TMP), "--dry-run", "--prune"])
@@ -39,7 +66,7 @@ def main() -> int:
         run([py, "-m", "pytest", "tests"])
 
     run([py, "-m", "compileall", "scripts"], cwd=PPT_SKILL)
-    run([py, "-m", "pytest"], cwd=PPT_SKILL)
+    run([py, "-m", "pytest", "tests"], cwd=PPT_SKILL)
     run([py, "scripts/validate_skill_repo.py"], cwd=PPT_SKILL)
     run([py, "scripts/extract_pptx_text.py", "examples/sample-course/raw/sample_course.pptx", "--out", str(TMP / "sample_course_extracted.md")], cwd=PPT_SKILL)
     run([py, "scripts/clean_latex_from_ppt.py", "examples/sample-course/extracted/sample_course_extracted.md", "--unicode-math", "--out", str(TMP / "sample_course_cleaned.md")], cwd=PPT_SKILL)
@@ -48,12 +75,13 @@ def main() -> int:
     run([py, "scripts/check_course_notes.py", "examples/sample-course/notes"], cwd=PPT_SKILL)
 
     run([py, "-m", "compileall", "scripts"], cwd=VAULT_SKILL)
+    run([py, "-m", "pytest", "tests"], cwd=VAULT_SKILL)
     run([py, "scripts/validate_skill.py"], cwd=VAULT_SKILL)
     run([py, "scripts/check_obsidian_links.py", "../ppt-to-md-for-obsidian/examples/sample-course/notes"], cwd=VAULT_SKILL)
     run([py, "scripts/check_vault_quality.py", "../../fixtures/vault-clean"], cwd=VAULT_SKILL)
 
     run([py, "-m", "compileall", "scripts"], cwd=WEB_SKILL)
-    run([py, "-m", "pytest"], cwd=WEB_SKILL)
+    run([py, "-m", "pytest", "tests"], cwd=WEB_SKILL)
     run([py, "scripts/validate_skill.py"], cwd=WEB_SKILL)
     run(
         [
@@ -78,7 +106,7 @@ def main() -> int:
     )
 
     run([py, "-m", "compileall", "scripts"], cwd=NOTES_PPT_SKILL)
-    run([py, "-m", "pytest"], cwd=NOTES_PPT_SKILL)
+    run([py, "-m", "pytest", "tests"], cwd=NOTES_PPT_SKILL)
     run([py, "scripts/validate_skill.py"], cwd=NOTES_PPT_SKILL)
     run(
         [

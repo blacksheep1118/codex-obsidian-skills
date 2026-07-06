@@ -1,6 +1,6 @@
 ---
 name: web-course-notes-for-obsidian
-description: Use when the user gives course video websites, lecture/PPT websites, book websites, online course pages, documentation chapters, public reading lists, or mixed web learning resources and wants Codex to collect accessible source material, create Obsidian-ready Markdown notes, course maps, chapter notes, review pages, and source-linked study notes. Use $ppt-to-md-for-obsidian instead when the task starts from local PPT/PPTX/PDF files, and use $obsidian-vault-organizer for vault-only cleanup.
+description: Use when the starting source is a URL, webpage course, online book/chapter, reading list, local HTML, or direct PDF/PPT/transcript URL and the user wants Obsidian web-course notes, source_manifest.md, learning maps, or per-link notes; Chinese triggers include 网页课程, 在线书籍, PDF链接整理. Use $ppt-to-md-for-obsidian instead after permitted sources become local PPT/PPTX/PDF courseware; use $obsidian-vault-organizer for vault-only cleanup.
 ---
 
 # Web Course Notes For Obsidian
@@ -25,6 +25,10 @@ For each course, book, or topic collection, prefer:
 
 Keep source URLs in notes or frontmatter so provenance stays visible.
 
+## Handoff Boundaries
+
+Use this skill when the starting point is web sources or local HTML. If a source becomes a local PPT/PPTX/PDF courseware file that needs extraction, use `$ppt-to-md-for-obsidian`. If the user asks for vault-only cleanup, broken-link repair, or duplicate-note merging after notes exist, use `$obsidian-vault-organizer`.
+
 ## Quick Start
 
 1. Classify each URL as course, video, slide/PPT, PDF, book/chapter, reading list, or mixed catalog.
@@ -48,6 +52,7 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
    - Use `scripts/collect_web_sources.py` when a deterministic URL inventory helps.
    - Direct PDF/PPT/transcript/book URLs should be recorded as resources without attempting to parse binary content as HTML.
    - Capture titles, canonical URLs, descriptions, source type, and links to slides, videos, transcripts, chapters, and PDFs.
+   - Process sources independently. If one URL or local HTML file fails, keep it in `source_manifest.md` with `access_status`, source type guess, and a concise error instead of dropping the source or failing the whole manifest.
    - For client-rendered pages, record both the visible page URL and any legitimate public data endpoint or static bundle used only to locate the endpoint. Mark helper URLs as provenance, not learning material.
    - Record inaccessible or ambiguous sources instead of silently skipping them.
 
@@ -56,6 +61,7 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
    - If no existing folder fits, create a new folder under the notes directory, preferably `网络资源/<collection-title>/`.
    - Use `scripts/create_web_notes.py --notes-dir <notes-dir> <url...>` to create the collection folder, `source_manifest.md`, `00_学习地图.md`, and detailed note scaffolds.
    - Use `--category <folder>` when the user or context clearly identifies the destination category.
+   - Use `--language zh|en|auto` when the scaffold language should be explicit. Chinese is the default; English mode writes English headings and placeholders.
    - Treat script-created scaffolds as unfinished. Do not deliver them as final notes until the accessible source content has been read, extracted, and rewritten into the scaffold.
 
 4. Extract only appropriate content.
@@ -78,7 +84,8 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
 
 6. Validate before finishing.
    - Check local Obsidian links with `$obsidian-vault-organizer`.
-   - Check that `source_manifest.md` covers every URL the user supplied.
+   - Run `scripts/check_web_notes.py <collection-dir> --source <user-url>` with every user-supplied URL or local source, and add `--per-link-notes` when the user requested per-link notes.
+   - Check that `source_manifest.md` covers every URL the user supplied, including inaccessible or failed sources.
    - For each URL in `source_manifest.md`, verify there is a corresponding per-link note when per-link notes were requested or the source is a reading list. Include helper endpoints and client-rendered provenance URLs as separate notes if they are listed in the manifest.
    - Check that generated notes do not contain long copied passages from books or web pages.
    - Check that final notes are comparable in detail to existing notes in the destination folder.
@@ -108,7 +115,8 @@ If the run only produced scaffolds, say they are unfinished scaffolds and do not
 
 ## Bundled Resources
 
-- `scripts/collect_web_sources.py`: collect titles, descriptions, and learning-resource links from URL or local HTML inputs.
+- `scripts/collect_web_sources.py`: collect titles, descriptions, access status, errors, and learning-resource links from URL or local HTML inputs.
 - `scripts/create_web_notes.py`: classify sources into a notes directory, create a collection folder, and write `source_manifest.md`, `00_学习地图.md`, and detailed note scaffolds that must be expanded before final delivery.
+- `scripts/check_web_notes.py`: validate finalized web-note collections for source coverage, scaffold residue, and per-link note coverage when required.
 - `references/source-policy.md`: source access, copyright, attribution, and safety rules.
 - `references/note-output.md`: note structures for video courses, PPT sites, book sites, and mixed web learning resources.

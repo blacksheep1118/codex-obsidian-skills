@@ -11,6 +11,16 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.S)
 MD_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
+REQUIRED_FILES = ['README.md',
+ 'LICENSE',
+ 'agents/openai.yaml',
+ 'scripts/collect_web_sources.py',
+ 'scripts/check_web_notes.py',
+ 'scripts/create_web_notes.py',
+ 'scripts/validate_skill.py',
+ 'references/source-policy.md',
+ 'references/note-output.md']
+SUCCESS_MESSAGE = "skill_validation ok"
 
 
 def fail(message: str) -> None:
@@ -74,17 +84,7 @@ def validate_references_exist() -> None:
 
 
 def validate_required_files() -> None:
-    required = [
-        "README.md",
-        "LICENSE",
-        "agents/openai.yaml",
-        "scripts/collect_web_sources.py",
-        "scripts/create_web_notes.py",
-        "scripts/validate_skill.py",
-        "references/source-policy.md",
-        "references/note-output.md",
-    ]
-    for target in required:
+    for target in REQUIRED_FILES:
         if not (ROOT / target).exists():
             fail(f"required bundled file is missing: {target}")
 
@@ -110,7 +110,7 @@ def main() -> int:
     validate_yaml_files()
     validate_references_exist()
     validate_readme_links()
-    print("skill_validation ok")
+    print(SUCCESS_MESSAGE)
     return 0
 
 

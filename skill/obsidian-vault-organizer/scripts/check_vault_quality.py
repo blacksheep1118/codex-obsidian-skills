@@ -11,13 +11,13 @@ import sys
 
 
 TEMPLATE_RE = re.compile(r"(相关知识链接|TODO|FIXME|TBD|待补|待完善)")
-STRICT_STUDY_RE = re.compile(
+SOLVENOTES_STUDY_RE = re.compile(
     r"(待补充|占位|空话|套话|泛泛|交作业式|神谕|需要注意的是|"
     r"P\(UO\)|L\(UO\)|软件工程：风险管理复习与 RMMM|"
     r"这个公式把项目状态转成可量化的控制指标|若等待图成环，则可能发生死锁|"
     r"关键不是背结论|信息如何进入价格|收益、方差、估值或技术指标)"
 )
-REPORT_NOTE_NAME_RE = re.compile(r"(^|_)(审查|复查|报告|覆盖审查|一致性严格审查)")
+REPORT_NOTE_NAME_RE = re.compile(r"(审查|复查|报告|覆盖审查|一致性严格审查)")
 BRIDGE_NOTE_RE = re.compile(r"本页保留旧路径，正文请读 \[\[[^\]]+\]\]。")
 WIKI_LINK_RE = re.compile(r"\[\[[^\]]+\]\]")
 
@@ -56,15 +56,51 @@ def is_bridge_note(text: str) -> bool:
     return bool(lines and lines[0].startswith("# ") and "旧入口" in lines[0] and BRIDGE_NOTE_RE.search(stripped))
 
 
+def load_pattern_file(path: Path) -> list[re.Pattern[str]]:
+    patterns: list[re.Pattern[str]] = []
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("regex:"):
+            pattern_text = line.removeprefix("regex:").strip()
+        elif line.startswith("re:"):
+            pattern_text = line.removeprefix("re:").strip()
+        elif line.startswith("text:"):
+            pattern_text = re.escape(line.removeprefix("text:").strip())
+        else:
+            pattern_text = re.escape(line)
+        try:
+            patterns.append(re.compile(pattern_text))
+        except re.error as exc:
+            raise ValueError(f"{path}:{line_number}: invalid regex: {exc}") from exc
+    return patterns
+
+
+def profile_patterns(profile: str, pattern_files: list[Path] | None = None) -> list[re.Pattern[str]]:
+    patterns: list[re.Pattern[str]] = []
+    if profile == "solvenotes":
+        patterns.append(SOLVENOTES_STUDY_RE)
+    elif profile != "generic":
+        raise ValueError(f"unknown quality profile: {profile}")
+
+    for pattern_file in pattern_files or []:
+        patterns.extend(load_pattern_file(pattern_file))
+    return patterns
+
+
 def find_vault_issues(
     root: Path,
     allow_duplicate_stems: bool = False,
     strict_study: bool = False,
     forbid_report_notes: bool = False,
+    profile: str = "generic",
+    pattern_files: list[Path] | None = None,
 ) -> list[VaultIssue]:
     files = markdown_files(root)
     issues: list[VaultIssue] = []
     stems: dict[str, list[Path]] = {}
+    residue_patterns = profile_patterns(profile, pattern_files)
 
     for path in files:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -86,8 +122,10 @@ def find_vault_issues(
                 issues.append(relative_issue(root, path, "conflict_marker", f"line {line_number} contains merge conflict marker"))
             if TEMPLATE_RE.search(line):
                 issues.append(relative_issue(root, path, "template_residue", f"line {line_number} contains leftover template text"))
-            if strict_study and STRICT_STUDY_RE.search(line):
-                issues.append(relative_issue(root, path, "strict_study_residue", f"line {line_number} contains strict study-note residue"))
+            for residue_pattern in residue_patterns:
+                if residue_pattern.search(line):
+                    issues.append(relative_issue(root, path, "strict_study_residue", f"line {line_number} contains profile or custom study-note residue"))
+                    break
             if strict_study and line.strip() == "## 知识链接":
                 issues.append(relative_issue(root, path, "link_dump_section", f"line {line_number} contains a tail-style knowledge-link dump heading"))
             if strict_study and line.startswith("关联阅读：") and len(WIKI_LINK_RE.findall(line)) > 4:
@@ -123,7 +161,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Check Markdown vault quality issues.")
     parser.add_argument("root", type=Path, help="Vault or notes directory")
     parser.add_argument("--allow-duplicate-stems", action="store_true")
-    parser.add_argument("--strict-study", action="store_true", help="flag common study-note filler, stale titles, and old formula residue")
+    parser.add_argument("--strict-study", action="store_true", help="flag generic strict study-note link-placement issues")
+    parser.add_argument("--profile", choices=["generic", "solvenotes"], default="generic", help="quality profile for project-specific residue patterns")
+    parser.add_argument("--pattern-file", action="append", default=[], type=Path, help="custom residue pattern file; plain lines are literal text, regex:/re: lines are regular expressions")
     parser.add_argument("--forbid-report-notes", action="store_true", help="flag audit/report-style Markdown notes in the checked tree")
     args = parser.parse_args()
 
@@ -133,12 +173,17 @@ def main() -> int:
     if not root.is_dir():
         parser.error(f"root must be a directory: {root}")
 
-    issues = find_vault_issues(
-        root,
-        allow_duplicate_stems=args.allow_duplicate_stems,
-        strict_study=args.strict_study,
-        forbid_report_notes=args.forbid_report_notes,
-    )
+    try:
+        issues = find_vault_issues(
+            root,
+            allow_duplicate_stems=args.allow_duplicate_stems,
+            strict_study=args.strict_study,
+            forbid_report_notes=args.forbid_report_notes,
+            profile=args.profile,
+            pattern_files=args.pattern_file,
+        )
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
     print(f"vault_quality_issues {len(issues)}")
     for issue in issues:
         print(f"{issue.kind.upper()}: {issue.path}: {issue.message}")

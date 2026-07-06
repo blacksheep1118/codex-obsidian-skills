@@ -14,10 +14,12 @@ from pathlib import Path
 
 try:
     from .clean_latex_from_ppt import clean_text
+    from .extract_legacy_ppt_text import LegacyPptTextResult, extract_legacy_ppt_text
     from .extract_pptx_text import extract_pptx
     from .extract_pdf_text import extract_pdf
 except ImportError:
     from clean_latex_from_ppt import clean_text
+    from extract_legacy_ppt_text import LegacyPptTextResult, extract_legacy_ppt_text
     from extract_pptx_text import extract_pptx
     from extract_pdf_text import extract_pdf
 
@@ -36,6 +38,27 @@ class PipelineConfig:
     course_name: str = "Course"
     overview_name: str = "00_课程总览.md"
     create_review_placeholders: bool = True
+
+
+@dataclass
+class ExtractionResult:
+    actual_source: Path
+    text: str
+    backend: str
+    partial: bool = False
+    notes: list[str] | None = None
+    text_record_count: int | None = None
+
+
+@dataclass
+class ProcessedSource:
+    source: Path
+    raw: Path
+    cleaned: Path
+    backend: str
+    partial: bool = False
+    notes: list[str] | None = None
+    text_record_count: int | None = None
 
 
 def load_yaml_config(path: Path) -> dict:
@@ -84,17 +107,44 @@ def convert_legacy_ppt(path: Path, converted_dir: Path, soffice: str | None) -> 
     return convert_one(path, converted_dir, find_soffice(soffice))
 
 
-def extract_source(path: Path, config: PipelineConfig, converted_dir: Path) -> tuple[Path, str]:
+def legacy_ppt_fallback(path: Path, conversion_error: Exception) -> ExtractionResult:
+    try:
+        fallback: LegacyPptTextResult = extract_legacy_ppt_text(path)
+    except Exception as fallback_error:
+        raise RuntimeError(
+            "LibreOffice conversion failed or was unavailable, and OLE/CFB text-record fallback also failed. "
+            f"Conversion error: {conversion_error}; fallback error: {fallback_error}"
+        ) from fallback_error
+    notes = [
+        f"LibreOffice conversion failed or was unavailable: {conversion_error}",
+        "Used OLE/CFB text-record fallback; treat this as partial text evidence, not full slide coverage.",
+    ]
+    if fallback.text_record_count == 0:
+        notes.append("No legacy PPT text records were found; the file may be image-only or OCR-limited.")
+    return ExtractionResult(
+        actual_source=path,
+        text=fallback.markdown,
+        backend="legacy-ppt-ole-cfb-fallback",
+        partial=True,
+        notes=notes,
+        text_record_count=fallback.text_record_count,
+    )
+
+
+def extract_source(path: Path, config: PipelineConfig, converted_dir: Path) -> ExtractionResult:
     suffix = path.suffix.lower()
     actual = path
     if suffix == ".ppt":
-        actual = convert_legacy_ppt(path, converted_dir, config.soffice)
+        try:
+            actual = convert_legacy_ppt(path, converted_dir, config.soffice)
+        except Exception as exc:
+            return legacy_ppt_fallback(path, exc)
         suffix = ".pptx"
 
     if suffix == ".pptx":
-        return actual, extract_pptx(actual)
+        return ExtractionResult(actual_source=actual, text=extract_pptx(actual), backend="pptx")
     if suffix == ".pdf":
-        return actual, extract_pdf(actual)
+        return ExtractionResult(actual_source=actual, text=extract_pdf(actual), backend="pdf")
     raise ValueError(f"unsupported source type: {path}")
 
 
@@ -102,7 +152,7 @@ def safe_stem(path: Path) -> str:
     return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in path.stem)
 
 
-def write_manifest(config: PipelineConfig, processed: list[tuple[Path, Path, Path]]) -> None:
+def write_manifest(config: PipelineConfig, processed: list[ProcessedSource]) -> None:
     manifest = config.output_dir / "pipeline_manifest.md"
     lines = [
         f"# PPT/PDF To Obsidian Pipeline Manifest",
@@ -114,8 +164,15 @@ def write_manifest(config: PipelineConfig, processed: list[tuple[Path, Path, Pat
         "",
         "## Processed Sources",
     ]
-    for source, raw, cleaned in processed:
-        lines.append(f"- `{source}` -> `{raw.relative_to(config.output_dir)}` -> `{cleaned.relative_to(config.output_dir)}`")
+    for item in processed:
+        lines.append(f"- `{item.source}` -> `{item.raw.relative_to(config.output_dir)}` -> `{item.cleaned.relative_to(config.output_dir)}`")
+        lines.append(f"  - Extraction backend: `{item.backend}`")
+        if item.text_record_count is not None:
+            lines.append(f"  - Text records: {item.text_record_count}")
+        if item.partial:
+            lines.append("  - Coverage: partial/fallback extraction; do not claim complete source coverage from this artifact alone.")
+        for note in item.notes or []:
+            lines.append(f"  - Note: {note}")
 
     lines += [
         "",
@@ -156,7 +213,7 @@ def write_placeholders(config: PipelineConfig) -> None:
             path.write_text(f"# {config.course_name}{title}\n\n待根据 cleaned extraction 重写。\n", encoding="utf-8")
 
 
-def run(config: PipelineConfig) -> list[tuple[Path, Path, Path]]:
+def run(config: PipelineConfig) -> list[ProcessedSource]:
     sources = iter_sources(config.source)
     if not sources:
         raise SystemExit(f"no supported source files found in {config.source}")
@@ -167,14 +224,24 @@ def run(config: PipelineConfig) -> list[tuple[Path, Path, Path]]:
     raw_dir.mkdir(parents=True, exist_ok=True)
     cleaned_dir.mkdir(parents=True, exist_ok=True)
 
-    processed = []
+    processed: list[ProcessedSource] = []
     for source in sources:
-        actual_source, extracted = extract_source(source, config, converted_dir)
-        raw_path = raw_dir / f"{safe_stem(actual_source)}.md"
-        cleaned_path = cleaned_dir / f"{safe_stem(actual_source)}.md"
-        raw_path.write_text(extracted, encoding="utf-8")
-        cleaned_path.write_text(clean_text(extracted, unicode_math=config.unicode_math), encoding="utf-8")
-        processed.append((source, raw_path, cleaned_path))
+        extraction = extract_source(source, config, converted_dir)
+        raw_path = raw_dir / f"{safe_stem(extraction.actual_source)}.md"
+        cleaned_path = cleaned_dir / f"{safe_stem(extraction.actual_source)}.md"
+        raw_path.write_text(extraction.text, encoding="utf-8")
+        cleaned_path.write_text(clean_text(extraction.text, unicode_math=config.unicode_math), encoding="utf-8")
+        processed.append(
+            ProcessedSource(
+                source=source,
+                raw=raw_path,
+                cleaned=cleaned_path,
+                backend=extraction.backend,
+                partial=extraction.partial,
+                notes=extraction.notes,
+                text_record_count=extraction.text_record_count,
+            )
+        )
 
     write_manifest(config, processed)
     write_placeholders(config)

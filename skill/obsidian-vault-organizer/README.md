@@ -64,6 +64,7 @@ The Obsidian link checker itself only uses the Python standard library.
 └── scripts/
     ├── check_obsidian_links.py
     ├── check_vault_quality.py
+    ├── link_inventory.py
     └── validate_skill.py
 ```
 
@@ -103,6 +104,15 @@ py scripts\check_obsidian_links.py path\to\notes
 
 It covers Markdown links, `[[wiki]]`, `[[path/to/file]]`, and `[[path/to/file|alias]]`.
 
+Before and after broad cleanup, capture link coverage for comparison:
+
+```bash
+python3 scripts/link_inventory.py path/to/notes --format json --out before-links.json
+python3 scripts/link_inventory.py path/to/notes --format markdown --out after-links.md
+```
+
+The inventory includes per-file Markdown links, wiki links, external links, unique targets, total counts, and directory-level counts.
+
 ## Quality Check
 
 Run the read-only quality checker against a local vault or notes directory:
@@ -116,6 +126,14 @@ py scripts\check_vault_quality.py path\to\notes
 ```
 
 It reports empty files, conflict markers, unbalanced code fences, unbalanced block math, duplicate note stems, and leftover template text.
+
+The default profile is generic and only applies broadly reusable quality checks. Use the solvenotes profile only for solvenotes-specific study-note residue:
+
+```bash
+python3 scripts/check_vault_quality.py --profile solvenotes path/to/notes
+```
+
+Add custom residue patterns with `--pattern-file`. Plain lines are treated as literal text; lines starting with `regex:` or `re:` are compiled as regular expressions.
 
 See [../../docs/dry-run-mode.md](../../docs/dry-run-mode.md) for the expected dry-run report shape when using this skill from the full repository.
 

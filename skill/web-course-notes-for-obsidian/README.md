@@ -39,7 +39,7 @@ py -m pip install -r requirements-dev.txt
 ## What It Produces
 
 - A collection folder inside the user's Obsidian notes directory, either under a matching existing category or under `网络资源/`.
-- `source_manifest.md` with URLs, titles, descriptions, and detected resource types.
+- `source_manifest.md` with original sources, canonical URLs, titles, descriptions, detected resource types, access status, and per-source errors.
 - `00_学习地图.md` as the entry point for each imported web resource collection.
 - Detailed Obsidian Markdown notes from course videos, slide pages, book chapters, direct PDFs, or mixed learning pages.
 - `00_课程总览.md`, `00_学习地图.md`, or `00_阅读地图.md`.
@@ -74,7 +74,7 @@ python3 scripts/collect_web_sources.py examples/sample-web-course/index.html --o
 py scripts\collect_web_sources.py examples\sample-web-course\index.html --out source_manifest.md
 ```
 
-The script detects page titles, descriptions, canonical URLs, and links that look like videos, slides, PDFs, transcripts, book pages, chapters, or generic course pages.
+The script detects page titles, descriptions, canonical URLs, and links that look like videos, slides, PDFs, transcripts, book pages, chapters, or generic course pages. It processes each input source independently: if one URL or local HTML file cannot be read, the manifest still keeps that source with an access status, source type guess, and error summary.
 
 Direct PDF/PPT/transcript/book URLs are recorded as resources without parsing their binary content as HTML:
 
@@ -98,6 +98,15 @@ The script inspects existing top-level folders under `--notes-dir`. For CVPR/ima
 
 `create_web_notes.py` is a deterministic placement and scaffolding helper. Its generated notes are marked `status: scaffold`; Codex should then read or extract the accessible source content, inspect nearby notes in the destination category, and replace the scaffold placeholders with a finished note before reporting the task as complete.
 
+Choose scaffold language explicitly when needed:
+
+```bash
+python3 scripts/create_web_notes.py https://example.com/course --notes-dir ~/notes --language en
+python3 scripts/create_web_notes.py https://example.com/course --notes-dir ~/notes --language zh
+```
+
+`--language auto` picks Chinese when the inputs or collected titles contain Chinese characters and English otherwise. The default remains Chinese for backward-compatible vault output.
+
 ## Validation
 
 Validate the skill metadata and bundled-resource references:
@@ -113,6 +122,14 @@ py scripts\validate_skill.py
 py -m compileall scripts
 py -m pytest
 ```
+
+Before final delivery of a generated collection, run the web-note checker with every user-supplied source:
+
+```bash
+python3 scripts/check_web_notes.py /path/to/collection --source https://example.com/course
+```
+
+Use `--per-link-notes` when the user requested one note per listed resource. The checker verifies source coverage, scaffold residue, and per-link note coverage or explicit skipped/inaccessible status.
 
 ## Safety
 

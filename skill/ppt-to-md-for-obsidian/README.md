@@ -67,6 +67,7 @@ py -m pip install -r "$env:USERPROFILE\.codex\skills\ppt-to-md-for-obsidian\requ
 │   ├── check_source_coverage.py
 │   ├── clean_latex_from_ppt.py
 │   ├── convert_ppt_to_pptx.py
+│   ├── extract_legacy_ppt_text.py
 │   ├── extract_pdf_text.py
 │   ├── extract_pptx_text.py
 │   ├── ppt_to_obsidian_pipeline.py
@@ -141,6 +142,14 @@ The converter searches for `soffice`, `soffice.exe`, `libreoffice`, `libreoffice
 
 Then run the PPTX extractor on the converted file.
 
+The one-command pipeline also starts with LibreOffice for `.ppt` files. If LibreOffice is unavailable or conversion fails, it falls back to the bundled read-only OLE/CFB text-record extractor:
+
+```bash
+python3 scripts/extract_legacy_ppt_text.py path/to/slides.ppt --out extracted.md
+```
+
+Fallback extraction is partial by design. The output and pipeline manifest report the fallback backend and text-record count, and should be treated as text hints rather than complete slide coverage.
+
 ## PDF Text Extraction
 
 For PDF courseware:
@@ -153,7 +162,7 @@ python3 scripts/extract_pdf_text.py path/to/slides.pdf --out extracted.md
 py scripts\extract_pdf_text.py path\to\slides.pdf --out extracted.md
 ```
 
-The PDF extractor uses `pypdf` by default and falls back to `pdfplumber` if installed.
+The PDF extractor tries `pypdf`, then `pdfplumber`, then the `pdftotext` CLI. If a backend returns all-empty pages or very low text coverage, the script continues to the next backend and reports the selected backend, page count, empty-text page count, and text character count in the Markdown output.
 
 ## Formula Cleanup
 
@@ -196,6 +205,16 @@ py scripts\check_course_notes.py examples\sample-course\notes
 ```
 
 The checker verifies the overview page, detailed and concise review pages, review links, empty files, conflict markers, template residue, fenced code blocks, and block math delimiters.
+
+When checking a broader notes tree that contains non-course generated indexes or audit folders, exclude them by directory name:
+
+```bash
+python3 scripts/check_course_notes.py --skip-dir 概念索引 --skip-dir 生成审查 notes
+```
+
+```powershell
+py scripts\check_course_notes.py --skip-dir 概念索引 --skip-dir 生成审查 notes
+```
 
 ## Source Coverage Evidence Check
 

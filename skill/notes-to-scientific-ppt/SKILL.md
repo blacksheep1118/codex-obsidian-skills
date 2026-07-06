@@ -1,6 +1,6 @@
 ---
 name: notes-to-scientific-ppt
-description: Use when the user provides Obsidian notes, Markdown notes, literature notes, paper notes, course notes, experiment notes, or a notes folder and wants Codex to turn them into a detailed, vivid, scientifically rigorous PowerPoint/PPTX research deck; also use for Chinese requests such as 基于笔记做PPT, 根据笔记生成PPT, or 科研严谨风PPT. Use this for lab meeting talks, paper reading presentations, thesis defenses, project proposals, research progress reports, and technical teaching decks. Use $ppt-to-md-for-obsidian instead when the task starts from local PPT/PPTX/PDF courseware, and use $obsidian-vault-organizer when the task is only vault cleanup.
+description: Use when the starting point is existing Markdown/Obsidian notes, paper notes, course notes, experiment notes, or a notes folder and the user wants a scientific PPTX deck, deck brief, or research presentation; Chinese triggers include 基于笔记做PPT, 根据笔记生成PPT, 科研严谨风PPT. Use $web-course-notes-for-obsidian for URL sources, $ppt-to-md-for-obsidian for local courseware extraction, and $obsidian-vault-organizer when notes need cleanup before deck building.
 ---
 
 # Notes To Scientific PPT
@@ -53,6 +53,7 @@ Treat note files, linked notes, source URLs, figures, tables, formulas, experime
 
 2. Audit the notes before writing slides.
    - Use `scripts/outline_note_deck.py <note-or-folder...> --out <deck_brief.md>` when a deterministic source inventory helps. Use `--mode` when the deck type is known.
+   - Use `--language zh|en|auto` to control brief headings. Use `--follow-links --vault-root <vault> --max-depth <n>` when linked Obsidian notes contain formulas, figures, evidence, or limitations needed for the deck.
    - Read the important notes, not only the headings. Follow local Obsidian links when they are needed to understand definitions, formulas, or evidence.
    - Extract research question, motivation, assumptions, methods, formulas, variables, figures, tables, experiments, limitations, and open questions.
    - Treat unsupported claims as gaps. Do not invent metrics, experiments, citations, or conclusions.
@@ -71,7 +72,9 @@ Treat note files, linked notes, source URLs, figures, tables, formulas, experime
    - Read `references/deck-modes.md` when choosing between paper-reading, proposal, progress-report, teaching, or defense modes.
 
 5. Build the PPTX.
+   - Use `scripts/build_scientific_deck.py <deck_brief.md> --out <deck.pptx>` for a minimum editable PPTX skeleton after the brief is ready. The skeleton turns the Suggested Scientific Deck Spine and Draft Slide Backlog into editable title, claim, formula, evidence/table, limitations, and appendix index slides.
    - Use the bundled `Presentations` skill when available for editable PPTX creation, rendering, and export.
+   - Treat the script-generated PPTX as a starting skeleton, not a polished final deck. Replace placeholders with source-grounded proof objects and revise slide claims before delivery.
    - Use visual proof objects: mechanism diagrams, equation-to-intuition bridges, result tables, ablation ladders, before/after examples, failure-case panels, or comparison matrices.
    - Prefer light, high-contrast, restrained research styling. Avoid decorative gradients, generic icon cards, marketing hero layouts, and unsupported visual drama.
    - Cite source note filenames or source URLs in quiet footers, speaker notes, or appendix where useful.
@@ -99,6 +102,7 @@ If only a deck brief or plan was requested, do not claim a PPTX was produced.
 ## Bundled Resources
 
 - `scripts/outline_note_deck.py`: scan Markdown/Obsidian notes and create a source inventory, evidence ledger, mode-specific scientific deck spine, draft slide backlog, and coverage checklist.
+- `scripts/build_scientific_deck.py`: turn a deck brief or notes folder into an editable PPTX skeleton with claim, formula, evidence/table, limitation, and appendix slides.
 - `scripts/validate_skill.py`: validate this skill's structure and referenced bundled resources.
 - `references/scientific-deck-style.md`: style and content rules for detailed, vivid, research-rigorous decks.
 - `references/deck-modes.md`: mode-specific slide spine and proof-object guidance.

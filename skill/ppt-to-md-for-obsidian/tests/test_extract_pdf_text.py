@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from scripts import extract_pdf_text
 from scripts.extract_pdf_text import extract_pdf
 
 
@@ -41,5 +42,41 @@ def test_extract_pdf_handles_blank_pdf(tmp_path: Path):
     output = extract_pdf(pdf)
 
     assert "# Extracted PDF Text: blank.pdf" in output
+    assert "- Backend:" in output
+    assert "- Pages: 1" in output
+    assert "- Empty text pages: 1" in output
     assert "## Page 1" in output
     assert "[No extractable text]" in output
+
+
+def test_extract_pdf_falls_back_when_first_backend_is_all_empty(monkeypatch, tmp_path: Path):
+    pdf = tmp_path / "slides.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    calls: list[str] = []
+
+    def empty_pypdf(path: Path) -> list[str]:
+        calls.append("pypdf")
+        return ["", ""]
+
+    def useful_pdfplumber(path: Path) -> list[str]:
+        calls.append("pdfplumber")
+        return [
+            "This page has enough extracted course text to pass the coverage heuristic.",
+            "This second page also has enough extracted text for the fallback backend.",
+        ]
+
+    def unused_pdftotext(path: Path) -> list[str]:
+        calls.append("pdftotext")
+        return ["should not be used"]
+
+    monkeypatch.setattr(extract_pdf_text, "extract_with_pypdf", empty_pypdf)
+    monkeypatch.setattr(extract_pdf_text, "extract_with_pdfplumber", useful_pdfplumber)
+    monkeypatch.setattr(extract_pdf_text, "extract_with_pdftotext", unused_pdftotext)
+
+    output = extract_pdf(pdf)
+
+    assert calls == ["pypdf", "pdfplumber"]
+    assert "- Backend: `pdfplumber`" in output
+    assert "- Pages: 2" in output
+    assert "- Empty text pages: 0" in output
+    assert "enough extracted course text" in output

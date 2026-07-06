@@ -35,12 +35,22 @@ class LinkRecord:
 
 @dataclass(frozen=True)
 class PageRecord:
-    source: str
+    original_source: str
+    canonical_url: str
     title: str
-    url: str
     kind: str
+    access_status: str
     description: str
+    error: str
     links: tuple[LinkRecord, ...]
+
+    @property
+    def source(self) -> str:
+        return self.original_source
+
+    @property
+    def url(self) -> str:
+        return self.canonical_url
 
 
 class LearningHTMLParser(HTMLParser):
@@ -138,6 +148,13 @@ def read_source(source_url: str, timeout: float = 15.0) -> str:
         return response.read().decode(encoding, errors="replace")
 
 
+def error_summary(exc: BaseException) -> str:
+    text = normalize_space(str(exc))
+    if not text:
+        text = exc.__class__.__name__
+    return text[:240]
+
+
 def classify_url(url: str, label: str = "") -> str:
     parsed = urlparse(url)
     path = parsed.path.lower()
@@ -167,11 +184,13 @@ def collect_page(source: str, timeout: float = 15.0) -> PageRecord:
     source_kind = classify_url(source_url)
     if source_kind in DIRECT_RESOURCE_KINDS:
         return PageRecord(
-            source=source,
+            original_source=source,
+            canonical_url=source_url,
             title=title_from_url(source_url),
-            url=source_url,
             kind=source_kind,
+            access_status="recorded",
             description=f"Direct {source_kind.replace('_', ' ')} resource collected from the input URL.",
+            error="",
             links=(),
         )
 
@@ -191,13 +210,36 @@ def collect_page(source: str, timeout: float = 15.0) -> PageRecord:
         links.append(LinkRecord(source=page_url, title=label or absolute, url=absolute, kind=kind))
 
     return PageRecord(
-        source=source,
+        original_source=source,
+        canonical_url=page_url,
         title=title,
-        url=page_url,
         kind=page_kind,
+        access_status="ok",
         description=parser.description,
+        error="",
         links=tuple(dedupe_links(links)),
     )
+
+
+def collect_source(source: str, timeout: float = 15.0) -> PageRecord:
+    try:
+        return collect_page(source, timeout=timeout)
+    except Exception as exc:
+        try:
+            source_url = source_to_url(source)
+        except Exception:
+            source_url = source
+        source_kind = classify_url(source_url)
+        return PageRecord(
+            original_source=source,
+            canonical_url=source_url,
+            title=title_from_url(source_url),
+            kind=source_kind,
+            access_status="inaccessible",
+            description="Source could not be read; kept for manifest coverage.",
+            error=error_summary(exc),
+            links=(),
+        )
 
 
 def dedupe_links(links: Iterable[LinkRecord]) -> list[LinkRecord]:
@@ -213,7 +255,7 @@ def dedupe_links(links: Iterable[LinkRecord]) -> list[LinkRecord]:
 
 
 def collect_sources(sources: list[str], timeout: float = 15.0) -> list[PageRecord]:
-    return [collect_page(source, timeout=timeout) for source in sources]
+    return [collect_source(source, timeout=timeout) for source in sources]
 
 
 def markdown_escape_cell(value: str) -> str:
@@ -226,12 +268,15 @@ def build_manifest(pages: list[PageRecord]) -> str:
         "",
         "## Pages",
         "",
-        "| Kind | Title | URL | Description |",
-        "| --- | --- | --- | --- |",
+        "| Kind | Title | Original Source | URL | Access | Status | Error | Description |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for page in pages:
+        status = "ok" if page.access_status == "ok" else page.access_status.replace("_", " ")
         lines.append(
-            f"| {page.kind} | {markdown_escape_cell(page.title)} | {markdown_escape_cell(page.url)} | {markdown_escape_cell(page.description)} |"
+            f"| {page.kind} | {markdown_escape_cell(page.title)} | {markdown_escape_cell(page.original_source)} | "
+            f"{markdown_escape_cell(page.canonical_url)} | {page.access_status} | {status} | "
+            f"{markdown_escape_cell(page.error)} | {markdown_escape_cell(page.description)} |"
         )
 
     lines.extend(
@@ -275,12 +320,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=15.0, help="HTTP timeout in seconds")
     args = parser.parse_args()
 
-    try:
-        pages = collect_sources(args.sources, timeout=args.timeout)
-    except OSError as exc:
-        print(f"ERROR: failed to read source: {exc}", file=sys.stderr)
-        return 1
-
+    pages = collect_sources(args.sources, timeout=args.timeout)
     manifest = build_manifest(pages)
     if args.out:
         args.out.write_text(manifest, encoding="utf-8")

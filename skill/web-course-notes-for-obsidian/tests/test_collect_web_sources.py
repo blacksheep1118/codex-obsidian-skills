@@ -7,6 +7,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from scripts import collect_web_sources
 from scripts.collect_web_sources import build_manifest, classify_url, collect_sources, collect_page, normalize_url
 
 
@@ -24,6 +25,10 @@ def test_collect_sources_from_local_html_fixture():
 
     assert len(pages) == 1
     page = pages[0]
+    assert page.original_source == str(fixture)
+    assert page.canonical_url == "https://example.edu/ml-mini-course/"
+    assert page.access_status == "ok"
+    assert page.error == ""
     assert page.title == "Machine Learning Mini Course"
     assert page.kind == "course_page"
     assert page.description.startswith("A small course index")
@@ -33,21 +38,50 @@ def test_collect_sources_from_local_html_fixture():
 
     manifest = build_manifest(pages)
     assert "# Source Manifest" in manifest
+    assert "| Kind | Title | Original Source | URL | Access | Status | Error | Description |" in manifest
+    assert "| course_page | Machine Learning Mini Course |" in manifest
     assert "Lecture 01 Video" in manifest
     assert "Lecture 01 Slides" in manifest
     assert "Book Chapter 02" in manifest
 
 
-def test_collect_sources_accepts_direct_pdf_url_without_reading_binary():
+def test_collect_sources_accepts_direct_pdf_url_without_reading_binary(monkeypatch):
+    def fail_read(source_url: str, timeout: float = 15.0) -> str:
+        raise AssertionError("direct PDF URL should not be parsed as HTML")
+
+    monkeypatch.setattr(collect_web_sources, "read_source", fail_read)
+
     pages = collect_sources(["https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf"])
 
     assert len(pages) == 1
     page = pages[0]
     assert page.kind == "pdf"
+    assert page.access_status == "recorded"
+    assert page.error == ""
     assert page.title == "Zhu From Noise Modeling CVPR 2016 paper"
 
     manifest = build_manifest(pages)
-    assert "| pdf | Zhu From Noise Modeling CVPR 2016 paper |" in manifest
+    assert "| pdf | Zhu From Noise Modeling CVPR 2016 paper | https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf |" in manifest
+    assert "| pdf | Zhu From Noise Modeling CVPR 2016 paper | https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf | https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf |" in manifest
+
+
+def test_collect_sources_preserves_inaccessible_source_in_manifest(tmp_path: Path):
+    missing = tmp_path / "missing-course.html"
+
+    pages = collect_sources([str(missing)])
+
+    assert len(pages) == 1
+    page = pages[0]
+    assert page.original_source == str(missing)
+    assert page.kind == "course_page"
+    assert page.access_status == "inaccessible"
+    assert page.error
+    assert page.links == ()
+
+    manifest = build_manifest(pages)
+    assert "inaccessible" in manifest
+    assert "missing-course.html" in manifest
+    assert "Source could not be read" in manifest
 
 
 def test_collect_page_accepts_file_uri_with_spaces(tmp_path: Path):

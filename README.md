@@ -17,6 +17,8 @@ This is a skill collection, not a single monolithic skill. Each installable skil
 
 The skills are split so their trigger boundaries stay clear. Use `web-course-notes-for-obsidian` when the task starts from URLs. Use `ppt-to-md-for-obsidian` when the task starts from local slide/courseware files. Use `obsidian-vault-organizer` when the task is vault cleanup. Use `notes-to-scientific-ppt` when the task starts from notes and the desired output is a research PPT.
 
+See [Skill Routing](docs/routing.md) for cross-skill boundaries and mixed workflow handoffs.
+
 ## What This Helps With
 
 - Convert lecture slides into readable Obsidian study notes instead of raw slide dumps.
@@ -127,30 +129,22 @@ py scripts\update_installed_skills.py --all --prune --self-check
 After installing, ask Codex for the workflow you want:
 
 ```text
-把这个课程视频网站、PPT 网站和书籍网站整理成 Obsidian 笔记，先生成 source_manifest.md。
+Use $web-course-notes-for-obsidian for these course URLs. Build source_manifest.md first, keep inaccessible sources marked, then create source-linked Obsidian notes.
 ```
 
 ```text
-把这个论文 PDF 链接归类到我的 notes 文件夹里，新增学习地图和论文笔记。
+Use $ppt-to-md-for-obsidian for these local PPT/PPTX/PDF courseware files. Extract the source text, build a coverage map, and write Obsidian course notes with formulas and review pages.
 ```
 
 ```text
-把这组 PPT 课件转成 Obsidian 章节笔记，保留公式解释、课程总览和复习页。
+Use $obsidian-vault-organizer for this existing vault. Audit links, duplicate stems, navigation, and note quality before editing; keep source files read-only.
 ```
 
 ```text
-检查这个 Obsidian vault，修复断链，合并重复主题笔记，并更新学习地图。
+Use $notes-to-scientific-ppt for this notes folder. Create a deck brief first, then build an editable scientific PPTX skeleton with claim, formula, evidence, limitations, and appendix slides.
 ```
 
-```text
-把新增 PDF 课件合并进已有课程笔记，不要移动或改名源文件。
-```
-
-```text
-把这些 Obsidian 笔记做成科研严谨风 PPT，要求详细、生动、公式和实验都讲清楚。
-```
-
-When a task includes both source courseware and an existing vault, start with `ppt-to-md-for-obsidian` for extraction and drafting, then use `obsidian-vault-organizer` for vault cleanup and link validation.
+When a task crosses sources, notes, cleanup, and deck creation, follow the handoff examples in [Skill Routing](docs/routing.md).
 
 ## Repository Layout
 
@@ -237,12 +231,24 @@ Root management tools include:
 - `install_skill.py`: copy one or all skills into a Codex skills directory and run a self-check.
 - `update_installed_skills.py`: refresh installed skill folders from this repository without backups.
 - `validate_all.py`: run the full CI-style validation suite locally.
+- `package_release.py`: create a clean release zip without Git internals, caches, build outputs, or macOS metadata.
 - `check_openai_yaml_sync.py`: check `SKILL.md` and `agents/openai.yaml` consistency.
-- `check_shared_link_checker.py`: keep shared link-checker copies synchronized.
+- `sync_shared_resources.py`: check or rewrite skill-local copies generated from canonical shared scripts and templates.
+- `check_shared_link_checker.py`: compatibility wrapper for the shared-resource synchronization check.
 
 ## Validation
 
 GitHub Actions runs the full validation suite across Ubuntu, macOS, and Windows. Ubuntu is tested on Python 3.9, 3.11, and 3.12; macOS and Windows are tested on Python 3.11. Locally, run:
+
+```bash
+python3 -m pytest
+```
+
+```powershell
+py -m pytest
+```
+
+The root `python -m pytest` entry point is the fast repository check and only collects tests from the root `tests/` directory. To run every skill-local test and validation script in isolation, run:
 
 ```bash
 python3 scripts/validate_all.py
@@ -256,13 +262,13 @@ Focused checks are also available:
 
 ```bash
 python3 scripts/check_openai_yaml_sync.py
-python3 scripts/check_shared_link_checker.py
+python3 scripts/sync_shared_resources.py --check
 python3 scripts/install_skill.py --all --dry-run --self-check
 ```
 
 ```powershell
 py scripts\check_openai_yaml_sync.py
-py scripts\check_shared_link_checker.py
+py scripts\sync_shared_resources.py --check
 py scripts\install_skill.py --all --dry-run --self-check
 ```
 
@@ -337,6 +343,7 @@ py scripts\outline_note_deck.py examples\sample-notes --out "$env:TEMP\scientifi
 - [Compatibility](docs/compatibility.md)
 - [Dry-run organization mode](docs/dry-run-mode.md)
 - [License policy](docs/license-policy.md)
+- [Skill routing](docs/routing.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security](SECURITY.md)
 - [Changelog](CHANGELOG.md)

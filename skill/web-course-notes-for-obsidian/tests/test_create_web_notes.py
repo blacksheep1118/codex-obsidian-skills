@@ -45,6 +45,7 @@ def test_create_web_notes_classifies_cvpr_pdf_into_existing_vision_folder(tmp_pa
     assert "## 关键公式与变量" in note_text
     assert "## 方法比较" in note_text
     assert "## 精简复习" in note_text
+    assert "## Problem Background" not in note_text
     assert "## 初步笔记" not in note_text
 
     map_text = (collection_dir / "00_学习地图.md").read_text(encoding="utf-8")
@@ -59,3 +60,25 @@ def test_create_web_notes_uses_network_resource_folder_when_no_category_matches(
     run_script("https://example.com/readings/book.pdf", "--notes-dir", str(notes_dir), "--title", "Small Course")
 
     assert (notes_dir / "网络资源" / "Small Course" / "00_学习地图.md").exists()
+
+
+def test_create_web_notes_can_write_english_scaffold(tmp_path: Path):
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+
+    run_script(
+        "https://example.com/readings/chapter-01",
+        "--notes-dir",
+        str(notes_dir),
+        "--title",
+        "Reading Course",
+        "--language",
+        "en",
+    )
+
+    note = notes_dir / "网络资源" / "Reading Course" / "01_Reading Course.md"
+    note_text = note.read_text(encoding="utf-8")
+    assert "## Problem Background" in note_text
+    assert "## Core Idea" in note_text
+    assert "To complete:" in note_text
+    assert "## 问题背景" not in note_text

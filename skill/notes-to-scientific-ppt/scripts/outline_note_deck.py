@@ -15,10 +15,15 @@ import sys
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
 MD_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
 WIKI_LINK_RE = re.compile(r"\[\[([^\]\n]+)\]\]")
+WIKI_EMBED_RE = re.compile(r"!\[\[([^\]\n]+)\]\]")
 IMAGE_RE = re.compile(r"!\[[^\]\n]*\]\(([^)]+)\)")
 MATH_BLOCK_RE = re.compile(r"(?ms)^\s*\$\$\s*$.*?^\s*\$\$\s*$")
 URL_RE = re.compile(r"https?://[^\s)>\]]+")
+CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+LATIN_WORD_RE = re.compile(r"[A-Za-z0-9_]+")
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".tif", ".tiff")
 MODE_CHOICES = ("auto", "paper-reading", "proposal", "progress-report", "teaching", "defense")
+LANGUAGE_CHOICES = ("zh", "en", "auto")
 MODE_LABELS = {
     "paper-reading": "paper reading",
     "proposal": "research proposal",
@@ -110,6 +115,7 @@ class NoteSummary:
     markdown_links: tuple[str, ...]
     wiki_links: tuple[str, ...]
     image_count: int
+    attachment_count: int
     table_count: int
     math_block_count: int
     word_count: int
@@ -137,6 +143,68 @@ def markdown_files(inputs: list[Path]) -> list[Path]:
     return sorted(dict.fromkeys(files))
 
 
+def split_wiki_target(value: str) -> str:
+    return value.split("|", 1)[0].split("#", 1)[0].strip()
+
+
+def build_vault_index(vault_root: Path) -> dict[str, list[Path]]:
+    files = markdown_files([vault_root])
+    index: dict[str, list[Path]] = {}
+    for path in files:
+        index.setdefault(path.stem, []).append(path)
+        try:
+            index.setdefault(str(path.relative_to(vault_root).with_suffix("")), []).append(path)
+        except ValueError:
+            pass
+    return index
+
+
+def resolve_wiki_link(target: str, source: Path, vault_root: Path, index: dict[str, list[Path]]) -> Path | None:
+    cleaned = split_wiki_target(target)
+    if not cleaned:
+        return None
+    candidate_names = [cleaned]
+    if cleaned.endswith(".md"):
+        candidate_names.append(cleaned[:-3])
+    for base in (source.parent, vault_root):
+        for name in candidate_names:
+            candidate = (base / name).resolve()
+            if candidate.is_file() and candidate.suffix.lower() == ".md":
+                return candidate
+            if not str(candidate).endswith(".md") and candidate.with_suffix(".md").is_file():
+                return candidate.with_suffix(".md")
+    hits = index.get(cleaned) or index.get(cleaned.removesuffix(".md"))
+    return hits[0] if hits else None
+
+
+def collect_linked_markdown_files(inputs: list[Path], vault_root: Path, max_depth: int) -> list[Path]:
+    seed_files = markdown_files(inputs)
+    vault_root = vault_root.expanduser().resolve()
+    index = build_vault_index(vault_root)
+    seen = {path.resolve() for path in seed_files}
+    queue: list[tuple[Path, int]] = [(path.resolve(), 0) for path in seed_files]
+    result = list(seed_files)
+
+    while queue:
+        path, depth = queue.pop(0)
+        if depth >= max_depth:
+            continue
+        text = strip_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
+        for raw_target in WIKI_LINK_RE.findall(text):
+            if raw_target.startswith("!"):
+                continue
+            target = resolve_wiki_link(raw_target, path, vault_root, index)
+            if target is None:
+                continue
+            resolved = target.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            result.append(target)
+            queue.append((resolved, depth + 1))
+    return sorted(dict.fromkeys(result))
+
+
 def strip_frontmatter(text: str) -> str:
     if text.startswith("---\n"):
         end = text.find("\n---\n", 4)
@@ -154,23 +222,43 @@ def count_tables(text: str) -> int:
     return count
 
 
+def count_words_for_notes(text: str) -> int:
+    cjk_count = len(CJK_RE.findall(text))
+    latin_count = len(LATIN_WORD_RE.findall(CJK_RE.sub(" ", text)))
+    return cjk_count + latin_count
+
+
+def classify_wiki_embeds(text: str) -> tuple[int, int]:
+    image_embeds = 0
+    attachment_embeds = 0
+    for embed in WIKI_EMBED_RE.findall(text):
+        target = split_wiki_target(embed).lower()
+        if target.endswith(IMAGE_EXTENSIONS):
+            image_embeds += 1
+        else:
+            attachment_embeds += 1
+    return image_embeds, attachment_embeds
+
+
 def summarize_note(path: Path) -> NoteSummary:
     text = strip_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
     headings = tuple(Heading(len(mark.group(1)), mark.group(2).strip()) for mark in HEADING_RE.finditer(text))
     title = next((heading.text for heading in headings if heading.level == 1), path.stem)
     markdown_links = tuple(sorted(set(MD_LINK_RE.findall(text) + URL_RE.findall(text))))
-    wiki_links = tuple(sorted(set(WIKI_LINK_RE.findall(text))))
-    words = re.findall(r"[\w\u4e00-\u9fff]+", text)
+    wiki_embeds = set(WIKI_EMBED_RE.findall(text))
+    wiki_links = tuple(sorted(set(WIKI_LINK_RE.findall(text)) - wiki_embeds))
+    image_embeds, attachment_embeds = classify_wiki_embeds(text)
     return NoteSummary(
         path=path,
         title=title,
         headings=headings,
         markdown_links=markdown_links,
         wiki_links=wiki_links,
-        image_count=len(IMAGE_RE.findall(text)),
+        image_count=len(IMAGE_RE.findall(text)) + image_embeds,
+        attachment_count=attachment_embeds,
         table_count=count_tables(text),
         math_block_count=len(MATH_BLOCK_RE.findall(text)),
-        word_count=len(words),
+        word_count=count_words_for_notes(text),
         text=text,
     )
 
@@ -195,8 +283,8 @@ def source_inventory(summaries: list[NoteSummary], root: Path | None) -> list[st
     lines = [
         "## Source Inventory",
         "",
-        "| Note | Title | Headings | Links | Figures | Tables | Math blocks | Words |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Note | Title | Headings | Links | Figures | Attachments | Tables | Math blocks | Words |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for summary in summaries:
         link_count = len(summary.markdown_links) + len(summary.wiki_links)
@@ -209,6 +297,7 @@ def source_inventory(summaries: list[NoteSummary], root: Path | None) -> list[st
                     str(len(summary.headings)),
                     str(link_count),
                     str(summary.image_count),
+                    str(summary.attachment_count),
                     str(summary.table_count),
                     str(summary.math_block_count),
                     str(summary.word_count),
@@ -333,8 +422,7 @@ def suggested_spine(max_slides: int, mode: str) -> list[str]:
     }
     base = spines[mode]
     if max_slides < len(base):
-        keep = max(6, max_slides)
-        return base[: keep - 2] + ["Limitations and discussion", "Appendix"]
+        return base[: max(1, max_slides)]
     return base[:max_slides]
 
 
@@ -526,13 +614,65 @@ def coverage_checklist() -> list[str]:
     ]
 
 
-def build_brief(inputs: list[Path], title: str | None, audience: str, max_slides: int, mode: str) -> str:
-    files = markdown_files(inputs)
+def detect_language(summaries: list[NoteSummary], requested_language: str) -> str:
+    if requested_language in {"zh", "en"}:
+        return requested_language
+    corpus = "\n".join([summary.title for summary in summaries] + [summary.text[:1200] for summary in summaries])
+    return "zh" if len(CJK_RE.findall(corpus)) >= 8 else "en"
+
+
+def localize_brief(text: str, language: str) -> str:
+    if language != "zh":
+        return text
+    replacements = {
+        "Created:": "创建日期:",
+        "This deck brief inventories source notes before building a rigorous scientific PPT. It is a planning artifact, not the final deck.": "本 deck brief 用于在构建科研严谨风 PPT 前盘点来源笔记、证据和缺口；它是规划稿，不是最终 PPT。",
+        "## Source Inventory": "## 来源盘点",
+        "## Extracted Note Structure": "## 笔记结构提取",
+        "## Evidence Ledger": "## 证据台账",
+        "## Suggested Scientific Deck Spine": "## 建议科学演示主线",
+        "## Draft Slide Backlog": "## 草稿幻灯片待办",
+        "## Coverage Checklist": "## 覆盖检查清单",
+        "## Missing Inputs To Check": "## 待确认输入",
+        "Deck Mode:": "演示模式:",
+        "Audience:": "听众:",
+        "Target main-slide count:": "目标主幻灯片数量:",
+        "Style:": "风格:",
+        "Use this as a source-grounded backlog for a": "将此作为有来源依据的",
+        "deck. Convert each item into a claim-title slide or appendix item; do not paste note paragraphs directly.": "演示待办。把每项改写成 claim-title 幻灯片或 appendix 项，不要直接粘贴笔记段落。",
+        "## Notes": "## 笔记",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
+
+
+def gather_files(inputs: list[Path], follow_links: bool = False, vault_root: Path | None = None, max_depth: int = 1) -> list[Path]:
+    if not follow_links:
+        return markdown_files(inputs)
+    if vault_root is None:
+        raise ValueError("--vault-root is required when --follow-links is used")
+    return collect_linked_markdown_files(inputs, vault_root, max_depth=max_depth)
+
+
+def build_brief(
+    inputs: list[Path],
+    title: str | None,
+    audience: str,
+    max_slides: int,
+    mode: str,
+    language: str = "auto",
+    follow_links: bool = False,
+    vault_root: Path | None = None,
+    max_depth: int = 1,
+) -> str:
+    files = gather_files(inputs, follow_links=follow_links, vault_root=vault_root, max_depth=max_depth)
     if not files:
         raise ValueError("no Markdown note files found")
     summaries = [summarize_note(path) for path in files]
     root = find_common_root(files)
     detected_mode = detect_mode(summaries, mode)
+    detected_language = detect_language(summaries, language)
     deck_title = title or (summaries[0].title if len(summaries) == 1 else f"{summaries[0].title} 等 {len(summaries)} 篇笔记")
     lines = [
         f"# {deck_title}",
@@ -548,7 +688,7 @@ def build_brief(inputs: list[Path], title: str | None, audience: str, max_slides
     lines.extend(deck_spine(deck_title, audience, max_slides, detected_mode))
     lines.extend(draft_slide_backlog(summaries, root, detected_mode))
     lines.extend(coverage_checklist())
-    return "\n".join(lines)
+    return localize_brief("\n".join(lines), detected_language)
 
 
 def main() -> int:
@@ -560,10 +700,24 @@ def main() -> int:
     parser.add_argument("--audience", default="research seminar", help="Target audience or talk context")
     parser.add_argument("--max-slides", type=int, default=18, help="Target main-slide count")
     parser.add_argument("--mode", choices=MODE_CHOICES, default="auto", help="Deck mode; default auto-detects from notes")
+    parser.add_argument("--language", choices=LANGUAGE_CHOICES, default="auto", help="Brief language; auto uses Chinese when notes contain Chinese")
+    parser.add_argument("--follow-links", action="store_true", help="follow local Obsidian wiki links from input notes")
+    parser.add_argument("--vault-root", type=Path, help="Vault root for resolving local wiki links")
+    parser.add_argument("--max-depth", type=int, default=1, help="Maximum wiki-link depth when --follow-links is used")
     args = parser.parse_args()
 
     try:
-        brief = build_brief(args.inputs, args.title, args.audience, args.max_slides, args.mode)
+        brief = build_brief(
+            args.inputs,
+            args.title,
+            args.audience,
+            args.max_slides,
+            args.mode,
+            language=args.language,
+            follow_links=args.follow_links,
+            vault_root=args.vault_root,
+            max_depth=args.max_depth,
+        )
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
