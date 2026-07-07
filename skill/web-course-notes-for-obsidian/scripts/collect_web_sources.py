@@ -284,19 +284,22 @@ def build_manifest(pages: list[PageRecord]) -> str:
             "",
             "## Learning Resources",
             "",
-            "| Kind | Title | URL | Source Page |",
-            "| --- | --- | --- | --- |",
+            "| Kind | Title | URL | Access | Status | Error | Source Page |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
 
     for page in pages:
         if page.kind in DIRECT_RESOURCE_KINDS:
+            status = "ok" if page.access_status == "ok" else page.access_status.replace("_", " ")
             lines.append(
-                f"| {page.kind} | {markdown_escape_cell(page.title)} | {markdown_escape_cell(page.url)} | {markdown_escape_cell(page.url)} |"
+                f"| {page.kind} | {markdown_escape_cell(page.title)} | {markdown_escape_cell(page.url)} | "
+                f"{page.access_status} | {status} | {markdown_escape_cell(page.error)} | {markdown_escape_cell(page.url)} |"
             )
         for link in page.links:
             lines.append(
-                f"| {link.kind} | {markdown_escape_cell(link.title)} | {markdown_escape_cell(link.url)} | {markdown_escape_cell(link.source)} |"
+                f"| {link.kind} | {markdown_escape_cell(link.title)} | {markdown_escape_cell(link.url)} | "
+                f"listed | listed |  | {markdown_escape_cell(link.source)} |"
             )
 
     lines.extend(

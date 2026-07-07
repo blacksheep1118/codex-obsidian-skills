@@ -137,10 +137,22 @@ def manifest_requires_per_link_notes(rows: list[ManifestRow]) -> bool:
     return bool(page_kinds & READING_LIST_KINDS) or any("reading" in row.values.get("Kind", "") for row in page_rows)
 
 
+def normalize_cell(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip()).lower()
+
+
+def has_error_value(value: str) -> bool:
+    normalized = normalize_cell(value)
+    return normalized not in {"", "-", "none", "n/a", "ok"}
+
+
 def inaccessible_resource(row: ManifestRow) -> bool:
-    status = row.values.get("Access", "").lower()
+    access = normalize_cell(row.values.get("Access", ""))
+    status = normalize_cell(row.values.get("Status", ""))
     error = row.values.get("Error", "")
-    return status in {"inaccessible", "blocked", "paywalled"} or bool(error)
+    state = f"{access} {status}"
+    markers = ("inaccessible", "blocked", "paywalled", "skipped", "failed", "error")
+    return any(marker in state for marker in markers) or has_error_value(error)
 
 
 def validate_web_notes(root: Path, sources: list[str], *, per_link_notes: bool = False) -> list[WebNoteIssue]:

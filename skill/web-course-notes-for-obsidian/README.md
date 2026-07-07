@@ -98,14 +98,14 @@ The script inspects existing top-level folders under `--notes-dir`. For CVPR/ima
 
 `create_web_notes.py` is a deterministic placement and scaffolding helper. Its generated notes are marked `status: scaffold`; Codex should then read or extract the accessible source content, inspect nearby notes in the destination category, and replace the scaffold placeholders with a finished note before reporting the task as complete.
 
-Choose scaffold language explicitly when needed:
+By default, `--language auto` chooses Chinese when the user input, collected title, or description contains Chinese characters and chooses English otherwise. Choose scaffold language explicitly when needed:
 
 ```bash
 python3 scripts/create_web_notes.py https://example.com/course --notes-dir ~/notes --language en
 python3 scripts/create_web_notes.py https://example.com/course --notes-dir ~/notes --language zh
 ```
 
-`--language auto` picks Chinese when the inputs or collected titles contain Chinese characters and English otherwise. The default remains Chinese for backward-compatible vault output.
+Scaffolds are not final delivery. After Codex reads or extracts the accessible source content and rewrites the placeholders into finished notes, run `scripts/check_web_notes.py` before reporting the collection as complete.
 
 ## Validation
 

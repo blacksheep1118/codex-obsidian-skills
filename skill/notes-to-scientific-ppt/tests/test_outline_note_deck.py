@@ -5,6 +5,10 @@ import subprocess
 import sys
 from zipfile import ZipFile
 
+from pptx import Presentation
+
+from scripts.build_scientific_deck import load_or_create_brief
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,6 +35,13 @@ def run_build_script(*args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         check=True,
     )
+
+
+def slide_title(slide) -> str:
+    for shape in slide.shapes:
+        if getattr(shape, "has_text_frame", False) and shape.text.strip():
+            return shape.text.strip().splitlines()[0]
+    return ""
 
 
 def test_outline_note_deck_creates_scientific_brief(tmp_path: Path):
@@ -202,8 +213,90 @@ def test_build_scientific_deck_generates_nonempty_pptx(tmp_path: Path):
     assert f"wrote_pptx {deck}" in result.stdout
     assert deck.exists()
     assert deck.stat().st_size > 1000
+    prs = Presentation(str(deck))
+    assert len(prs.slides) == 15
+    assert [slide_title(slide) for slide in list(prs.slides)[:4]] == [
+        "Method Deck",
+        "Title and research question",
+        "Why this problem matters",
+        "Gap in existing work",
+    ]
     with ZipFile(deck) as archive:
         names = set(archive.namelist())
     assert "[Content_Types].xml" in names
     assert "ppt/presentation.xml" in names
     assert any(name.startswith("ppt/slides/slide") for name in names)
+
+
+def test_build_scientific_deck_respects_max_slides_from_notes_folder(tmp_path: Path):
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "paper.md").write_text(
+        "# Paper Note\n\n## Problem\n\nText.\n\n## Method\n\nText.\n\n## Experiment\n\n| Metric | Value |\n| --- | --- |\n| PSNR | 30 |\n",
+        encoding="utf-8",
+    )
+    deck = tmp_path / "limited.pptx"
+
+    result = run_build_script(str(notes), "--out", str(deck), "--title", "Limited Deck", "--max-slides", "6", "--language", "en")
+
+    assert "slides 6" in result.stdout
+    prs = Presentation(str(deck))
+    assert len(prs.slides) == 6
+    assert [slide_title(slide) for slide in prs.slides] == [
+        "Limited Deck",
+        "Title and research question",
+        "Why this problem matters",
+        "Gap in existing work",
+        "Limitations and open questions",
+        "Appendix index",
+    ]
+
+
+def test_build_scientific_deck_follow_links_adds_linked_notes_to_brief(tmp_path: Path):
+    vault = tmp_path / "vault"
+    main = vault / "main.md"
+    linked = vault / "Linked Evidence.md"
+    vault.mkdir()
+    main.write_text("# Main Claim\n\nSee [[Linked Evidence]].\n", encoding="utf-8")
+    linked.write_text(
+        "# Linked Evidence\n\n## Experiment\n\n| Metric | Value |\n| --- | --- |\n| Accuracy | 95 |\n",
+        encoding="utf-8",
+    )
+
+    brief, _ = load_or_create_brief(
+        main,
+        title="Linked Deck",
+        audience="committee review",
+        max_slides=7,
+        language="en",
+        follow_links=True,
+        vault_root=vault,
+        max_depth=1,
+    )
+
+    assert "Audience: committee review" in brief
+    assert "Target main-slide count: 7" in brief
+    assert "`main.md`" in brief
+    assert "`Linked Evidence.md`" in brief
+    assert "result/comparison table" in brief
+
+    deck = tmp_path / "linked.pptx"
+    result = run_build_script(
+        str(main),
+        "--out",
+        str(deck),
+        "--title",
+        "Linked Deck",
+        "--max-slides",
+        "7",
+        "--language",
+        "en",
+        "--follow-links",
+        "--vault-root",
+        str(vault),
+        "--max-depth",
+        "1",
+    )
+
+    assert "slides 7" in result.stdout
+    assert len(Presentation(str(deck)).slides) == 7

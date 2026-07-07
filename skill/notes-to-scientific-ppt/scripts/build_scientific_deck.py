@@ -108,17 +108,77 @@ def parse_spine(text: str) -> list[SlideSpec]:
     return specs
 
 
-def load_or_create_brief(input_path: Path, *, title: str | None = None, language: str = "auto", mode: str = "auto") -> tuple[str, str]:
+def load_or_create_brief(
+    input_path: Path,
+    *,
+    title: str | None = None,
+    audience: str = "research seminar",
+    max_slides: int = 18,
+    language: str = "auto",
+    mode: str = "auto",
+    follow_links: bool = False,
+    vault_root: Path | None = None,
+    max_depth: int = 1,
+) -> tuple[str, str]:
     if input_path.is_dir():
-        brief = build_brief([input_path], title, "research seminar", 18, mode, language=language)
+        brief = build_brief(
+            [input_path],
+            title,
+            audience,
+            max_slides,
+            mode,
+            language=language,
+            follow_links=follow_links,
+            vault_root=vault_root,
+            max_depth=max_depth,
+        )
         return brief, title or input_path.name
     if not input_path.exists():
         raise ValueError(f"input does not exist: {input_path}")
     text = input_path.read_text(encoding="utf-8", errors="replace")
     if input_path.suffix.lower() == ".md" and is_brief(text):
         return text, parse_title(text, title or input_path.stem)
-    brief = build_brief([input_path], title, "research seminar", 18, mode, language=language)
+    brief = build_brief(
+        [input_path],
+        title,
+        audience,
+        max_slides,
+        mode,
+        language=language,
+        follow_links=follow_links,
+        vault_root=vault_root,
+        max_depth=max_depth,
+    )
     return brief, title or input_path.stem
+
+
+def ensure_required_specs(specs: list[SlideSpec], max_specs: int | None = None) -> list[SlideSpec]:
+    if not specs:
+        specs = [SlideSpec("Core claim from notes", "claim", "claim-and-evidence text slide")]
+
+    limitation = next((spec for spec in specs if spec.role == "limitations"), None) or SlideSpec(
+        "Limitations and open questions",
+        "limitations",
+        "limitation/failure-case slide",
+    )
+    appendix = next((spec for spec in specs if spec.role == "appendix"), None) or SlideSpec(
+        "Appendix index",
+        "appendix",
+        "appendix navigation",
+    )
+
+    if max_specs is None:
+        result = list(specs)
+        if not any(spec.role == "limitations" for spec in result):
+            result.append(limitation)
+        if not any(spec.role == "appendix" for spec in result):
+            result.append(appendix)
+        return result
+
+    max_specs = max(1, max_specs)
+    required = [limitation, appendix] if max_specs >= 2 else [limitation]
+    base = [spec for spec in specs if spec.role not in {"limitations", "appendix"}]
+    return [*base[: max_specs - len(required)], *required]
 
 
 def slide_blocks(spec: SlideSpec, slide_number: int) -> list[str]:
@@ -283,18 +343,35 @@ def build_minimal_pptx(title: str, specs: list[SlideSpec], out: Path) -> None:
             archive.writestr(f"ppt/slides/slide{index}.xml", slide_xml(slide_title, lines))
 
 
-def build_deck(input_path: Path, out: Path, *, title: str | None = None, language: str = "auto", mode: str = "auto") -> int:
-    brief, fallback_title = load_or_create_brief(input_path, title=title, language=language, mode=mode)
+def build_deck(
+    input_path: Path,
+    out: Path,
+    *,
+    title: str | None = None,
+    audience: str = "research seminar",
+    max_slides: int = 18,
+    language: str = "auto",
+    mode: str = "auto",
+    follow_links: bool = False,
+    vault_root: Path | None = None,
+    max_depth: int = 1,
+) -> int:
+    brief, fallback_title = load_or_create_brief(
+        input_path,
+        title=title,
+        audience=audience,
+        max_slides=max_slides,
+        language=language,
+        mode=mode,
+        follow_links=follow_links,
+        vault_root=vault_root,
+        max_depth=max_depth,
+    )
     deck_title = parse_title(brief, title or fallback_title)
     specs = parse_spine(brief)
     if not specs:
         specs = parse_backlog(brief)
-    if not specs:
-        specs = [SlideSpec("Core claim from notes", "claim", "claim-and-evidence text slide")]
-    if not any(spec.role == "limitations" for spec in specs):
-        specs.append(SlideSpec("Limitations and open questions", "limitations", "limitation/failure-case slide"))
-    if not any(spec.role == "appendix" for spec in specs):
-        specs.append(SlideSpec("Appendix index", "appendix", "appendix navigation"))
+    specs = ensure_required_specs(specs, max_specs=max_slides - 1)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -310,14 +387,32 @@ def main() -> int:
     parser.add_argument("input", type=Path, help="Deck brief Markdown, note file, or notes folder")
     parser.add_argument("--out", required=True, type=Path, help="Output .pptx path")
     parser.add_argument("--title", help="Deck title override when building directly from notes")
+    parser.add_argument("--audience", default="research seminar", help="Target audience or talk context when building from notes")
+    parser.add_argument("--max-slides", type=int, default=18, help="Maximum total slide count for the generated skeleton")
     parser.add_argument("--language", choices=["zh", "en", "auto"], default="auto")
     parser.add_argument("--mode", choices=["auto", "paper-reading", "proposal", "progress-report", "teaching", "defense"], default="auto")
+    parser.add_argument("--follow-links", action="store_true", help="follow local Obsidian wiki links when building directly from notes")
+    parser.add_argument("--vault-root", type=Path, help="Vault root for resolving local wiki links")
+    parser.add_argument("--max-depth", type=int, default=1, help="Maximum wiki-link depth when --follow-links is used")
     args = parser.parse_args()
 
     if args.out.suffix.lower() != ".pptx":
         parser.error("--out must end with .pptx")
+    if args.max_slides < 2:
+        parser.error("--max-slides must be at least 2")
     try:
-        slide_count = build_deck(args.input, args.out, title=args.title, language=args.language, mode=args.mode)
+        slide_count = build_deck(
+            args.input,
+            args.out,
+            title=args.title,
+            audience=args.audience,
+            max_slides=args.max_slides,
+            language=args.language,
+            mode=args.mode,
+            follow_links=args.follow_links,
+            vault_root=args.vault_root,
+            max_depth=args.max_depth,
+        )
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

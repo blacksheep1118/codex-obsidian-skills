@@ -15,7 +15,7 @@
 
 ## Brief To PPTX Skeleton
 
-`outline_note_deck.py` produces the source audit and slide plan. `build_scientific_deck.py` consumes that plan to create an editable PPTX skeleton with title, claim, formula, evidence/table, limitations, and appendix index slides.
+`outline_note_deck.py` produces the source audit and slide plan. `build_scientific_deck.py` consumes that plan to create an editable PPTX skeleton with title, claim, formula, evidence/table, limitations, and appendix index slides. When `build_scientific_deck.py` is run directly on a notes folder, it still builds that brief internally before creating the PPTX skeleton.
 
 The skeleton should contain concise proof-object placeholders only. Do not paste long note paragraphs into slides. During finalization, each placeholder must become a concrete mechanism diagram, formula bridge, result table, comparison matrix, limitation panel, or appendix item backed by the source notes.
 

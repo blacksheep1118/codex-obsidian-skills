@@ -1,9 +1,23 @@
+# Python and test caches
 __pycache__/
 *.pyc
-.DS_Store
-*.tmp
-*.log
-build/
-converted_pptx/
 .pytest_cache/
 .ruff_cache/
+
+# macOS metadata and AppleDouble files
+.DS_Store
+._*
+__MACOSX/
+
+# Build, distribution, and generated outputs
+build/
+dist/
+*.egg-info/
+converted_pptx/
+tmp/
+.tmp/
+test-output/
+
+# Local scratch logs
+*.tmp
+*.log

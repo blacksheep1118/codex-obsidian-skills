@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from scripts import extract_pdf_text
-from scripts.extract_pdf_text import extract_pdf
+from scripts.extract_pdf_text import LOW_COVERAGE_WARNING, extract_pdf, extract_pdf_result
 
 
 def write_blank_pdf(path: Path) -> None:
@@ -45,6 +45,8 @@ def test_extract_pdf_handles_blank_pdf(tmp_path: Path):
     assert "- Backend:" in output
     assert "- Pages: 1" in output
     assert "- Empty text pages: 1" in output
+    assert "- Low coverage: true" in output
+    assert LOW_COVERAGE_WARNING in output
     assert "## Page 1" in output
     assert "[No extractable text]" in output
 
@@ -73,10 +75,49 @@ def test_extract_pdf_falls_back_when_first_backend_is_all_empty(monkeypatch, tmp
     monkeypatch.setattr(extract_pdf_text, "extract_with_pdfplumber", useful_pdfplumber)
     monkeypatch.setattr(extract_pdf_text, "extract_with_pdftotext", unused_pdftotext)
 
-    output = extract_pdf(pdf)
+    result = extract_pdf_result(pdf)
+    output = result.markdown
 
     assert calls == ["pypdf", "pdfplumber"]
     assert "- Backend: `pdfplumber`" in output
     assert "- Pages: 2" in output
     assert "- Empty text pages: 0" in output
+    assert "- Low coverage: false" in output
+    assert LOW_COVERAGE_WARNING not in output
+    assert result.low_coverage is False
+    assert result.backend == "pdfplumber"
+    assert result.empty_pages == 0
+    assert result.char_count > 0
     assert "enough extracted course text" in output
+
+
+def test_extract_pdf_warns_when_all_backends_are_low_coverage(monkeypatch, tmp_path: Path):
+    pdf = tmp_path / "image_only.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    calls: list[str] = []
+
+    def empty_pypdf(path: Path) -> list[str]:
+        calls.append("pypdf")
+        return ["", ""]
+
+    def low_pdfplumber(path: Path) -> list[str]:
+        calls.append("pdfplumber")
+        return ["scan", ""]
+
+    def low_pdftotext(path: Path) -> list[str]:
+        calls.append("pdftotext")
+        return ["ocr?", ""]
+
+    monkeypatch.setattr(extract_pdf_text, "extract_with_pypdf", empty_pypdf)
+    monkeypatch.setattr(extract_pdf_text, "extract_with_pdfplumber", low_pdfplumber)
+    monkeypatch.setattr(extract_pdf_text, "extract_with_pdftotext", low_pdftotext)
+
+    result = extract_pdf_result(pdf)
+
+    assert calls == ["pypdf", "pdfplumber", "pdftotext"]
+    assert result.low_coverage is True
+    assert result.backend == "pdfplumber"
+    assert result.empty_pages == 1
+    assert result.char_count == 4
+    assert LOW_COVERAGE_WARNING in result.markdown
+    assert "- Low coverage: true" in result.markdown

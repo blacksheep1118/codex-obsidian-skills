@@ -15,6 +15,7 @@ import sys
 
 
 MIN_TEXT_CHARS_PER_PAGE = 20
+LOW_COVERAGE_WARNING = "Warning: low text coverage; source may be scanned/image-only and needs OCR or manual inspection."
 
 
 class PdfExtractionError(RuntimeError):
@@ -42,6 +43,16 @@ class PdfBackendResult:
     @property
     def nonempty_page_count(self) -> int:
         return self.page_count - self.empty_page_count
+
+
+@dataclass(frozen=True)
+class PdfExtractionResult:
+    markdown: str
+    backend: str
+    low_coverage: bool
+    empty_pages: int
+    char_count: int
+    page_count: int
 
 
 def extract_with_pypdf(path: Path) -> list[str]:
@@ -133,21 +144,21 @@ def choose_backend(path: Path) -> PdfBackendResult:
     )
 
 
-def extract_pdf(path: Path) -> str:
-    result = choose_backend(path)
-    pages = result.pages
-
+def render_markdown(path: Path, result: PdfBackendResult, *, low_coverage: bool) -> str:
     out = [f"# Extracted PDF Text: {path.name}", ""]
+    if low_coverage:
+        out.extend([LOW_COVERAGE_WARNING, ""])
     out.extend(
         [
             f"- Backend: `{result.name}`",
             f"- Pages: {result.page_count}",
             f"- Empty text pages: {result.empty_page_count}",
             f"- Text characters: {result.text_char_count}",
+            f"- Low coverage: {str(low_coverage).lower()}",
             "",
         ]
     )
-    for idx, text in enumerate(pages, start=1):
+    for idx, text in enumerate(result.pages, start=1):
         out.append(f"## Page {idx}")
         out.append("")
         lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -157,6 +168,23 @@ def extract_pdf(path: Path) -> str:
             out.append("[No extractable text]")
         out.append("")
     return "\n".join(out).rstrip() + "\n"
+
+
+def extract_pdf_result(path: Path) -> PdfExtractionResult:
+    result = choose_backend(path)
+    is_low_coverage = low_text_coverage(result)
+    return PdfExtractionResult(
+        markdown=render_markdown(path, result, low_coverage=is_low_coverage),
+        backend=result.name,
+        low_coverage=is_low_coverage,
+        empty_pages=result.empty_page_count,
+        char_count=result.text_char_count,
+        page_count=result.page_count,
+    )
+
+
+def extract_pdf(path: Path) -> str:
+    return extract_pdf_result(path).markdown
 
 
 def main() -> int:

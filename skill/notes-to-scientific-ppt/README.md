@@ -89,7 +89,15 @@ python3 scripts/build_scientific_deck.py "${TMPDIR:-/tmp}/scientific_deck_brief.
 py scripts\build_scientific_deck.py "$env:TEMP\scientific_deck_brief.md" --out "$env:TEMP\scientific_deck.pptx"
 ```
 
-The skeleton consumes the Suggested Scientific Deck Spine and Draft Slide Backlog. It creates editable placeholders for title, claim, formula, evidence/table, limitations, and appendix index slides. It does not paste note paragraphs into slides; replace placeholders with source-grounded proof objects before final delivery.
+Or build directly from a notes folder. In this mode the script first builds the internal deck brief, then creates the PPTX skeleton:
+
+```bash
+python3 scripts/build_scientific_deck.py examples/sample-notes --out "${TMPDIR:-/tmp}/scientific_deck.pptx" --title "Blind Image Denoising" --audience "lab meeting" --max-slides 12
+```
+
+`build_scientific_deck.py` accepts `--audience`, `--max-slides`, `--mode`, `--language`, `--follow-links`, `--vault-root`, and `--max-depth` when building from notes. Use `--follow-links --vault-root <vault> --max-depth <n>` to include linked Obsidian notes in the generated brief before the skeleton is built.
+
+The skeleton consumes the Suggested Scientific Deck Spine and Draft Slide Backlog. It creates editable placeholders for title, claim, formula, evidence/table, limitations, and appendix index slides. It does not paste note paragraphs into slides. Treat it as an editable first draft, not a fully automatic final academic presentation; replace placeholders with source-grounded proof objects before final delivery.
 
 ## Validation
 

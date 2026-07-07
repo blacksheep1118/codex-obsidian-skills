@@ -61,7 +61,7 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
    - If no existing folder fits, create a new folder under the notes directory, preferably `网络资源/<collection-title>/`.
    - Use `scripts/create_web_notes.py --notes-dir <notes-dir> <url...>` to create the collection folder, `source_manifest.md`, `00_学习地图.md`, and detailed note scaffolds.
    - Use `--category <folder>` when the user or context clearly identifies the destination category.
-   - Use `--language zh|en|auto` when the scaffold language should be explicit. Chinese is the default; English mode writes English headings and placeholders.
+   - `--language auto` is the default. It writes Chinese scaffolds when user inputs, collected titles, or descriptions contain Chinese characters and English scaffolds otherwise. Use `--language zh|en` only when the scaffold language should be explicit.
    - Treat script-created scaffolds as unfinished. Do not deliver them as final notes until the accessible source content has been read, extracted, and rewritten into the scaffold.
 
 4. Extract only appropriate content.
@@ -71,7 +71,7 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
    - If the user supplies an existing Obsidian vault, use `$obsidian-vault-organizer` after drafting.
 
 5. Generate notes.
-   - Use Chinese by default when the user writes Chinese.
+   - Match the final-note language to the user and source context: Chinese for Chinese input, English for English input, unless the user requests otherwise.
    - Inspect 1-3 nearby notes in the target category before writing final notes, then match their density, navigation style, formula treatment, and review style.
    - Convert fragments into explanations, not web-page dumps.
    - Add formulas, variable meanings, examples, assumptions, and failure cases when present.

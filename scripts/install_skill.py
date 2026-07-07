@@ -10,11 +10,12 @@ import re
 import shutil
 import sys
 
+from install_ignore import ignore_patterns, remove_ignored_artifacts, should_ignore_relative
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = REPO_ROOT / "skill"
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.S)
-IGNORED_DIRS = {"__pycache__", ".pytest_cache"}
 
 
 def default_destination(codex_home: Path | None = None) -> Path:
@@ -60,16 +61,6 @@ def selected_skills(all_skills: dict[str, Path], requested: list[str], include_a
     return selected
 
 
-def ignore_patterns(_directory: str, names: list[str]) -> set[str]:
-    ignored = {name for name in names if name in IGNORED_DIRS}
-    ignored.update(name for name in names if name.endswith(".pyc"))
-    return ignored
-
-
-def should_ignore_relative(path: Path) -> bool:
-    return any(part in IGNORED_DIRS for part in path.parts) or path.name.endswith(".pyc")
-
-
 def copy_skill(source: Path, destination: Path, dry_run: bool, prune: bool = False) -> None:
     if dry_run:
         print(f"DRY-RUN install {source.relative_to(REPO_ROOT)} -> {destination}")
@@ -79,6 +70,7 @@ def copy_skill(source: Path, destination: Path, dry_run: bool, prune: bool = Fal
 
     destination.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, destination, dirs_exist_ok=True, ignore=ignore_patterns)
+    remove_ignored_artifacts(destination)
 
     if prune:
         source_entries = {path.relative_to(source) for path in source.rglob("*") if not should_ignore_relative(path.relative_to(source))}

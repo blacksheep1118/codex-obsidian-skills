@@ -10,9 +10,11 @@ Each collection folder should contain:
 - `00_学习地图.md`,
 - one or more numbered source or chapter notes.
 
+`scripts/create_web_notes.py` defaults to `--language auto`: Chinese inputs, titles, or descriptions produce Chinese scaffolds; English-only inputs produce English scaffolds. Use `--language zh` or `--language en` when the user explicitly wants one language.
+
 ## Detailed Note Standard
 
-Script-created notes are scaffolds, not final deliverables. A final note should be comparable to nearby notes in the destination vault folder and should not contain `status: scaffold`, `待补充`, `To complete`, or TODO placeholders.
+Script-created notes are scaffolds, not final deliverables. They become final only after the accessible source content has been read or extracted and the placeholders have been rewritten. A final note should be comparable to nearby notes in the destination vault folder and should not contain `status: scaffold`, `待补充`, `To complete`, or TODO placeholders.
 
 Before final delivery, run:
 

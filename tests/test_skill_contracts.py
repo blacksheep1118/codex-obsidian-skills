@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
-import yaml
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = ROOT / "skill"
@@ -34,7 +32,13 @@ def load_frontmatter(skill_dir: Path) -> dict:
     text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
     match = FRONTMATTER_RE.match(text)
     assert match, skill_dir.name
-    return yaml.safe_load(match.group(1))
+    metadata: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        metadata[key.strip()] = value.strip().strip('"')
+    return metadata
 
 
 def test_all_skills_have_output_contracts_and_validation():
@@ -72,6 +76,24 @@ def test_readme_links_routing_guide():
 
     assert routing.exists()
     assert "[Skill Routing](docs/routing.md)" in readme or "[Skill routing](docs/routing.md)" in readme
+
+
+def test_skill_dev_requirements_are_independent():
+    for skill_dir in SKILL_DIRS:
+        if not (skill_dir / "tests").exists():
+            continue
+        dev_requirements = skill_dir / "requirements-dev.txt"
+        assert dev_requirements.exists(), skill_dir.name
+
+        lines = [
+            line.strip()
+            for line in dev_requirements.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        assert any(line.startswith("pytest") for line in lines), skill_dir.name
+
+        if (skill_dir / "requirements.txt").exists():
+            assert "-r requirements.txt" in lines, skill_dir.name
 
 
 def test_skills_keep_progressive_disclosure_links_close_to_workflow():

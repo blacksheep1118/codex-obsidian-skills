@@ -16,12 +16,12 @@ try:
     from .clean_latex_from_ppt import clean_text
     from .extract_legacy_ppt_text import LegacyPptTextResult, extract_legacy_ppt_text
     from .extract_pptx_text import extract_pptx
-    from .extract_pdf_text import extract_pdf
+    from .extract_pdf_text import LOW_COVERAGE_WARNING, extract_pdf_result
 except ImportError:
     from clean_latex_from_ppt import clean_text
     from extract_legacy_ppt_text import LegacyPptTextResult, extract_legacy_ppt_text
     from extract_pptx_text import extract_pptx
-    from extract_pdf_text import extract_pdf
+    from extract_pdf_text import LOW_COVERAGE_WARNING, extract_pdf_result
 
 
 SUPPORTED_SUFFIXES = {".ppt", ".pptx", ".pdf"}
@@ -48,6 +48,10 @@ class ExtractionResult:
     partial: bool = False
     notes: list[str] | None = None
     text_record_count: int | None = None
+    low_coverage: bool = False
+    empty_pages: int | None = None
+    char_count: int | None = None
+    page_count: int | None = None
 
 
 @dataclass
@@ -59,6 +63,10 @@ class ProcessedSource:
     partial: bool = False
     notes: list[str] | None = None
     text_record_count: int | None = None
+    low_coverage: bool = False
+    empty_pages: int | None = None
+    char_count: int | None = None
+    page_count: int | None = None
 
 
 def load_yaml_config(path: Path) -> dict:
@@ -144,7 +152,22 @@ def extract_source(path: Path, config: PipelineConfig, converted_dir: Path) -> E
     if suffix == ".pptx":
         return ExtractionResult(actual_source=actual, text=extract_pptx(actual), backend="pptx")
     if suffix == ".pdf":
-        return ExtractionResult(actual_source=actual, text=extract_pdf(actual), backend="pdf")
+        pdf_result = extract_pdf_result(actual)
+        notes = [
+            f"PDF pages: {pdf_result.page_count}; empty text pages: {pdf_result.empty_pages}; text characters: {pdf_result.char_count}.",
+        ]
+        if pdf_result.low_coverage:
+            notes.append(LOW_COVERAGE_WARNING)
+        return ExtractionResult(
+            actual_source=actual,
+            text=pdf_result.markdown,
+            backend=f"pdf:{pdf_result.backend}",
+            notes=notes,
+            low_coverage=pdf_result.low_coverage,
+            empty_pages=pdf_result.empty_pages,
+            char_count=pdf_result.char_count,
+            page_count=pdf_result.page_count,
+        )
     raise ValueError(f"unsupported source type: {path}")
 
 
@@ -169,6 +192,12 @@ def write_manifest(config: PipelineConfig, processed: list[ProcessedSource]) -> 
         lines.append(f"  - Extraction backend: `{item.backend}`")
         if item.text_record_count is not None:
             lines.append(f"  - Text records: {item.text_record_count}")
+        if item.page_count is not None:
+            lines.append(
+                f"  - PDF pages: {item.page_count}; empty text pages: {item.empty_pages}; text characters: {item.char_count}"
+            )
+        if item.low_coverage:
+            lines.append("  - Coverage: low text coverage; do not claim complete source coverage without OCR/manual inspection.")
         if item.partial:
             lines.append("  - Coverage: partial/fallback extraction; do not claim complete source coverage from this artifact alone.")
         for note in item.notes or []:
@@ -240,6 +269,10 @@ def run(config: PipelineConfig) -> list[ProcessedSource]:
                 partial=extraction.partial,
                 notes=extraction.notes,
                 text_record_count=extraction.text_record_count,
+                low_coverage=extraction.low_coverage,
+                empty_pages=extraction.empty_pages,
+                char_count=extraction.char_count,
+                page_count=extraction.page_count,
             )
         )
 

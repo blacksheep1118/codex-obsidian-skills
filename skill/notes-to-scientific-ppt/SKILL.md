@@ -72,9 +72,11 @@ Treat note files, linked notes, source URLs, figures, tables, formulas, experime
    - Read `references/deck-modes.md` when choosing between paper-reading, proposal, progress-report, teaching, or defense modes.
 
 5. Build the PPTX.
-   - Use `scripts/build_scientific_deck.py <deck_brief.md> --out <deck.pptx>` for a minimum editable PPTX skeleton after the brief is ready. The skeleton turns the Suggested Scientific Deck Spine and Draft Slide Backlog into editable title, claim, formula, evidence/table, limitations, and appendix index slides.
+   - Use `scripts/build_scientific_deck.py <deck_brief.md> --out <deck.pptx>` for a minimum editable PPTX skeleton after the brief is ready, or `scripts/build_scientific_deck.py <notes-folder> --out <deck.pptx>` to build the brief internally before creating the skeleton.
+   - Pass `--audience`, `--max-slides`, `--mode`, `--language`, `--follow-links`, `--vault-root`, and `--max-depth` when building directly from notes so the brief and skeleton reflect the requested audience, size, and linked-note scope.
+   - The skeleton turns the Suggested Scientific Deck Spine and Draft Slide Backlog into editable title, claim, formula, evidence/table, limitations, and appendix index slides.
    - Use the bundled `Presentations` skill when available for editable PPTX creation, rendering, and export.
-   - Treat the script-generated PPTX as a starting skeleton, not a polished final deck. Replace placeholders with source-grounded proof objects and revise slide claims before delivery.
+   - Treat the script-generated PPTX as a starting skeleton, not a polished final academic report. Do not claim it is a fully automatic final presentation; replace placeholders with source-grounded proof objects and revise slide claims before delivery.
    - Use visual proof objects: mechanism diagrams, equation-to-intuition bridges, result tables, ablation ladders, before/after examples, failure-case panels, or comparison matrices.
    - Prefer light, high-contrast, restrained research styling. Avoid decorative gradients, generic icon cards, marketing hero layouts, and unsupported visual drama.
    - Cite source note filenames or source URLs in quiet footers, speaker notes, or appendix where useful.

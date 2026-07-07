@@ -8,7 +8,8 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  root:
+    name: Root validation (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -34,10 +35,61 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install validation dependencies
+      - name: Install root validation dependencies
         run: |
           python -m pip install --upgrade pip
-          python -c "from pathlib import Path; import subprocess, sys; reqs = sorted(Path('skill').glob('*/requirements-dev.txt')); print('Installing dev requirements:'); [print(f'  {path}') for path in reqs]; cmd = [sys.executable, '-m', 'pip', 'install']; [cmd.extend(['-r', str(path)]) for path in reqs]; subprocess.check_call(cmd)"
+          python -m pip install "pytest>=8.0.0,<9.0.0" "PyYAML>=6.0"
 
-      - name: Run full validation suite
-        run: python scripts/validate_all.py
+      - name: Check repository hygiene
+        run: python scripts/check_repo_hygiene.py
+
+      - name: Run root tests
+        run: python -m pytest -q
+
+      - name: Check shared metadata
+        run: |
+          python scripts/check_openai_yaml_sync.py
+          python scripts/sync_shared_resources.py --check
+          python scripts/install_skill.py --all --dry-run --self-check
+
+  skill:
+    name: Skill validation (${{ matrix.skill }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - skill: notes-to-scientific-ppt
+            validator: scripts/validate_skill.py
+          - skill: obsidian-vault-organizer
+            validator: scripts/validate_skill.py
+          - skill: ppt-to-md-for-obsidian
+            validator: scripts/validate_skill_repo.py
+          - skill: web-course-notes-for-obsidian
+            validator: scripts/validate_skill.py
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install this skill's dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r skill/${{ matrix.skill }}/requirements-dev.txt
+
+      - name: Compile skill scripts
+        working-directory: skill/${{ matrix.skill }}
+        run: python -m compileall scripts
+
+      - name: Run skill tests
+        working-directory: skill/${{ matrix.skill }}
+        run: python -m pytest -q tests
+
+      - name: Validate skill metadata
+        working-directory: skill/${{ matrix.skill }}
+        run: python ${{ matrix.validator }}

@@ -39,6 +39,7 @@ def test_collect_sources_from_local_html_fixture():
     manifest = build_manifest(pages)
     assert "# Source Manifest" in manifest
     assert "| Kind | Title | Original Source | URL | Access | Status | Error | Description |" in manifest
+    assert "| Kind | Title | URL | Access | Status | Error | Source Page |" in manifest
     assert "| course_page | Machine Learning Mini Course |" in manifest
     assert "Lecture 01 Video" in manifest
     assert "Lecture 01 Slides" in manifest
@@ -62,7 +63,7 @@ def test_collect_sources_accepts_direct_pdf_url_without_reading_binary(monkeypat
 
     manifest = build_manifest(pages)
     assert "| pdf | Zhu From Noise Modeling CVPR 2016 paper | https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf |" in manifest
-    assert "| pdf | Zhu From Noise Modeling CVPR 2016 paper | https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf | https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf |" in manifest
+    assert "| pdf | Zhu From Noise Modeling CVPR 2016 paper | https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf | recorded | recorded |  | https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf |" in manifest
 
 
 def test_collect_sources_preserves_inaccessible_source_in_manifest(tmp_path: Path):

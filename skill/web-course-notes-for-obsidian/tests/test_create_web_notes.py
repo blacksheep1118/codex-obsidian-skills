@@ -22,7 +22,7 @@ def run_script(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_create_web_notes_classifies_cvpr_pdf_into_existing_vision_folder(tmp_path: Path):
+def test_create_web_notes_defaults_to_english_for_english_source(tmp_path: Path):
     notes_dir = tmp_path / "notes"
     (notes_dir / "计算机视觉").mkdir(parents=True)
 
@@ -41,16 +41,36 @@ def test_create_web_notes_classifies_cvpr_pdf_into_existing_vision_folder(tmp_pa
     note_text = note.read_text(encoding="utf-8")
     assert "source_type: pdf" in note_text
     assert "status: scaffold" in note_text
+    assert "## Problem Background" in note_text
+    assert "## Formulas Or Evidence" in note_text
+    assert "## Comparison" in note_text
+    assert "## Quick Review" in note_text
+    assert "To complete:" in note_text
+    assert "## 问题背景" not in note_text
+    assert "待补充" not in note_text
+
+    map_text = (collection_dir / "00_学习地图.md").read_text(encoding="utf-8")
+    assert "## Completion Standard" in map_text
+    assert "Scaffolds are not final deliverables" in map_text
+
+
+def test_create_web_notes_defaults_to_chinese_for_chinese_source(tmp_path: Path):
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+
+    run_script("https://example.com/课程/机器学习.pdf", "--notes-dir", str(notes_dir))
+
+    note = notes_dir / "网络资源" / "机器学习" / "01_机器学习.md"
+    assert note.exists()
+    note_text = note.read_text(encoding="utf-8")
+    assert "source_type: pdf" in note_text
+    assert "status: scaffold" in note_text
     assert "## 问题背景" in note_text
     assert "## 关键公式与变量" in note_text
     assert "## 方法比较" in note_text
     assert "## 精简复习" in note_text
+    assert "待补充" in note_text
     assert "## Problem Background" not in note_text
-    assert "## 初步笔记" not in note_text
-
-    map_text = (collection_dir / "00_学习地图.md").read_text(encoding="utf-8")
-    assert "## 完成标准" in map_text
-    assert "脚手架不能作为最终笔记交付" in map_text
 
 
 def test_create_web_notes_uses_network_resource_folder_when_no_category_matches(tmp_path: Path):

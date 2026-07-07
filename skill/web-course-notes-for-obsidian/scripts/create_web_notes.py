@@ -466,6 +466,7 @@ def map_content_zh(title: str, pages: list[PageRecord], note_names: list[str], c
             "- `问题背景`、`方法总览`、`关键机制`、`关键公式与变量`、`实验与案例`、`方法比较`和`精简复习`都有实质内容。",
             "- 关键公式解释了变量含义、直觉、适用条件和局限。",
             "- `source_manifest.md` 覆盖用户提供的每个 URL，最终笔记中的关键判断能追溯到来源。",
+            "- 最终交付前运行 `scripts/check_web_notes.py` 检查来源覆盖、脚手架残留和逐链接笔记要求。",
             "- 完成后用 vault link checker 检查本文件夹或整个 notes 目录。",
             "",
         ]
@@ -525,7 +526,7 @@ def create_notes(
     folder: str | None = None,
     title: str | None = None,
     timeout: float = 15.0,
-    language: str = "zh",
+    language: str = "auto",
     dry_run: bool = False,
 ) -> CreatedNotes:
     pages = collect_sources(sources, timeout=timeout)
@@ -573,7 +574,12 @@ def main() -> int:
     parser.add_argument("--folder", help="Collection folder name under the selected category")
     parser.add_argument("--title", help="Title used for 00_学习地图.md")
     parser.add_argument("--timeout", type=float, default=15.0, help="HTTP timeout in seconds")
-    parser.add_argument("--language", choices=["zh", "en", "auto"], default="zh", help="Scaffold language. Defaults to zh for backward-compatible Chinese scaffolds.")
+    parser.add_argument(
+        "--language",
+        choices=["zh", "en", "auto"],
+        default="auto",
+        help="Scaffold language. Defaults to auto: Chinese for Chinese inputs or collected metadata, English otherwise.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print target paths without writing files")
     args = parser.parse_args()
 

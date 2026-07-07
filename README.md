@@ -6,6 +6,8 @@ Codex skills for turning courseware and Markdown note collections into organized
 
 This is a skill collection, not a single monolithic skill. Each installable skill lives under [`skill/`](skill/) and keeps its own `SKILL.md`, scripts, references, examples, README, and LICENSE so it can be copied directly into `CODEX_HOME/skills` or the default Codex skills directory.
 
+The project is distributed through GitHub commits, branches, tags, and CI. Do not hand-compress the repository or commit generated archives; keep the Git tree clean and let CI block caches, macOS resource files, and generated outputs.
+
 ## Skills
 
 | Skill | Use it when | Main outputs |
@@ -58,6 +60,8 @@ py scripts\install_skill.py --all --self-check
 
 On Windows, replace `py` with `python` if the Python launcher is not installed.
 
+Installing from a GitHub clone is the normal path. The install and update scripts copy only the skill contents and automatically ignore caches, macOS resource files, Python bytecode, build directories, distribution metadata, and generated `converted_pptx/` outputs. You do not need to compress the repository before installing.
+
 Install only one skill when needed:
 
 ```bash
@@ -94,20 +98,16 @@ python3 -m pip install -r ~/.codex/skills/ppt-to-md-for-obsidian/requirements.tx
 py -m pip install -r "$env:USERPROFILE\.codex\skills\ppt-to-md-for-obsidian\requirements.txt"
 ```
 
-Install validation dependencies only when developing the skills:
+When developing one skill, install only that skill's validation dependencies in the environment you are using for that skill:
 
 ```bash
-python3 -m pip install -r skill/ppt-to-md-for-obsidian/requirements-dev.txt
-python3 -m pip install -r skill/obsidian-vault-organizer/requirements-dev.txt
-python3 -m pip install -r skill/web-course-notes-for-obsidian/requirements-dev.txt
-python3 -m pip install -r skill/notes-to-scientific-ppt/requirements-dev.txt
+cd skill/ppt-to-md-for-obsidian
+python3 -m pip install -r requirements-dev.txt
 ```
 
 ```powershell
-py -m pip install -r skill\ppt-to-md-for-obsidian\requirements-dev.txt
-py -m pip install -r skill\obsidian-vault-organizer\requirements-dev.txt
-py -m pip install -r skill\web-course-notes-for-obsidian\requirements-dev.txt
-py -m pip install -r skill\notes-to-scientific-ppt\requirements-dev.txt
+cd skill\ppt-to-md-for-obsidian
+py -m pip install -r requirements-dev.txt
 ```
 
 Update installed skills from a fresh checkout:
@@ -231,24 +231,46 @@ Root management tools include:
 - `install_skill.py`: copy one or all skills into a Codex skills directory and run a self-check.
 - `update_installed_skills.py`: refresh installed skill folders from this repository without backups.
 - `validate_all.py`: run the full CI-style validation suite locally.
-- `package_release.py`: create a clean release zip without Git internals, caches, build outputs, or macOS metadata.
+- `check_repo_hygiene.py`: fail if Git tracks cache files, macOS resource files, or generated outputs.
 - `check_openai_yaml_sync.py`: check `SKILL.md` and `agents/openai.yaml` consistency.
 - `sync_shared_resources.py`: check or rewrite skill-local copies generated from canonical shared scripts and templates.
 - `check_shared_link_checker.py`: compatibility wrapper for the shared-resource synchronization check.
 
 ## Validation
 
-GitHub Actions runs the full validation suite across Ubuntu, macOS, and Windows. Ubuntu is tested on Python 3.9, 3.11, and 3.12; macOS and Windows are tested on Python 3.11. Locally, run:
+GitHub Actions runs repository hygiene and root tests across Ubuntu, macOS, and Windows. Skill-local tests run in a separate matrix where each job installs only that skill's own `requirements-dev.txt`, so missing skill dependencies are not hidden by another skill's requirements.
+
+Before committing, run:
 
 ```bash
-python3 -m pytest
+python3 scripts/check_repo_hygiene.py
+python3 -m pytest -q
+python3 scripts/validate_all.py --quick
 ```
 
 ```powershell
-py -m pytest
+py scripts\check_repo_hygiene.py
+py -m pytest -q
+py scripts\validate_all.py --quick
 ```
 
-The root `python -m pytest` entry point is the fast repository check and only collects tests from the root `tests/` directory. To run every skill-local test and validation script in isolation, run:
+The root `python -m pytest` entry point is the fast repository check and only collects tests from the root `tests/` directory. `scripts/validate_all.py --quick` runs compile, repo hygiene, metadata sync, root tests, and skill validators without sample pipeline or deck smoke runs.
+
+When a skill changes, also run that skill's isolated test and validator commands below after installing only that skill's `requirements-dev.txt`. This mirrors the GitHub Actions skill matrix and catches missing per-skill dependencies before push.
+
+To debug the validation suite, list stable step ids or run one skill only:
+
+```bash
+python3 scripts/validate_all.py --list-steps
+python3 scripts/validate_all.py --skill notes-to-scientific-ppt
+```
+
+```powershell
+py scripts\validate_all.py --list-steps
+py scripts\validate_all.py --skill notes-to-scientific-ppt
+```
+
+Full validation, including skill tests and sample smoke runs:
 
 ```bash
 python3 scripts/validate_all.py
@@ -261,81 +283,75 @@ py scripts\validate_all.py
 Focused checks are also available:
 
 ```bash
+python3 scripts/check_repo_hygiene.py
 python3 scripts/check_openai_yaml_sync.py
 python3 scripts/sync_shared_resources.py --check
 python3 scripts/install_skill.py --all --dry-run --self-check
 ```
 
 ```powershell
+py scripts\check_repo_hygiene.py
 py scripts\check_openai_yaml_sync.py
 py scripts\sync_shared_resources.py --check
 py scripts\install_skill.py --all --dry-run --self-check
 ```
 
-Skill-local checks from the repository root:
+To validate a single skill in isolation, use a fresh environment when possible, install only that skill's `requirements-dev.txt`, then run that skill's tests and validator:
 
 ```bash
 cd skill/ppt-to-md-for-obsidian
-python3 -m compileall scripts
-python3 -m pytest
-python3 scripts/check_obsidian_links.py examples/sample-course/notes
-python3 scripts/check_course_notes.py examples/sample-course/notes
+python3 -m pip install -r requirements-dev.txt
+python3 -m pytest -q
+python3 scripts/validate_skill_repo.py
 ```
 
 ```powershell
 cd skill\ppt-to-md-for-obsidian
-py -m compileall scripts
-py -m pytest
-py scripts\check_obsidian_links.py examples\sample-course\notes
-py scripts\check_course_notes.py examples\sample-course\notes
+py -m pip install -r requirements-dev.txt
+py -m pytest -q
+py scripts\validate_skill_repo.py
 ```
 
 ```bash
 cd skill/obsidian-vault-organizer
-python3 -m compileall scripts
-python3 scripts/check_obsidian_links.py ../ppt-to-md-for-obsidian/examples/sample-course/notes
-python3 scripts/check_vault_quality.py ../../fixtures/vault-clean
+python3 -m pip install -r requirements-dev.txt
+python3 -m pytest -q
+python3 scripts/validate_skill.py
 ```
 
 ```powershell
 cd skill\obsidian-vault-organizer
-py -m compileall scripts
-py scripts\check_obsidian_links.py ..\ppt-to-md-for-obsidian\examples\sample-course\notes
-py scripts\check_vault_quality.py ..\..\fixtures\vault-clean
+py -m pip install -r requirements-dev.txt
+py -m pytest -q
+py scripts\validate_skill.py
 ```
 
 ```bash
 cd skill/web-course-notes-for-obsidian
-python3 -m compileall scripts
-python3 -m pytest
+python3 -m pip install -r requirements-dev.txt
+python3 -m pytest -q
 python3 scripts/validate_skill.py
-python3 scripts/collect_web_sources.py examples/sample-web-course/index.html --out "${TMPDIR:-/tmp}/web_course_source_manifest.md"
-python3 scripts/create_web_notes.py https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf --notes-dir "${TMPDIR:-/tmp}/web-notes" --dry-run
 ```
 
 ```powershell
 cd skill\web-course-notes-for-obsidian
-py -m compileall scripts
-py -m pytest
+py -m pip install -r requirements-dev.txt
+py -m pytest -q
 py scripts\validate_skill.py
-py scripts\collect_web_sources.py examples\sample-web-course\index.html --out "$env:TEMP\web_course_source_manifest.md"
-py scripts\create_web_notes.py https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf --notes-dir "$env:TEMP\web-notes" --dry-run
 ```
 
 ```bash
 cd skill/notes-to-scientific-ppt
-python3 -m compileall scripts
-python3 -m pytest
+python3 -m pip install -r requirements-dev.txt
+python3 -m pytest -q
 python3 scripts/validate_skill.py
-python3 scripts/outline_note_deck.py examples/sample-notes --out "${TMPDIR:-/tmp}/scientific_deck_brief.md" --title "Blind Image Denoising" --mode paper-reading
 ```
 
 ```powershell
 cd skill\notes-to-scientific-ppt
-py -m compileall scripts
-py -m pytest
+py -m pip install -r requirements-dev.txt
+py -m pytest -q
 py scripts\validate_skill.py
-py scripts\outline_note_deck.py examples\sample-notes --out "$env:TEMP\scientific_deck_brief.md" --title "Blind Image Denoising" --mode paper-reading
 ```
 
 ## Documentation
@@ -358,6 +374,7 @@ py scripts\outline_note_deck.py examples\sample-notes --out "$env:TEMP\scientifi
 - Prefer references for longer style or workflow guidance that should be loaded only when needed.
 - Avoid moving source files unless the user explicitly requests it.
 - Keep Obsidian links local, meaningful, and placed where concepts first become relevant.
+- Do not commit caches, `__pycache__`, `*.pyc`, macOS AppleDouble files, `.DS_Store`, build outputs, converted PPTX directories, or temporary test output.
 
 ## License
 

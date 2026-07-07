@@ -2,6 +2,10 @@
 
 This repository contains installable Codex skills under `skill/`. Keep each skill directory self-contained so it can be copied directly into `$CODEX_HOME/skills/<skill-name>`.
 
+The project is distributed through GitHub. Do not hand-compress the repository or commit generated archives; CI should reject caches, macOS resource files, and generated outputs before they land.
+
+Users install directly from a GitHub clone with `scripts/install_skill.py` or refresh with `scripts/update_installed_skills.py`. These scripts ignore cache directories, macOS resource files, Python bytecode, build outputs, distribution metadata, and generated `converted_pptx/` folders during copy/update, so do not add a manual zip step to the workflow.
+
 ## Skill Structure
 
 - The directory name must match `SKILL.md` frontmatter `name`.
@@ -14,18 +18,40 @@ This repository contains installable Codex skills under `skill/`. Keep each skil
 Run the fast repository test entry point from the repository root while iterating:
 
 ```bash
-python3 -m pytest
+python3 scripts/check_repo_hygiene.py
+python3 -m pytest -q
+python3 scripts/validate_all.py --quick
 ```
 
-This only collects the root `tests/` directory. Run the full local validation pass before opening a PR; it runs each skill's tests and validation scripts in that skill's own working directory:
+The root `python -m pytest` entry point only collects the root `tests/` directory. `scripts/validate_all.py --quick` runs compile, repo hygiene, metadata sync, root tests, and skill validators without sample pipeline or deck smoke runs. For focused debugging, list stable step ids or run one skill:
+
+```bash
+python3 scripts/validate_all.py --quick
+python3 scripts/validate_all.py --skill notes-to-scientific-ppt
+python3 scripts/validate_all.py --list-steps
+```
+
+Full validation, including skill tests and sample smoke runs:
 
 ```bash
 python3 scripts/validate_all.py
 ```
 
+To validate one skill the same way CI isolates it, start from a fresh environment when possible and install only that skill's dev requirements:
+
+```bash
+cd skill/<skill-name>
+python3 -m pip install -r requirements-dev.txt
+python3 -m pytest -q
+python3 scripts/validate_skill.py
+```
+
+Use `python3 scripts/validate_skill_repo.py` instead for `skill/ppt-to-md-for-obsidian`.
+
 For focused checks:
 
 ```bash
+python3 scripts/check_repo_hygiene.py
 python3 scripts/check_openai_yaml_sync.py
 python3 scripts/sync_shared_resources.py --check
 python3 scripts/install_skill.py --all --dry-run --self-check
@@ -43,16 +69,19 @@ python3 scripts/sync_shared_resources.py --write
 - Use `fixtures/` for repository-level validation inputs.
 - Use skill-local `examples/` when the example should travel with an installed skill.
 - Avoid including private courseware, copyrighted decks, or user data.
+- Do not commit caches, `.DS_Store`, AppleDouble `._*` files, `__pycache__`, `*.pyc`, `.pytest_cache`, `.ruff_cache`, `build/`, `dist/`, `converted_pptx/`, `*.egg-info/`, `tmp/`, `.tmp/`, or `test-output/`.
 
-## Release Process
+## GitHub Submission Process
 
 1. Update `CHANGELOG.md`.
-2. Run `python3 -m pytest`.
-3. Run `python3 scripts/validate_all.py`.
-4. Create a clean zip with `python3 scripts/package_release.py --out /tmp/skills.zip`.
-5. Commit the change.
-6. Create a semantic version tag such as `v0.1.0`.
-7. Push `main` and the tag.
+2. Run `python3 scripts/check_repo_hygiene.py`.
+3. Run `python3 -m pytest -q`.
+4. Run `python3 scripts/validate_all.py --quick`.
+5. For each changed skill, install only that skill's `requirements-dev.txt`, then run its `python3 -m pytest -q` and validator.
+6. Confirm `git status --short` shows only source and documentation changes.
+7. Commit the change.
+8. Create a semantic version tag such as `v0.1.0` only when needed.
+9. Push the branch or `main` and any tag to GitHub.
 
 ## License And Sources
 
