@@ -1,4 +1,4 @@
-"""Shared ignore rules for installing skill folders."""
+"""Shared ignore rules for repository hygiene and installing skill folders."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import shutil
 IGNORED_NAMES = {
     ".DS_Store",
     ".git",
+    ".tmp",
     ".pytest_cache",
     ".ruff_cache",
     "__MACOSX",
@@ -16,9 +17,30 @@ IGNORED_NAMES = {
     "build",
     "converted_pptx",
     "dist",
+    "test-output",
+    "tmp",
 }
 IGNORED_PREFIXES = ("._",)
-IGNORED_SUFFIXES = (".pyc", ".egg-info")
+IGNORED_SUFFIXES = (".pyc", ".egg-info", ".tmp", ".log")
+GITIGNORE_PATTERNS = (
+    ".git/",
+    "__MACOSX/",
+    ".DS_Store",
+    "._*",
+    ".pytest_cache/",
+    ".ruff_cache/",
+    "__pycache__/",
+    "*.pyc",
+    "build/",
+    "converted_pptx/",
+    "dist/",
+    "*.egg-info/",
+    "tmp/",
+    ".tmp/",
+    "test-output/",
+    "*.tmp",
+    "*.log",
+)
 
 
 def should_ignore_name(name: str) -> bool:

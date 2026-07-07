@@ -23,10 +23,11 @@ python3 -m pytest -q
 python3 scripts/validate_all.py --quick
 ```
 
-The root `python -m pytest` entry point only collects the root `tests/` directory. `scripts/validate_all.py --quick` runs compile, repo hygiene, metadata sync, root tests, and skill validators without sample pipeline or deck smoke runs. For focused debugging, list stable step ids or run one skill:
+The root `python -m pytest` entry point only collects the root `tests/` directory. `scripts/validate_all.py --quick` runs compile, repo hygiene, metadata sync, root tests, and skill validators without sample pipeline or deck smoke runs. `validate_all.py` disables external pytest plugin autoload for its pytest subprocesses with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`; set `VALIDATE_ALL_ENABLE_PYTEST_PLUGIN_AUTOLOAD=1` only when intentionally debugging third-party pytest plugins. For focused debugging, list stable step ids or run one skill:
 
 ```bash
 python3 scripts/validate_all.py --quick
+python3 scripts/validate_all.py --skill notes
 python3 scripts/validate_all.py --skill notes-to-scientific-ppt
 python3 scripts/validate_all.py --list-steps
 ```
@@ -52,10 +53,13 @@ For focused checks:
 
 ```bash
 python3 scripts/check_repo_hygiene.py
+python3 scripts/check_repo_hygiene.py --scan-worktree
 python3 scripts/check_openai_yaml_sync.py
 python3 scripts/sync_shared_resources.py --check
 python3 scripts/install_skill.py --all --dry-run --self-check
 ```
+
+`scripts/check_repo_hygiene.py` checks Git-tracked files by default so local ignored caches do not block CI-style validation. Use `--scan-worktree` before handoff or upload when you want to find ignored or untracked cache directories, logs, scratch files, and generated outputs in the local checkout.
 
 When shared script templates change, update skill-local standalone copies with:
 

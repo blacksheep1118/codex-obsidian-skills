@@ -231,7 +231,7 @@ Root management tools include:
 - `install_skill.py`: copy one or all skills into a Codex skills directory and run a self-check.
 - `update_installed_skills.py`: refresh installed skill folders from this repository without backups.
 - `validate_all.py`: run the full CI-style validation suite locally.
-- `check_repo_hygiene.py`: fail if Git tracks cache files, macOS resource files, or generated outputs.
+- `check_repo_hygiene.py`: fail if Git tracks cache files, macOS resource files, logs, scratch files, or generated outputs; use `--scan-worktree` for local ignored/untracked cleanup audits.
 - `check_openai_yaml_sync.py`: check `SKILL.md` and `agents/openai.yaml` consistency.
 - `sync_shared_resources.py`: check or rewrite skill-local copies generated from canonical shared scripts and templates.
 - `check_shared_link_checker.py`: compatibility wrapper for the shared-resource synchronization check.
@@ -256,17 +256,23 @@ py scripts\validate_all.py --quick
 
 The root `python -m pytest` entry point is the fast repository check and only collects tests from the root `tests/` directory. `scripts/validate_all.py --quick` runs compile, repo hygiene, metadata sync, root tests, and skill validators without sample pipeline or deck smoke runs.
 
+`validate_all.py` runs its pytest subprocesses with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` so unrelated globally installed pytest plugins do not change local or CI validation behavior. Set `VALIDATE_ALL_ENABLE_PYTEST_PLUGIN_AUTOLOAD=1` only when intentionally debugging with external pytest plugins.
+
+`scripts/check_repo_hygiene.py` checks Git-tracked files by default, which is the right mode for CI and pre-push validation. Run `python3 scripts/check_repo_hygiene.py --scan-worktree` when you want a local deep-clean check that also reports ignored or untracked caches, logs, scratch files, and generated outputs.
+
 When a skill changes, also run that skill's isolated test and validator commands below after installing only that skill's `requirements-dev.txt`. This mirrors the GitHub Actions skill matrix and catches missing per-skill dependencies before push.
 
 To debug the validation suite, list stable step ids or run one skill only:
 
 ```bash
 python3 scripts/validate_all.py --list-steps
+python3 scripts/validate_all.py --skill notes
 python3 scripts/validate_all.py --skill notes-to-scientific-ppt
 ```
 
 ```powershell
 py scripts\validate_all.py --list-steps
+py scripts\validate_all.py --skill notes
 py scripts\validate_all.py --skill notes-to-scientific-ppt
 ```
 
@@ -284,6 +290,7 @@ Focused checks are also available:
 
 ```bash
 python3 scripts/check_repo_hygiene.py
+python3 scripts/check_repo_hygiene.py --scan-worktree
 python3 scripts/check_openai_yaml_sync.py
 python3 scripts/sync_shared_resources.py --check
 python3 scripts/install_skill.py --all --dry-run --self-check
@@ -291,6 +298,7 @@ python3 scripts/install_skill.py --all --dry-run --self-check
 
 ```powershell
 py scripts\check_repo_hygiene.py
+py scripts\check_repo_hygiene.py --scan-worktree
 py scripts\check_openai_yaml_sync.py
 py scripts\sync_shared_resources.py --check
 py scripts\install_skill.py --all --dry-run --self-check

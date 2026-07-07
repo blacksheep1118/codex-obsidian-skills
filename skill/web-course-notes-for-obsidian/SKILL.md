@@ -15,8 +15,8 @@ Use only sources the user can legitimately access. Do not bypass logins, paywall
 
 For each course, book, or topic collection, prefer:
 
-- A topic folder inside the user's notes directory. Reuse an existing category folder when the source clearly belongs there; otherwise create a new folder such as `网络资源/<collection-title>/`.
-- `00_学习地图.md` or `00_课程总览.md` as the entry point.
+- A topic folder inside the user's notes directory. Reuse an existing category folder when the source clearly belongs there; otherwise create a language-specific fallback folder such as `网络资源/<collection-title>/` or `Web Resources/<collection-title>/`.
+- `00_学习地图.md`, `00_Learning_Map.md`, or `00_课程总览.md` as the entry point.
 - Numbered detailed notes such as `01_导论.md`, `02_核心概念.md`, paper notes, or chapter-based names.
 - `source_manifest.md` with URLs, titles, source types, access status, and what each source contributed.
 - Per-link notes such as `L01_<title>.md` when the source is a reading list, topic preview, paper list, syllabus, bibliography, or the user asks for each link to be handled separately.
@@ -58,10 +58,10 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
 
 3. Place notes in the vault.
    - If the user provides an Obsidian notes directory, inspect existing top-level folders and classify the collection into the closest existing folder.
-   - If no existing folder fits, create a new folder under the notes directory, preferably `网络资源/<collection-title>/`.
-   - Use `scripts/create_web_notes.py --notes-dir <notes-dir> <url...>` to create the collection folder, `source_manifest.md`, `00_学习地图.md`, and detailed note scaffolds.
+   - If no existing folder fits, create a language-specific fallback folder under the notes directory: `网络资源/<collection-title>/` for Chinese scaffolds or `Web Resources/<collection-title>/` for English scaffolds.
+   - Use `scripts/create_web_notes.py --notes-dir <notes-dir> <url...>` to create the collection folder, `source_manifest.md`, the language-specific entry map note, and detailed note scaffolds.
    - Use `--category <folder>` when the user or context clearly identifies the destination category.
-   - `--language auto` is the default. It writes Chinese scaffolds when user inputs, collected titles, or descriptions contain Chinese characters and English scaffolds otherwise. Use `--language zh|en` only when the scaffold language should be explicit.
+   - `--language auto` is the default. It writes Chinese scaffolds when user inputs, collected titles, or descriptions contain Chinese characters and English scaffolds otherwise. Chinese defaults to `网络资源/` and `00_学习地图.md`; English defaults to `Web Resources/` and `00_Learning_Map.md`. Use `--language zh|en`, `--root-folder-name`, or `--map-note-name` when the scaffold language or placement should be explicit.
    - Treat script-created scaffolds as unfinished. Do not deliver them as final notes until the accessible source content has been read, extracted, and rewritten into the scaffold.
 
 4. Extract only appropriate content.
@@ -116,7 +116,7 @@ If the run only produced scaffolds, say they are unfinished scaffolds and do not
 ## Bundled Resources
 
 - `scripts/collect_web_sources.py`: collect titles, descriptions, access status, errors, and learning-resource links from URL or local HTML inputs.
-- `scripts/create_web_notes.py`: classify sources into a notes directory, create a collection folder, and write `source_manifest.md`, `00_学习地图.md`, and detailed note scaffolds that must be expanded before final delivery.
+- `scripts/create_web_notes.py`: classify sources into a notes directory, create a collection folder, and write `source_manifest.md`, a language-specific entry map note, and detailed note scaffolds that must be expanded before final delivery.
 - `scripts/check_web_notes.py`: validate finalized web-note collections for source coverage, scaffold residue, and per-link note coverage when required.
 - `references/source-policy.md`: source access, copyright, attribution, and safety rules.
 - `references/note-output.md`: note structures for video courses, PPT sites, book sites, and mixed web learning resources.

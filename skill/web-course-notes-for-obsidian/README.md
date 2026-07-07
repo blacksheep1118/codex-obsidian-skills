@@ -38,9 +38,9 @@ py -m pip install -r requirements-dev.txt
 
 ## What It Produces
 
-- A collection folder inside the user's Obsidian notes directory, either under a matching existing category or under `网络资源/`.
+- A collection folder inside the user's Obsidian notes directory, either under a matching existing category or under a language-specific fallback root such as `网络资源/` or `Web Resources/`.
 - `source_manifest.md` with original sources, canonical URLs, titles, descriptions, detected resource types, access status, and per-source errors.
-- `00_学习地图.md` as the entry point for each imported web resource collection.
+- `00_学习地图.md` or `00_Learning_Map.md` as the entry point for each imported web resource collection.
 - Detailed Obsidian Markdown notes from course videos, slide pages, book chapters, direct PDFs, or mixed learning pages.
 - `00_课程总览.md`, `00_学习地图.md`, or `00_阅读地图.md`.
 - Detailed and concise review pages when the source is course-like.
@@ -94,16 +94,18 @@ python3 scripts/create_web_notes.py https://openaccess.thecvf.com/content_cvpr_2
 py scripts\create_web_notes.py https://openaccess.thecvf.com/content_cvpr_2016/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf --notes-dir "$HOME\Desktop\solvenotes\notes"
 ```
 
-The script inspects existing top-level folders under `--notes-dir`. For CVPR/image resources it prefers an existing `计算机视觉` folder; otherwise it creates `网络资源/<collection-title>/`. Use `--category <folder>` to force a destination category.
+The script inspects existing top-level folders under `--notes-dir`. For CVPR/image resources it prefers an existing matching folder; otherwise it creates `网络资源/<collection-title>/` for Chinese scaffolds and `Web Resources/<collection-title>/` for English scaffolds. Use `--category <folder>` to force a destination category.
 
 `create_web_notes.py` is a deterministic placement and scaffolding helper. Its generated notes are marked `status: scaffold`; Codex should then read or extract the accessible source content, inspect nearby notes in the destination category, and replace the scaffold placeholders with a finished note before reporting the task as complete.
 
-By default, `--language auto` chooses Chinese when the user input, collected title, or description contains Chinese characters and chooses English otherwise. Choose scaffold language explicitly when needed:
+By default, `--language auto` chooses Chinese when the user input, collected title, or description contains Chinese characters and chooses English otherwise. The resolved language also controls fallback placement and entry note names: Chinese uses `网络资源/` and `00_学习地图.md`; English uses `Web Resources/` and `00_Learning_Map.md`. Choose scaffold language explicitly when needed:
 
 ```bash
 python3 scripts/create_web_notes.py https://example.com/course --notes-dir ~/notes --language en
 python3 scripts/create_web_notes.py https://example.com/course --notes-dir ~/notes --language zh
 ```
+
+Use `--root-folder-name <folder>` or `--map-note-name <name.md>` when a vault needs custom placement or entry note naming.
 
 Scaffolds are not final delivery. After Codex reads or extracts the accessible source content and rewrites the placeholders into finished notes, run `scripts/check_web_notes.py` before reporting the collection as complete.
 

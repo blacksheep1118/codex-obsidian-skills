@@ -41,6 +41,8 @@ CATEGORY_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
 INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 TOKEN_RE = re.compile(r"[a-z0-9]+", re.I)
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+DEFAULT_ROOT_FOLDERS = {"zh": "网络资源", "en": "Web Resources"}
+DEFAULT_MAP_NOTE_NAMES = {"zh": "00_学习地图.md", "en": "00_Learning_Map.md"}
 
 
 @dataclass(frozen=True)
@@ -101,7 +103,13 @@ def existing_dirs(root: Path) -> list[Path]:
     return [path for path in sorted(root.iterdir()) if path.is_dir() and not path.name.startswith(".")]
 
 
-def choose_category_dir(notes_dir: Path, context: str, explicit_category: str | None = None) -> Path:
+def choose_category_dir(
+    notes_dir: Path,
+    context: str,
+    explicit_category: str | None = None,
+    *,
+    default_root_folder: str = "网络资源",
+) -> Path:
     if explicit_category:
         category = Path(explicit_category)
         return category if category.is_absolute() else notes_dir / category
@@ -128,7 +136,16 @@ def choose_category_dir(notes_dir: Path, context: str, explicit_category: str | 
     if best_child and best_score >= 1:
         return best_child
 
-    return notes_dir / "网络资源"
+    return notes_dir / default_root_folder
+
+
+def note_file_name(value: str | None, fallback: str) -> str:
+    name = safe_path_name(value or fallback, fallback)
+    return name if name.lower().endswith(".md") else f"{name}.md"
+
+
+def note_stem(file_name: str) -> str:
+    return Path(file_name).stem
 
 
 def available_file(path: Path, content: str) -> Path:
@@ -147,7 +164,13 @@ def available_file(path: Path, content: str) -> Path:
     raise RuntimeError(f"could not find an available path near {path}")
 
 
-def page_note_content_zh(page: PageRecord, index: int, created: date, display_title: str | None = None) -> str:
+def page_note_content_zh(
+    page: PageRecord,
+    index: int,
+    created: date,
+    display_title: str | None = None,
+    map_note_stem: str = "00_学习地图",
+) -> str:
     title = display_title or page.title or title_from_url(page.url)
     description = page.description.strip() if page.description.strip() else "待补充: 摘要、课程简介或章节定位。"
     lines = [
@@ -166,12 +189,12 @@ def page_note_content_zh(page: PageRecord, index: int, created: date, display_ti
         "",
         "## 相关",
         "",
-        "- [[00_学习地图]]",
+        f"- [[{map_note_stem}]]",
         "- [[source_manifest]]",
         "",
         "## 导航",
         "",
-        "- 上级入口: [[00_学习地图]]",
+        f"- 上级入口: [[{map_note_stem}]]",
         "- 建议阅读顺序: 先看`问题背景`，再看`方法总览`、`关键机制`和`关键公式与变量`，最后用`精简复习`检查理解。",
         "",
         "## 来源",
@@ -288,7 +311,7 @@ def page_note_content_zh(page: PageRecord, index: int, created: date, display_ti
             "",
             "## 相关文件",
             "",
-            "- [[00_学习地图]]",
+            f"- [[{map_note_stem}]]",
             "- [[source_manifest]]",
             "",
         ]
@@ -296,7 +319,13 @@ def page_note_content_zh(page: PageRecord, index: int, created: date, display_ti
     return "\n".join(lines)
 
 
-def page_note_content_en(page: PageRecord, index: int, created: date, display_title: str | None = None) -> str:
+def page_note_content_en(
+    page: PageRecord,
+    index: int,
+    created: date,
+    display_title: str | None = None,
+    map_note_stem: str = "00_Learning_Map",
+) -> str:
     title = display_title or page.title or title_from_url(page.url)
     description = page.description.strip() if page.description.strip() else "To complete: summary, course context, or chapter role."
     lines = [
@@ -316,12 +345,12 @@ def page_note_content_en(page: PageRecord, index: int, created: date, display_ti
         "",
         "## Related",
         "",
-        "- [[00_学习地图]]",
+        f"- [[{map_note_stem}]]",
         "- [[source_manifest]]",
         "",
         "## Navigation",
         "",
-        "- Parent entry: [[00_学习地图]]",
+        f"- Parent entry: [[{map_note_stem}]]",
         "- Suggested order: background, core idea, mechanisms, formulas or evidence, limitations, then review.",
         "",
         "## Source",
@@ -420,7 +449,7 @@ def page_note_content_en(page: PageRecord, index: int, created: date, display_ti
             "",
             "## Related Files",
             "",
-            "- [[00_学习地图]]",
+            f"- [[{map_note_stem}]]",
             "- [[source_manifest]]",
             "",
         ]
@@ -428,10 +457,17 @@ def page_note_content_en(page: PageRecord, index: int, created: date, display_ti
     return "\n".join(lines)
 
 
-def page_note_content(page: PageRecord, index: int, created: date, display_title: str | None = None, language: str = "zh") -> str:
+def page_note_content(
+    page: PageRecord,
+    index: int,
+    created: date,
+    display_title: str | None = None,
+    language: str = "zh",
+    map_note_stem: str | None = None,
+) -> str:
     if language == "en":
-        return page_note_content_en(page, index, created, display_title)
-    return page_note_content_zh(page, index, created, display_title)
+        return page_note_content_en(page, index, created, display_title, map_note_stem or "00_Learning_Map")
+    return page_note_content_zh(page, index, created, display_title, map_note_stem or "00_学习地图")
 
 
 def map_content_zh(title: str, pages: list[PageRecord], note_names: list[str], created: date) -> str:
@@ -527,13 +563,23 @@ def create_notes(
     title: str | None = None,
     timeout: float = 15.0,
     language: str = "auto",
+    root_folder_name: str | None = None,
+    map_note_name: str | None = None,
     dry_run: bool = False,
 ) -> CreatedNotes:
     pages = collect_sources(sources, timeout=timeout)
     resolved_language = resolve_language(language, pages, sources)
     today = date.today()
     chosen_title = collection_title(pages, title)
-    category_dir = choose_category_dir(notes_dir, f"{chosen_title} {context_for_pages(pages)}", category)
+    fallback_root_folder = safe_path_name(root_folder_name or DEFAULT_ROOT_FOLDERS[resolved_language], DEFAULT_ROOT_FOLDERS[resolved_language])
+    map_file_name = note_file_name(map_note_name, DEFAULT_MAP_NOTE_NAMES[resolved_language])
+    map_note_stem = note_stem(map_file_name)
+    category_dir = choose_category_dir(
+        notes_dir,
+        f"{chosen_title} {context_for_pages(pages)}",
+        category,
+        default_root_folder=fallback_root_folder,
+    )
     folder_name = safe_path_name(folder or chosen_title, "web-resource")
     collection_dir = category_dir / folder_name
 
@@ -544,13 +590,13 @@ def create_notes(
         display_title = title if title and len(pages) == 1 else page.title or title_from_url(page.url)
         note_title = safe_path_name(display_title, f"source-{index}")
         note_name = f"{index:02d}_{note_title}"
-        content = page_note_content(page, index, today, display_title, resolved_language)
+        content = page_note_content(page, index, today, display_title, resolved_language, map_note_stem)
         note_path = available_file(collection_dir / f"{note_name}.md", content)
         note_paths.append(note_path)
         note_names.append(note_path.stem)
 
     map_body = map_content(chosen_title, pages, note_names, today, resolved_language)
-    map_path = available_file(collection_dir / "00_学习地图.md", map_body)
+    map_path = available_file(collection_dir / map_file_name, map_body)
     manifest_path = available_file(collection_dir / "source_manifest.md", manifest)
     files = (map_path, manifest_path, *note_paths)
 
@@ -560,7 +606,10 @@ def create_notes(
         manifest_path.write_text(manifest, encoding="utf-8")
         for index, (note_path, page) in enumerate(zip(note_paths, pages), start=1):
             display_title = title if title and len(pages) == 1 else page.title or title_from_url(page.url)
-            note_path.write_text(page_note_content(page, index, today, display_title, resolved_language), encoding="utf-8")
+            note_path.write_text(
+                page_note_content(page, index, today, display_title, resolved_language, map_note_stem),
+                encoding="utf-8",
+            )
 
     return CreatedNotes(collection_dir=collection_dir, files=files)
 
@@ -572,7 +621,7 @@ def main() -> int:
     parser.add_argument("--notes-dir", type=Path, required=True, help="Existing Obsidian notes directory")
     parser.add_argument("--category", help="Existing or new top-level category folder under --notes-dir")
     parser.add_argument("--folder", help="Collection folder name under the selected category")
-    parser.add_argument("--title", help="Title used for 00_学习地图.md")
+    parser.add_argument("--title", help="Collection title used for the entry map note")
     parser.add_argument("--timeout", type=float, default=15.0, help="HTTP timeout in seconds")
     parser.add_argument(
         "--language",
@@ -580,6 +629,8 @@ def main() -> int:
         default="auto",
         help="Scaffold language. Defaults to auto: Chinese for Chinese inputs or collected metadata, English otherwise.",
     )
+    parser.add_argument("--root-folder-name", help="Fallback root folder under --notes-dir when no existing category matches")
+    parser.add_argument("--map-note-name", help="Entry map note filename. Defaults by language: 00_学习地图.md or 00_Learning_Map.md")
     parser.add_argument("--dry-run", action="store_true", help="Print target paths without writing files")
     args = parser.parse_args()
 
@@ -592,6 +643,8 @@ def main() -> int:
             title=args.title,
             timeout=args.timeout,
             language=args.language,
+            root_folder_name=args.root_folder_name,
+            map_note_name=args.map_note_name,
             dry_run=args.dry_run,
         )
     except OSError as exc:

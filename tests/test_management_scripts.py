@@ -11,6 +11,8 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from install_skill import copy_skill  # noqa: E402
+from install_ignore import should_ignore_relative  # noqa: E402
+import validate_all  # noqa: E402
 
 
 def run_script(*args: str, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
@@ -31,23 +33,10 @@ def write_file(path: Path, text: str = "x\n") -> None:
 
 
 def assert_no_install_junk(root: Path) -> None:
-    forbidden_names = {
-        ".DS_Store",
-        ".git",
-        ".pytest_cache",
-        ".ruff_cache",
-        "__MACOSX",
-        "__pycache__",
-        "build",
-        "converted_pptx",
-        "dist",
-    }
     offenders = []
     for path in root.rglob("*"):
         relative = path.relative_to(root)
-        if any(part in forbidden_names or part.startswith("._") or part.endswith(".egg-info") for part in relative.parts):
-            offenders.append(relative.as_posix())
-        elif path.name.endswith(".pyc"):
+        if should_ignore_relative(relative):
             offenders.append(relative.as_posix())
     assert offenders == []
 
@@ -100,6 +89,69 @@ def test_validate_all_lists_stable_step_ids():
         assert step_id in steps
 
 
+def test_validate_all_pytest_steps_disable_external_plugin_autoload(monkeypatch):
+    monkeypatch.delenv(validate_all.PYTEST_PLUGIN_AUTOLOAD_OVERRIDE, raising=False)
+
+    steps = validate_all.build_steps(sys.executable)
+    pytest_commands = [
+        command
+        for step in steps
+        for command in step.commands
+        if command.command[:3] == [sys.executable, "-m", "pytest"]
+    ]
+
+    assert {command.command[3] for command in pytest_commands} == {"-q"}
+    assert pytest_commands
+    assert all(command.env == {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"} for command in pytest_commands)
+
+
+def test_validate_all_pytest_plugin_autoload_override(monkeypatch):
+    monkeypatch.setenv(validate_all.PYTEST_PLUGIN_AUTOLOAD_OVERRIDE, "1")
+
+    steps = validate_all.build_steps(sys.executable)
+    pytest_commands = [
+        command
+        for step in steps
+        for command in step.commands
+        if command.command[:3] == [sys.executable, "-m", "pytest"]
+    ]
+
+    assert pytest_commands
+    assert all(command.env == {} for command in pytest_commands)
+
+
+def test_validate_all_skill_alias_selects_same_steps_as_full_name():
+    steps = validate_all.build_steps(sys.executable)
+
+    alias_steps = [step.step_id for step in validate_all.selected_steps(steps, quick=False, skill="notes")]
+    full_name_steps = [
+        step.step_id
+        for step in validate_all.selected_steps(steps, quick=False, skill="notes-to-scientific-ppt")
+    ]
+
+    assert alias_steps == full_name_steps
+    assert alias_steps == ["notes.compile", "notes.tests", "notes.validator", "notes.deck"]
+
+
+def test_validate_all_unknown_skill_lists_full_names_and_aliases():
+    result = subprocess.run(
+        [sys.executable, "scripts/validate_all.py", "--skill", "notez", "--list-steps"],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "unknown skill: notez" in result.stderr
+    assert "notes-to-scientific-ppt (notes)" in result.stderr
+    assert "web-course-notes-for-obsidian (web)" in result.stderr
+    assert "ppt-to-md-for-obsidian (ppt)" in result.stderr
+    assert "obsidian-vault-organizer (vault)" in result.stderr
+
+
 def test_install_copy_ignores_and_prunes_repository_junk(tmp_path: Path):
     source = tmp_path / "source" / "fake-skill"
     destination = tmp_path / "dest" / "fake-skill"
@@ -117,11 +169,18 @@ def test_install_copy_ignores_and_prunes_repository_junk(tmp_path: Path):
     write_file(source / "dist" / "archive.whl")
     write_file(source / "fake.egg-info" / "PKG-INFO")
     write_file(source / ".git" / "config")
+    write_file(source / "tmp" / "output.txt")
+    write_file(source / ".tmp" / "output.txt")
+    write_file(source / "test-output" / "result.txt")
+    write_file(source / "debug.log")
+    write_file(source / "scratch.tmp")
 
     copy_skill(source, destination, dry_run=False)
 
     assert (destination / "SKILL.md").exists()
     assert (destination / "scripts" / "tool.py").exists()
+    assert not (destination / "debug.log").exists()
+    assert not (destination / "scratch.tmp").exists()
     assert_no_install_junk(destination)
 
     write_file(destination / ".DS_Store")
@@ -129,6 +188,10 @@ def test_install_copy_ignores_and_prunes_repository_junk(tmp_path: Path):
     write_file(destination / "__pycache__" / "old.pyc")
     write_file(destination / ".pytest_cache" / "old")
     write_file(destination / "build" / "old.txt")
+    write_file(destination / "tmp" / "old.txt")
+    write_file(destination / "test-output" / "old.txt")
+    write_file(destination / "old.log")
+    write_file(destination / "old.tmp")
     write_file(destination / "stale.txt")
 
     copy_skill(source, destination, dry_run=False, prune=True)

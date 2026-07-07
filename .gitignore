@@ -9,6 +9,9 @@ __pycache__/
 ._*
 __MACOSX/
 
+# Repository metadata copied by mistake
+.git/
+
 # Build, distribution, and generated outputs
 build/
 dist/

@@ -2,15 +2,15 @@
 
 ## Vault Placement
 
-When a notes directory is provided, put each imported collection in one deterministic folder. Reuse an existing top-level category when the source clearly matches it, such as `计算机视觉` for CVPR/image papers. If no category fits, create `网络资源/<collection-title>/`.
+When a notes directory is provided, put each imported collection in one deterministic folder. Reuse an existing top-level category when the source clearly matches it, such as `计算机视觉` for CVPR/image papers. If no category fits, use the resolved scaffold language: Chinese creates `网络资源/<collection-title>/`, and English creates `Web Resources/<collection-title>/`.
 
 Each collection folder should contain:
 
 - `source_manifest.md`,
-- `00_学习地图.md`,
+- `00_学习地图.md` for Chinese or `00_Learning_Map.md` for English,
 - one or more numbered source or chapter notes.
 
-`scripts/create_web_notes.py` defaults to `--language auto`: Chinese inputs, titles, or descriptions produce Chinese scaffolds; English-only inputs produce English scaffolds. Use `--language zh` or `--language en` when the user explicitly wants one language.
+`scripts/create_web_notes.py` defaults to `--language auto`: Chinese inputs, titles, or descriptions produce Chinese scaffolds; English-only inputs produce English scaffolds. Use `--language zh` or `--language en` when the user explicitly wants one language. Use `--root-folder-name` and `--map-note-name` when the vault requires custom fallback folders or entry note filenames.
 
 ## Detailed Note Standard
 
