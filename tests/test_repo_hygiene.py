@@ -16,7 +16,15 @@ import check_repo_hygiene  # noqa: E402
 from install_ignore import GITIGNORE_PATTERNS, should_ignore_relative  # noqa: E402
 
 
-def run_script(*args: str, cwd: Path = ROOT, check: bool = True) -> subprocess.CompletedProcess[str]:
+SUBPROCESS_TIMEOUT_SECONDS = 60
+
+
+def run_script(
+    *args: str,
+    cwd: Path = ROOT,
+    check: bool = True,
+    timeout: int = SUBPROCESS_TIMEOUT_SECONDS,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, *args],
         cwd=cwd,
@@ -25,6 +33,7 @@ def run_script(*args: str, cwd: Path = ROOT, check: bool = True) -> subprocess.C
         errors="replace",
         capture_output=True,
         check=check,
+        timeout=timeout,
     )
 
 
@@ -72,6 +81,7 @@ def test_ci_runs_repo_hygiene_and_root_pytest():
 
     assert "python scripts/check_repo_hygiene.py" in workflow
     assert "python -m pytest -q" in workflow
+    assert 'PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"' in workflow
     assert "matrix.skill" in workflow
     assert "python -m pip install -r skill/${{ matrix.skill }}/requirements-dev.txt" in workflow
     assert "working-directory: skill/${{ matrix.skill }}" in workflow
@@ -84,7 +94,14 @@ def test_repo_hygiene_reports_tracked_junk_files(tmp_path: Path):
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(
+        ["git", "init"],
+        cwd=repo,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
+    )
     (repo / "README.md").write_text("# Repo\n", encoding="utf-8")
     (repo / ".DS_Store").write_text("junk\n", encoding="utf-8")
     (repo / "._README.md").write_text("junk\n", encoding="utf-8")
@@ -94,7 +111,14 @@ def test_repo_hygiene_reports_tracked_junk_files(tmp_path: Path):
     (repo / "pkg" / "__pycache__" / "module.pyc").write_bytes(b"\0")
     (repo / "build").mkdir()
     (repo / "build" / "artifact.txt").write_text("junk\n", encoding="utf-8")
-    subprocess.run(["git", "add", "."], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(
+        ["git", "add", "."],
+        cwd=repo,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
+    )
 
     result = run_script("scripts/check_repo_hygiene.py", "--root", str(repo), check=False)
     output = result.stdout + result.stderr
@@ -115,9 +139,23 @@ def test_repo_hygiene_scan_worktree_reports_untracked_junk(tmp_path: Path):
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(
+        ["git", "init"],
+        cwd=repo,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
+    )
     (repo / "README.md").write_text("# Repo\n", encoding="utf-8")
-    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(
+        ["git", "add", "README.md"],
+        cwd=repo,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
+    )
     (repo / "debug.log").write_text("junk\n", encoding="utf-8")
     (repo / "scratch.tmp").write_text("junk\n", encoding="utf-8")
 
@@ -138,12 +176,12 @@ def test_root_pytest_collects_only_root_tests():
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q"],
         cwd=ROOT,
-        env={**os.environ, "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+        env={**os.environ, "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", "PYTHONDONTWRITEBYTECODE": "1"},
         text=True,
         encoding="utf-8",
         errors="replace",
         capture_output=True,
-        timeout=60,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
         check=True,
     )
 

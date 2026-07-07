@@ -19,11 +19,19 @@ Run the fast repository test entry point from the repository root while iteratin
 
 ```bash
 python3 scripts/check_repo_hygiene.py
-python3 -m pytest -q
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 python3 scripts/validate_all.py --quick
 ```
 
-The root `python -m pytest` entry point only collects the root `tests/` directory. `scripts/validate_all.py --quick` runs compile, repo hygiene, metadata sync, root tests, and skill validators without sample pipeline or deck smoke runs. `validate_all.py` disables external pytest plugin autoload for its pytest subprocesses with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`; set `VALIDATE_ALL_ENABLE_PYTEST_PLUGIN_AUTOLOAD=1` only when intentionally debugging third-party pytest plugins. For focused debugging, list stable step ids or run one skill:
+PowerShell:
+
+```powershell
+py scripts\check_repo_hygiene.py
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD="1"; py -m pytest -q
+py scripts\validate_all.py --quick
+```
+
+The root `python -m pytest` entry point only collects the root `tests/` directory. Disable external pytest plugin autoload for the most stable local root run. `scripts/validate_all.py --quick` runs compile, repo hygiene, root tests, metadata sync, and skill validators without sample pipeline or deck smoke runs. `validate_all.py` disables external pytest plugin autoload for its pytest subprocesses with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`; set `VALIDATE_ALL_ENABLE_PYTEST_PLUGIN_AUTOLOAD=1` only when intentionally debugging third-party pytest plugins. For focused debugging, list stable step ids or run one skill:
 
 ```bash
 python3 scripts/validate_all.py --quick
@@ -79,7 +87,7 @@ python3 scripts/sync_shared_resources.py --write
 
 1. Update `CHANGELOG.md`.
 2. Run `python3 scripts/check_repo_hygiene.py`.
-3. Run `python3 -m pytest -q`.
+3. Run `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q`.
 4. Run `python3 scripts/validate_all.py --quick`.
 5. For each changed skill, install only that skill's `requirements-dev.txt`, then run its `python3 -m pytest -q` and validator.
 6. Confirm `git status --short` shows only source and documentation changes.

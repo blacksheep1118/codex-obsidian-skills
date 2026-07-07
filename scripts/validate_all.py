@@ -93,10 +93,12 @@ def subprocess_env(extra: Mapping[str, str] | None) -> dict[str, str] | None:
 
 
 def pytest_env() -> dict[str, str]:
+    env = {"PYTHONDONTWRITEBYTECODE": "1"}
     override = os.environ.get(PYTEST_PLUGIN_AUTOLOAD_OVERRIDE, "").strip().lower()
     if override in TRUE_VALUES:
-        return {}
-    return {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"}
+        return env
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    return env
 
 
 def pytest_command(py: str, *args: str, cwd: Path = ROOT) -> CommandSpec:
@@ -128,6 +130,7 @@ def build_steps(py: str) -> list[Step]:
     return [
         Step("root.compile", (CommandSpec([py, "-m", "compileall", "scripts"]),)),
         Step("root.repo_hygiene", (CommandSpec([py, "scripts/check_repo_hygiene.py"]),)),
+        Step("root.tests", (pytest_command(py, "-q"),)),
         Step(
             "metadata.sync",
             (
@@ -144,7 +147,6 @@ def build_steps(py: str) -> list[Step]:
             ),
             quick=False,
         ),
-        Step("root.tests", (pytest_command(py, "-q"),)),
         Step("ppt.compile", (CommandSpec([py, "-m", "compileall", "scripts"], cwd=PPT_SKILL),), skill="ppt"),
         Step("ppt.tests", (pytest_command(py, "-q", "tests", cwd=PPT_SKILL),), skill="ppt", quick=False),
         Step("ppt.validator", (CommandSpec([py, "scripts/validate_skill_repo.py"], cwd=PPT_SKILL),), skill="ppt"),

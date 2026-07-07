@@ -15,7 +15,14 @@ from install_ignore import should_ignore_relative  # noqa: E402
 import validate_all  # noqa: E402
 
 
-def run_script(*args: str, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
+SUBPROCESS_TIMEOUT_SECONDS = 60
+
+
+def run_script(
+    *args: str,
+    cwd: Path = ROOT,
+    timeout: int = SUBPROCESS_TIMEOUT_SECONDS,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, *args],
         cwd=cwd,
@@ -24,6 +31,7 @@ def run_script(*args: str, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]
         errors="replace",
         capture_output=True,
         check=True,
+        timeout=timeout,
     )
 
 
@@ -102,7 +110,10 @@ def test_validate_all_pytest_steps_disable_external_plugin_autoload(monkeypatch)
 
     assert {command.command[3] for command in pytest_commands} == {"-q"}
     assert pytest_commands
-    assert all(command.env == {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"} for command in pytest_commands)
+    assert all(
+        command.env == {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", "PYTHONDONTWRITEBYTECODE": "1"}
+        for command in pytest_commands
+    )
 
 
 def test_validate_all_pytest_plugin_autoload_override(monkeypatch):
@@ -117,7 +128,34 @@ def test_validate_all_pytest_plugin_autoload_override(monkeypatch):
     ]
 
     assert pytest_commands
-    assert all(command.env == {} for command in pytest_commands)
+    assert all(command.env == {"PYTHONDONTWRITEBYTECODE": "1"} for command in pytest_commands)
+
+
+def test_validate_all_quick_runs_root_tests_before_metadata_sync():
+    steps = validate_all.selected_steps(validate_all.build_steps(sys.executable), quick=True, skill=None)
+    step_ids = [step.step_id for step in steps]
+
+    assert step_ids[:4] == ["root.compile", "root.repo_hygiene", "root.tests", "metadata.sync"]
+
+
+def test_validate_all_timeout_reports_context(monkeypatch, capsys):
+    def raise_timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=kwargs.get("args", args[0]), timeout=7)
+
+    monkeypatch.setattr(validate_all.subprocess, "run", raise_timeout)
+
+    try:
+        validate_all.run_command("root.tests", [sys.executable, "-m", "pytest", "-q"], ROOT, timeout=7)
+    except SystemExit as exc:
+        assert exc.code == 124
+    else:
+        raise AssertionError("run_command should exit on timeout")
+
+    captured = capsys.readouterr()
+    assert "step: root.tests" in captured.err
+    assert f"cwd: {ROOT}" in captured.err
+    assert "command:" in captured.err
+    assert "timeout: after 7s" in captured.err
 
 
 def test_validate_all_skill_alias_selects_same_steps_as_full_name():
@@ -142,6 +180,7 @@ def test_validate_all_unknown_skill_lists_full_names_and_aliases():
         errors="replace",
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert result.returncode != 0

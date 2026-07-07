@@ -244,17 +244,17 @@ Before committing, run:
 
 ```bash
 python3 scripts/check_repo_hygiene.py
-python3 -m pytest -q
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 python3 scripts/validate_all.py --quick
 ```
 
 ```powershell
 py scripts\check_repo_hygiene.py
-py -m pytest -q
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD="1"; py -m pytest -q
 py scripts\validate_all.py --quick
 ```
 
-The root `python -m pytest` entry point is the fast repository check and only collects tests from the root `tests/` directory. `scripts/validate_all.py --quick` runs compile, repo hygiene, metadata sync, root tests, and skill validators without sample pipeline or deck smoke runs.
+The root `python -m pytest` entry point is the fast repository check and only collects tests from the root `tests/` directory. Disable external pytest plugin autoload for the most stable local root run. `scripts/validate_all.py --quick` runs compile, repo hygiene, root tests, metadata sync, and skill validators without sample pipeline or deck smoke runs.
 
 `validate_all.py` runs its pytest subprocesses with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` so unrelated globally installed pytest plugins do not change local or CI validation behavior. Set `VALIDATE_ALL_ENABLE_PYTEST_PLUGIN_AUTOLOAD=1` only when intentionally debugging with external pytest plugins.
 
