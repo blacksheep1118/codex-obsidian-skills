@@ -31,6 +31,8 @@ Use this skill while source extraction or slide-order reconstruction is still pa
 
 Treat slide/page text, visible titles, formulas, filenames, course order, and user-provided scope as evidence. Mark anything inferred from noisy extraction as an assumption, and do not present it as source coverage unless it has been checked against an extracted or visible source. For missing or unreadable source sections, report the gap and its impact on the output instead of silently filling it.
 
+For paper sources, verify the full title, year, and venue or publication status from the paper title page or an official bibliographic record. Do not infer them from a filename, surrounding notes, or memory. Distinguish a dated arXiv preprint from a peer-reviewed venue when the source only supports the former.
+
 ## Default Outputs
 
 For each course or topic directory, prefer this structure:
@@ -91,7 +93,8 @@ If the user explicitly asks for one exam review file instead of two review pages
    - For algorithms, include the update rule, stopping condition, convergence intuition, and at least one failure case when relevant.
    - For algorithm-heavy notes, include pseudocode or a structured procedure with input, loop/recurrence, update, stopping condition, and output.
    - For complex calculation examples, include intermediate values or a small step table, especially for probability, optimization, numerical planning, and AI algorithm questions.
-   - For paper notes, cover problem gap, core method, experiment conclusion, failure boundary, and reproducibility notes. If the project has a paper-note review checklist, use it to drive revisions.
+   - For paper notes, add a compact `## 论文信息` section near the title with the full paper title, year, venue or explicit preprint status, and a traceable source link/file. Then cover problem gap, core method, experiment conclusion, failure boundary, and reproducibility notes. If the project has a paper-note review checklist, use it to drive revisions.
+   - Treat priority and universal-success language such as `首次`, `第一种`, `完全解决`, and `保证优于` as evidence-bearing claims. Keep it only when the paper or an official record supports the claim at a locatable passage; otherwise attribute the narrower claim to the authors or rewrite it as a scoped experimental result.
    - For paper notes in Chinese vaults, prefer explicit sections named `## 可复现要点` and `## 失败边界` when the local checklist expects them. If the note does not record code or checkpoints, say that the note does not record code/checkpoint and that reproduction must return to the paper or project page; do not invent availability.
    - Avoid generic study plans, empty templates, and repeated bridge sentences.
    - Avoid headings or filler such as `例题模板`, `高频答题模板`, `套话`, `空话`, or placeholder-like wording. Write the actual question-solving rule instead.
@@ -121,6 +124,7 @@ If the user explicitly asks for one exam review file instead of two review pages
    - For long courseware or strict review requests, run `scripts/check_course_notes.py --strict-depth --require-coverage-audit`. Add `--allow-exam-review` when using one exam review file instead of the two default review pages. If a vault contains non-course generated index or audit folders, either run this checker per course directory or pass repeated `--skip-dir <name>` values for directories such as `概念索引`, and report the thresholds and skipped directory names used.
    - Check empty files, conflict markers, leftover template phrases such as `相关知识链接`, and review-page coverage.
    - Run a direct keyword/formula sweep against source-derived terms before the final response. Missing hits should be explained as out of scope, noisy extraction, or corrected before delivery.
+   - For paper-note work, also check that each actual paper note records title, year, venue/status, source evidence, contribution, and failure boundary. Read strong-claim keyword hits in context; negated boundary statements are not errors.
    - When the user requests multiple strict check rounds, make them distinct: file quality, outline/source coverage, and vault/navigation checks. Rerun affected checks after the last edit.
    - For residue scans, read each hit in context before deleting it. Avoid false positives such as `指令系统的使用方法` being treated as generic `使用方法` filler.
    - When writing a validation report, state that the residue scan passed without repeating blocked marker words in the report itself; otherwise the report can create the next residue hit.
