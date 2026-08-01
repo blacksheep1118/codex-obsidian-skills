@@ -33,6 +33,20 @@ Treat slide/page text, visible titles, formulas, filenames, course order, and us
 
 For paper sources, verify the full title, year, and venue or publication status from the paper title page or an official bibliographic record. Do not infer them from a filename, surrounding notes, or memory. Distinguish a dated arXiv preprint from a peer-reviewed venue when the source only supports the former.
 
+## Semantic Correctness Gate
+
+Treat formulas, definitions, algorithms, examples, and paper conclusions as claims that need semantic review, not just Markdown or LaTeX syntax checks.
+
+- For every nontrivial formula, define symbols, domains, signs, shapes, and boundary conditions next to it. Check dimensions, limiting cases, and whether a floor/ceiling or divisibility condition is part of the convention. Distinguish a Lipschitz function from a Lipschitz gradient, a necessary condition from a sufficient condition, and a model assumption from an empirical observation.
+- For definitions, state the scope: API/DBMS version, hardware model, course convention, market/board, or other operating assumptions. Replace universal wording with the narrowest statement supported by the source.
+- For algorithms and proofs, make the construction, invariant, answer mapping, stopping condition, and failure case explicit. Check that every worked example's answer actually matches its question; use symbolic calculation or randomized tests when a deterministic check is practical.
+- For current rules and paper results, record the applicable object, date/version, metric, dataset, and source. A reported table or ablation supports a scoped experimental claim; it is not automatically a theorem, necessity claim, or first-in-field claim.
+- When a semantic repair affects a repeated concept, update the chapter note and the detailed/concise review copies together, or state why a copy is intentionally scoped differently.
+
+## Repair Output Boundary
+
+Write corrected explanations and traceable source markers into the notes. Keep temporary issue ledgers, machine-readable audit data, and intermediate reports outside the vault unless the user explicitly requests them or local project guidance requires a named coverage page. Do not resurrect removed quality directories or generated pages merely to hold audit output. Never leave `TODO`, `待核实`, or unresolved placeholder text in a delivered note; if evidence is unavailable, state the bounded limitation and its source status directly.
+
 ## Default Outputs
 
 For each course or topic directory, prefer this structure:
@@ -67,7 +81,7 @@ If the user explicitly asks for one exam review file instead of two review pages
 3. Do a source coverage pass before writing the final notes.
    - Build a source-to-output map by file, chapter, slide/page range, and major headings.
    - Pull out formulas, algorithms, examples, derivation steps, definitions, assumptions, and warnings from each source file.
-   - Every source-derived example must carry a traceable marker such as `（/课程/文件或章节 p.N）`. If PPT/PDF text extraction has no standalone example, generate an auxiliary question and label it with `生成：PPT/PDF 未提供独立可抽取例题`.
+   - Every source-derived example must carry a traceable marker such as `（/课程/文件或章节 p.N）`. If PPT/PDF text extraction has no standalone example, generate an auxiliary question and label it with `生成：补充教学例（非源课件原例）；PPT/PDF 未提供独立可抽取例题`.
    - Every example must include a detailed explanation, not just an answer. Include the tested concept, known conditions, formula or rule choice, substitution or reasoning steps, conclusion, and the common mistake or boundary condition to avoid.
    - Use a stable generated-question format when the source has no standalone example: `题目` states the concrete givens, `解法` shows the rule/formula and steps, `关键陷阱` states what can go wrong, and `来源说明` carries the generated marker.
    - Keep source-derived examples and generated auxiliary questions visibly distinct. Never relabel a generated question as a PPT/PDF example. If examples are graded or reviewed by project scripts, improve low-grade rows by adding analysis, steps, conclusion, and pitfalls while preserving the original source marker.
@@ -87,7 +101,7 @@ If the user explicitly asks for one exam review file instead of two review pages
    - Use `$$ ... $$` for block formulas.
    - For exam material, include definitions, formula meanings, derivation logic, calculation examples, decision rules, common traps, and boundary conditions.
    - If the user asks for `（简答）` marks, place the mark on the local heading or bullet where the answer should be memorized; do not create a detached list of brief-answer topics.
-   - Write worked examples as followable calculations: known conditions, formula choice, substitution, intermediate value, conclusion, and the common mistake to avoid. When the source only gives the final answer, reconstruct the missing steps from the surrounding formula and state any assumption.
+   - Write worked examples as followable calculations: known conditions, formula choice, substitution, intermediate value, conclusion, and the common mistake to avoid. Before delivery, re-evaluate the answer against the question and record the acceptance/stop condition. When the source only gives the final answer, reconstruct the missing steps from the surrounding formula and state any assumption.
    - For zero-base standalone review files, do not write `see PPT`, `as above`, or source-dependent shortcuts. Include the definition, formula variables, decision rule, and example steps in the file itself.
    - For probability/statistics, write the likelihood, posterior, risk, estimator bias, or gradient formula before explaining it in words.
    - For algorithms, include the update rule, stopping condition, convergence intuition, and at least one failure case when relevant.
@@ -125,6 +139,8 @@ If the user explicitly asks for one exam review file instead of two review pages
    - Check empty files, conflict markers, leftover template phrases such as `相关知识链接`, and review-page coverage.
    - Run a direct keyword/formula sweep against source-derived terms before the final response. Missing hits should be explained as out of scope, noisy extraction, or corrected before delivery.
    - For paper-note work, also check that each actual paper note records title, year, venue/status, source evidence, contribution, and failure boundary. Read strong-claim keyword hits in context; negated boundary statements are not errors.
+   - Add targeted semantic regression checks for every repaired formula, example, or scope-sensitive claim (for example, evaluate the worked assignment, verify a construction's two cases, or assert that the corrected floor/sign/condition is present). If Ruff is unavailable, activate an existing project environment or install it only when the package is within the user's stated size budget; report that environment choice.
+   - Keep source-fidelity status separate from note-quality status. If `SOLVENOTES_SOURCE_ROOT` or another source root is unavailable, report the strict source check as blocked rather than treating a passing local note check as source verification.
    - When the user requests multiple strict check rounds, make them distinct: file quality, outline/source coverage, and vault/navigation checks. Rerun affected checks after the last edit.
    - For residue scans, read each hit in context before deleting it. Avoid false positives such as `指令系统的使用方法` being treated as generic `使用方法` filler.
    - When writing a validation report, state that the residue scan passed without repeating blocked marker words in the report itself; otherwise the report can create the next residue hit.
