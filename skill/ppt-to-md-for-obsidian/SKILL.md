@@ -42,10 +42,15 @@ Treat formulas, definitions, algorithms, examples, and paper conclusions as clai
 - For algorithms and proofs, make the construction, invariant, answer mapping, stopping condition, and failure case explicit. Check that every worked example's answer actually matches its question; use symbolic calculation or randomized tests when a deterministic check is practical.
 - For current rules and paper results, record the applicable object, date/version, metric, dataset, and source. A reported table or ablation supports a scoped experimental claim; it is not automatically a theorem, necessity claim, or first-in-field claim.
 - When a semantic repair affects a repeated concept, update the chapter note and the detailed/concise review copies together, or state why a copy is intentionally scoped differently.
+- For computability reductions, write the reduction direction and any complement explicitly, then verify both cases of the constructed machine. Do not replace a proof obligation with a memorized problem-name pairing.
+- For condition-bearing theory such as A*, KKT, Slater, complexity bounds, or universal approximation, put the search mode, sign convention, constraint qualification, domain, activation, or asymptotic assumptions next to the conclusion. Separate necessity, sufficiency, strong duality, and empirical evidence.
+- For medicine, finance, and other high-stakes notes, state units, population/product/market, and applicable date. Verify diagnostic thresholds, medication examples, fees, taxes, settlement/trading rules, and board-specific rules against an authoritative source; if the source is course-era or incomplete, label it as historical/course scope instead of guessing a current rule.
 
 ## Repair Output Boundary
 
 Write corrected explanations and traceable source markers into the notes. Keep temporary issue ledgers, machine-readable audit data, and intermediate reports outside the vault unless the user explicitly requests them or local project guidance requires a named coverage page. Do not resurrect removed quality directories or generated pages merely to hold audit output. Never leave `TODO`, `待核实`, or unresolved placeholder text in a delivered note; if evidence is unavailable, state the bounded limitation and its source status directly.
+
+Do not write reviewer-facing prose into ordinary notes. Replace phrases such as “不能泛化”“这不是对所有任务的保证” or “证据边界” with a direct scope statement: name the dataset, metric, model configuration, market, date, or clinical setting that the evidence covers. Keep audit findings and patch ledgers in the final response or an explicitly requested review artifact, not in the knowledge pages.
 
 ## Default Outputs
 
@@ -140,6 +145,7 @@ If the user explicitly asks for one exam review file instead of two review pages
    - Run a direct keyword/formula sweep against source-derived terms before the final response. Missing hits should be explained as out of scope, noisy extraction, or corrected before delivery.
    - For paper-note work, also check that each actual paper note records title, year, venue/status, source evidence, contribution, and failure boundary. Read strong-claim keyword hits in context; negated boundary statements are not errors.
    - Add targeted semantic regression checks for every repaired formula, example, or scope-sensitive claim (for example, evaluate the worked assignment, verify a construction's two cases, or assert that the corrected floor/sign/condition is present). If Ruff is unavailable, activate an existing project environment or install it only when the package is within the user's stated size budget; report that environment choice.
+   - After repairs, sweep all synchronized chapter, detailed-review, concise-review, and summary files for the old claim and the new scoped wording. Check that no reviewer-language residue, stale numeric rule, or unmarked generated example remains.
    - Keep source-fidelity status separate from note-quality status. If `SOLVENOTES_SOURCE_ROOT` or another source root is unavailable, report the strict source check as blocked rather than treating a passing local note check as source verification.
    - When the user requests multiple strict check rounds, make them distinct: file quality, outline/source coverage, and vault/navigation checks. Rerun affected checks after the last edit.
    - For residue scans, read each hit in context before deleting it. Avoid false positives such as `指令系统的使用方法` being treated as generic `使用方法` filler.
