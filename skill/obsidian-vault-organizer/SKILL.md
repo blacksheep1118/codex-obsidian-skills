@@ -86,7 +86,7 @@ Treat existing notes, local guidance, source files opened in the current task, g
 
 6. Validate before finishing.
    - Run `scripts/check_obsidian_links.py` for Markdown and Obsidian wiki links when the vault is local.
-   - Treat code-like double brackets such as R `x[[1]]` or array examples as potential false wiki links for simple link checkers. Escape them as `x\[\[1\]\]`, rephrase them, or improve the checker before claiming link validation is clean.
+   - The bundled link checker masks fenced and inline code before scanning. Code-like double brackets outside code spans, such as R `x[[1]]` in prose, still need escaping/rephrasing; never claim link validation is clean until the checker and a code-block regression test pass.
    - Run `scripts/check_vault_quality.py` for conflict markers, empty files, unbalanced block math, duplicate note stems, and leftover template text.
    - For strict cleanup, also run `scripts/check_vault_quality.py --strict-study --forbid-report-notes` on the affected note directory. Use `--profile solvenotes` only after reading `references/solvenotes-profile.md`, and use `--pattern-file` for project-specific residue lists.
    - Run the targeted residue scan over chapter notes, overviews, and generated review pages together. Review pages often preserve old formula snippets and cross-course links after chapters have been fixed.
@@ -124,7 +124,7 @@ For dry-run work, clearly separate proposed edits from applied edits and do not 
 
 ## Bundled Resources
 
-- `scripts/check_obsidian_links.py`: check Markdown links and Obsidian wiki links.
+- `scripts/check_obsidian_links.py`: check Markdown links and Obsidian wiki links while ignoring fenced and inline code.
 - `scripts/check_vault_quality.py`: check empty files, conflict markers, unbalanced fences/math, duplicate note stems, template residue, generic strict-study link placement, optional solvenotes profile residue, and custom pattern files.
 - `scripts/link_inventory.py`: inventory Markdown, wiki, and external links by file and directory for cleanup before/after comparisons.
 - `scripts/extract_presentation_text.py`: extract PPTX and legacy PPT text into temporary files for source-consistency audits.

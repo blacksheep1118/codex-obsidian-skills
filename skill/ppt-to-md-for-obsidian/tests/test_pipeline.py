@@ -104,3 +104,34 @@ def test_pipeline_marks_low_coverage_pdf_in_manifest(monkeypatch, tmp_path: Path
     assert LOW_COVERAGE_WARNING in raw
     assert "PDF pages: 2; empty text pages: 2; text characters: 0" in manifest
     assert "Coverage: low text coverage; do not claim complete source coverage without OCR/manual inspection." in manifest
+
+
+def test_pipeline_disambiguates_same_named_sources(monkeypatch, tmp_path: Path):
+    first = tmp_path / "a" / "lecture.pdf"
+    second = tmp_path / "b" / "lecture.pdf"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_bytes(b"%PDF-1.4\n")
+    second.write_bytes(b"%PDF-1.4\n")
+
+    def fake_extract_pdf_result(path: Path) -> PdfExtractionResult:
+        return PdfExtractionResult(
+            markdown=f"# Extracted PDF Text: {path.name}\n\ncontent for {path.parent.name}\n",
+            backend="pypdf",
+            low_coverage=False,
+            empty_pages=0,
+            char_count=10,
+            page_count=1,
+        )
+
+    monkeypatch.setattr(pipeline, "extract_pdf_result", fake_extract_pdf_result)
+    config = PipelineConfig(source=tmp_path, output_dir=tmp_path / "out")
+    processed = run(config)
+
+    assert len(processed) == 2
+    raw_stems = {item.raw.stem for item in processed}
+    cleaned_stems = {item.cleaned.stem for item in processed}
+    assert len(raw_stems) == 2
+    assert raw_stems == cleaned_stems
+    assert "lecture" in raw_stems
+    assert any(stem.startswith("lecture-") for stem in raw_stems)

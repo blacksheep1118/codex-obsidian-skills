@@ -7,7 +7,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.link_inventory import build_inventory, render_markdown
+from scripts.link_inventory import build_inventory, render_markdown  # noqa: E402
 
 
 def write(path: Path, text: str) -> None:
@@ -42,3 +42,14 @@ def test_link_inventory_counts_links_by_file_and_directory(tmp_path: Path):
     markdown = render_markdown(inventory)
     assert "## Directory Counts" in markdown
     assert "| course | 1 | 1 | 1 | 1 |" in markdown
+
+
+def test_link_inventory_ignores_links_inside_fenced_and_inline_code(tmp_path: Path):
+    write(
+        tmp_path / "Code.md",
+        "`arr[[1]]`\n\n```python\ntriton_kernel[grid](x, BLOCK=block)\nhttps://example.invalid/in-code\n```\n",
+    )
+
+    inventory = build_inventory(tmp_path)
+
+    assert inventory["totals"]["total_links"] == 0

@@ -7,7 +7,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.check_obsidian_links import check_links
+from scripts.check_obsidian_links import check_links  # noqa: E402
 
 
 def write(path: Path, text: str) -> None:
@@ -36,3 +36,16 @@ def test_check_links_reports_broken_and_self_links_while_resolving_alias_and_enc
     assert checked == 4
     assert [(issue.source.name, issue.target) for issue in broken] == [("Source.md", "Missing.md")]
     assert [(issue.source.name, issue.target) for issue in self_links] == [("Source.md", "Source")]
+
+
+def test_check_links_ignores_links_inside_fenced_and_inline_code(tmp_path: Path):
+    write(
+        tmp_path / "Source.md",
+        "`arr[[1]]`\n\n```python\nself.branches[0](x)\ntriton_kernel[grid](x, BLOCK=block)\n```\n",
+    )
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 0
+    assert broken == []
+    assert self_links == []

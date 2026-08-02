@@ -69,8 +69,8 @@ For each course or topic directory, prefer this structure:
 - `知识点详细版_含公式.md` as the full review page.
 - `知识点精简复习版_含公式.md` as the fast review page.
 - `source_manifest.md` when multiple source files are involved or extraction order could be disputed.
-- An existing `99_内容覆盖审查.md` only when the local validator already requires it; do not create a new issue ledger or reviewer-facing audit page for ordinary repairs.
-- A centralized quality/audit directory only when the user explicitly requests generated reports or local project guidance requires a named artifact.
+- An existing `99_内容覆盖审查.md` only when the local validator already requires it; do not create a new issue ledger or reviewer-facing page for ordinary repairs.
+- Keep temporary review output outside the vault unless the user explicitly requests a named artifact or local project guidance requires one.
 
 Keep the detailed review and concise review as two separate files. Do not replace the detailed version with the concise version.
 When an existing vault uses course-prefixed review pages, preserve that convention, for example `游戏数值策划知识点详细版_含公式.md` and `游戏数值策划知识点精简复习版_含公式.md`.
@@ -87,7 +87,7 @@ If the user explicitly asks for one exam review file instead of two review pages
    - For legacy `.ppt`, use `scripts/convert_ppt_to_pptx.py` to convert with LibreOffice first, then extract. If LibreOffice is unavailable or conversion fails, use the bundled `scripts/extract_legacy_ppt_text.py` OLE/CFB text-record fallback, count text records, and mark fallback or 0-record files as partial text/OCR-limited extraction rather than claimed full coverage. The pipeline performs this fallback automatically and records it in `pipeline_manifest.md`.
    - For `.pdf` courseware, use `scripts/extract_pdf_text.py`; it tries `pypdf`, `pdfplumber`, and `pdftotext`, continuing to the next backend when the current one returns all-empty pages or very low text coverage. Preserve the reported backend, page count, empty-page count, and low-coverage warning in coverage notes when relevant. If the final backend still reports low text coverage, treat the PDF as likely scanned/image-only until OCR or manual inspection confirms coverage.
    - If the extracted text contains formula noise, run `scripts/clean_latex_from_ppt.py` before rewriting.
-   - For repeatable runs, use `scripts/ppt_to_obsidian_pipeline.py` to extract, clean, and write a manifest.
+   - For repeatable runs, use `scripts/ppt_to_obsidian_pipeline.py` to extract, clean, and write a manifest. The pipeline keeps a basename when it is unique and adds a stable source-path hash when same-named files would otherwise overwrite one another.
    - If extraction is noisy, use slide titles, visible bullets, formulas, filenames, and course order together instead of trusting raw text blindly.
    - If attempting visual validation, verify that rendered images/contact sheets cover every page or slide. A QuickLook thumbnail that produces one image for a multi-slide PPTX is only a cover preview, not page-level visual evidence.
 
@@ -98,7 +98,7 @@ If the user explicitly asks for one exam review file instead of two review pages
    - Every example must include a detailed explanation, not just an answer. Include the tested concept, known conditions, formula or rule choice, substitution or reasoning steps, conclusion, and the common mistake or boundary condition to avoid.
    - Use a stable generated-question format when the source has no standalone example: `题目` states the concrete givens, `解法` shows the rule/formula and steps, `关键陷阱` states what can go wrong, and `来源说明` carries the generated marker.
    - Keep source-derived examples and generated auxiliary questions visibly distinct. Never relabel a generated question as a PPT/PDF example. If examples are graded or reviewed by project scripts, improve low-grade rows by adding analysis, steps, conclusion, and pitfalls while preserving the original source marker.
-   - Do not leave long-lived `需复核`, `人工确认`, or “open the slides manually” states. When a weak keyword hit has enough file/page/topic evidence, record it in `99_内容覆盖审查.md` or the project-designated quality audit area instead of creating a visible page-level supplement section in regular notes; when it is image-only or OCR-limited, record the limitation without inventing content.
+   - Do not leave long-lived `需复核`, `人工确认`, or “open the slides manually” states. When a weak keyword hit has enough file/page/topic evidence, update an existing `99_内容覆盖审查.md` only if the local validator requires it; otherwise state the bounded limitation in the final response. Never create a new audit page or quality directory inside the vault merely to hold findings.
    - If extracted PDF/OCR cells are obvious noise, mark them as extraction noise while preserving file/page mapping. Do not turn garbled strings into invented topics, examples, or formulas.
    - For exam-review requests, treat the exam outline or teacher-provided scope as a first-class source alongside PPT/PDF files. Preserve exact outline terms and common compact/space variants in the coverage map, for example `CPU性能公式` and `CPU 性能公式`.
    - Compare the source map with the requested exam scope. Mark topics as `included`, `out of scope by user`, `source noisy`, or `missing`.
@@ -209,7 +209,7 @@ If only a dry run or audit was requested, report planned changes and validation 
 - `scripts/convert_ppt_to_pptx.py`: convert legacy `.ppt` files to `.pptx` with LibreOffice.
 - `scripts/extract_legacy_ppt_text.py`: extract best-effort OLE/CFB text records from legacy `.ppt` files when LibreOffice conversion is unavailable or fails.
 - `scripts/extract_pdf_text.py`: extract raw text from `.pdf` courseware with backend fallback and extraction metadata.
-- `scripts/check_obsidian_links.py`: check Markdown and Obsidian wiki links.
+- `scripts/check_obsidian_links.py`: check Markdown and Obsidian wiki links while ignoring fenced and inline code.
 - `scripts/check_course_notes.py`: check course overview, review pages, empty files, conflict markers, template residue, and formula fences.
 - `scripts/check_source_coverage.py`: check PPT/PDF source-file mapping, page-level supplement index fields, source/generated example evidence, canonical source refs, chapter ownership, and hidden residue.
 - `scripts/clean_latex_from_ppt.py`: normalize formula and Unicode noise from slide extraction.

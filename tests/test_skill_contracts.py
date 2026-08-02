@@ -115,7 +115,7 @@ def test_project_specific_rules_live_in_references_not_main_skill_files():
         ),
         "obsidian-vault-organizer": (
             180,
-            ("check_all_notes.py", "check_frontmatter.py", "99_质量审查/"),
+            ("check_all_notes.py", "check_frontmatter.py", "source_manifest.md"),
         ),
     }
 

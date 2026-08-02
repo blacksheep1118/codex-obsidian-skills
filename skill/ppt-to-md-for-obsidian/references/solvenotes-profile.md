@@ -1,13 +1,13 @@
 # Solvenotes Profile
 
-Use this reference only when the target vault or repository clearly follows solvenotes-style conventions, for example local guidance names solvenotes, the vault has generated quality directories such as `99_质量审查/`, or project scripts define the same checks.
+Use this reference only when the target vault or repository clearly follows solvenotes-style conventions, for example local guidance names solvenotes or project scripts define the same checks.
 
-## Generated Quality Artifacts
+## Quality Checks
 
-- Keep generated quality artifacts out of regular study notes.
-- Do not recreate a removed quality directory or add an issue ledger merely because a strict review was performed. If the user or local project explicitly names a quality area, use that area; otherwise keep temporary reports outside the vault and write only corrected explanations and source markers into notes.
+- Do not create an issue ledger or reviewer-facing audit page merely because a strict review was performed. Keep temporary reports outside the vault and write corrected explanations and source markers into notes.
+- When source coverage must be recorded, update `source_manifest.md` or an existing `99_内容覆盖审查.md` only when the local validator requires it; do not create a separate quality directory.
 - Prefer generated scripts over hand-edited coverage bodies when a generator owns the file.
-- Keep any explicitly requested central quality pages short and split large artifacts by course or source group.
+- Keep any explicitly required central coverage page short and split large tables by course or source group.
 
 ## Solvenotes Validation
 

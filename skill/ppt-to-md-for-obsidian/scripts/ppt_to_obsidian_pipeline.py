@@ -9,6 +9,7 @@ to rewrite into Obsidian notes.
 from __future__ import annotations
 
 import argparse
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -175,6 +176,30 @@ def safe_stem(path: Path) -> str:
     return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in path.stem)
 
 
+def disambiguated_stem(path: Path, source_identity: Path, used: dict[str, str]) -> str:
+    """Return a stable output stem without overwriting same-named sources.
+
+    A basename is kept for the common single-source case. When two sources
+    share that basename, later outputs receive a short hash of their source
+    path, so same-named files cannot overwrite one another.
+    """
+
+    base = safe_stem(path)
+    identity = source_identity.as_posix()
+    if base not in used:
+        used[base] = identity
+        return base
+
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:10]
+    candidate = f"{base}-{digest}"
+    suffix = 2
+    while candidate in used:
+        candidate = f"{base}-{digest}-{suffix}"
+        suffix += 1
+    used[candidate] = identity
+    return candidate
+
+
 def write_manifest(config: PipelineConfig, processed: list[ProcessedSource]) -> None:
     manifest = config.output_dir / "pipeline_manifest.md"
     lines = [
@@ -212,6 +237,7 @@ def write_manifest(config: PipelineConfig, processed: list[ProcessedSource]) -> 
         "- `知识点详细版_含公式.md`",
         "- `知识点精简复习版_含公式.md`",
         "",
+        "Output stems keep the source basename when unique and add a stable path hash on collisions; no source may overwrite another artifact.",
         "Use the cleaned extraction files as raw material. Rewrite them into primary notes; do not treat them as final notes.",
     ]
     manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -254,10 +280,12 @@ def run(config: PipelineConfig) -> list[ProcessedSource]:
     cleaned_dir.mkdir(parents=True, exist_ok=True)
 
     processed: list[ProcessedSource] = []
+    used_output_stems: dict[str, str] = {}
     for source in sources:
         extraction = extract_source(source, config, converted_dir)
-        raw_path = raw_dir / f"{safe_stem(extraction.actual_source)}.md"
-        cleaned_path = cleaned_dir / f"{safe_stem(extraction.actual_source)}.md"
+        output_stem = disambiguated_stem(extraction.actual_source, source, used_output_stems)
+        raw_path = raw_dir / f"{output_stem}.md"
+        cleaned_path = cleaned_dir / f"{output_stem}.md"
         raw_path.write_text(extraction.text, encoding="utf-8")
         cleaned_path.write_text(clean_text(extraction.text, unicode_math=config.unicode_math), encoding="utf-8")
         processed.append(

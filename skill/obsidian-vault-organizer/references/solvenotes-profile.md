@@ -1,13 +1,13 @@
 # Solvenotes Profile
 
-Use this reference only when the target vault or repository clearly follows solvenotes-style conventions, for example local guidance names solvenotes, project validators define the profile, or generated quality directories such as `99_质量审查/` are present.
+Use this reference only when the target vault or repository clearly follows solvenotes-style conventions, for example local guidance names solvenotes or project validators define the profile.
 
-## Generated Quality Artifacts
+## Quality Checks
 
-- Generated quality artifacts belong in the project-designated quality area, usually `99_质量审查/`.
-- Regenerate quality artifacts with project scripts when possible.
-- Keep central generated pages short and use course/source shards for long tables so Obsidian does not need to open one huge page.
-- Generated review queues, example indexes, concept indexes, and source-coverage reports should be a small central entry page plus per-course shards.
+- Do not recreate a removed quality-review directory or add an issue ledger to ordinary study notes. Keep unresolved findings in the final response or an explicitly requested external review.
+- When the project requires source coverage, use `source_manifest.md` and the existing `99_内容覆盖审查.md` contract; do not create a separate quality-review page.
+- Keep any explicitly requested central pages short and use course/source shards for long tables so Obsidian does not need to open one huge page.
+- Generated review queues, example indexes, concept indexes, and source-coverage reports should follow the project’s existing filenames and validators.
 - Do not place page-level coverage dump sections into ordinary study notes.
 
 ## Frontmatter And Local Scripts

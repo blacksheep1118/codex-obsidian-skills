@@ -90,7 +90,7 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
    - Check that generated notes do not contain long copied passages from books or web pages.
    - Check that final notes are comparable in detail to existing notes in the destination folder.
    - Run an anti-template audit on per-link notes: flag very short notes, identical heading patterns, vague "value/importance" language without concrete mechanisms, and notes that lack limitations or reading/reproduction checks.
-   - If a quality issue is found late, either fix it before delivery or add a `质量审查` note that clearly states what is complete, what is only a guide, and what would require full source-level reading.
+   - If a quality issue is found late, fix it before delivery when possible. If it remains unresolved, state the limitation and next action in the final response or an explicitly requested external review; do not create a quality-review note inside the vault.
 
 ## Source Policy
 

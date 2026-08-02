@@ -13,6 +13,20 @@ from urllib.parse import unquote
 
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
 WIKI_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
+FENCED_CODE_RE = re.compile(
+    r"(?ms)^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*\n.*?^[ \t]{0,3}(?P=fence)[ \t]*$"
+)
+INLINE_CODE_RE = re.compile(r"`+[^`\n]*`+")
+
+
+def text_without_code(text: str) -> str:
+    """Mask fenced and inline code while preserving line positions."""
+
+    def mask(match: re.Match[str]) -> str:
+        return "".join("\n" if char == "\n" else " " for char in match.group(0))
+
+    text = FENCED_CODE_RE.sub(mask, text)
+    return INLINE_CODE_RE.sub(mask, text)
 
 
 def configure_output_encoding() -> None:
@@ -91,7 +105,7 @@ def check_links(root: Path) -> tuple[list[LinkIssue], list[LinkIssue], int]:
     checked = 0
 
     for source in files:
-        text = source.read_text(encoding="utf-8", errors="replace")
+        text = text_without_code(source.read_text(encoding="utf-8", errors="replace"))
         for regex in (MARKDOWN_LINK_RE, WIKI_LINK_RE):
             for match in regex.finditer(text):
                 target = match.group(1)

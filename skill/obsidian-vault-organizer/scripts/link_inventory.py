@@ -15,6 +15,20 @@ from urllib.parse import unquote
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
 WIKI_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
 EXTERNAL_URL_RE = re.compile(r"\b(?:https?://|mailto:)[^\s<>)\]]+")
+FENCED_CODE_RE = re.compile(
+    r"(?ms)^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*\n.*?^[ \t]{0,3}(?P=fence)[ \t]*$"
+)
+INLINE_CODE_RE = re.compile(r"`+[^`\n]*`+")
+
+
+def text_without_code(text: str) -> str:
+    """Mask fenced and inline code while preserving line positions."""
+
+    def mask(match: re.Match[str]) -> str:
+        return "".join("\n" if char == "\n" else " " for char in match.group(0))
+
+    text = FENCED_CODE_RE.sub(mask, text)
+    return INLINE_CODE_RE.sub(mask, text)
 
 
 @dataclass(frozen=True)
@@ -51,7 +65,7 @@ def clean_target(target: str) -> str:
 
 
 def inventory_file(root: Path, path: Path) -> FileInventory:
-    text = path.read_text(encoding="utf-8", errors="replace")
+    text = text_without_code(path.read_text(encoding="utf-8", errors="replace"))
     markdown_links: list[str] = []
     wiki_links: list[str] = []
     external_links: list[str] = []

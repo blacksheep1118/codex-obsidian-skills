@@ -5,8 +5,14 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from create_web_notes import choose_category_dir  # noqa: E402
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -135,3 +141,14 @@ def test_create_web_notes_explicit_root_and_map_names_override_language_defaults
     assert "[[00_Index]]" in note_text
     assert "[[00_Learning_Map]]" not in note_text
     assert "[[00_学习地图]]" not in note_text
+
+
+def test_choose_category_dir_rejects_paths_outside_notes_dir(tmp_path: Path):
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+
+    with pytest.raises(ValueError, match="inside --notes-dir"):
+        choose_category_dir(notes_dir, "context", "../escape")
+
+    with pytest.raises(ValueError, match="inside --notes-dir"):
+        choose_category_dir(notes_dir, "context", str(tmp_path / "absolute-escape"))

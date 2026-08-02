@@ -112,7 +112,16 @@ def choose_category_dir(
 ) -> Path:
     if explicit_category:
         category = Path(explicit_category)
-        return category if category.is_absolute() else notes_dir / category
+        notes_root = notes_dir.resolve()
+        candidate = category if category.is_absolute() else notes_root / category
+        resolved = candidate.resolve()
+        try:
+            resolved.relative_to(notes_root)
+        except ValueError as exc:
+            raise ValueError("explicit category must remain inside --notes-dir") from exc
+        if resolved == notes_root:
+            raise ValueError("explicit category must name a folder below --notes-dir")
+        return resolved
 
     context_lower = context.lower()
     children = existing_dirs(notes_dir)
@@ -647,7 +656,7 @@ def main() -> int:
             map_note_name=args.map_note_name,
             dry_run=args.dry_run,
         )
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         print(f"ERROR: failed to create web notes: {exc}", file=sys.stderr)
         return 1
 

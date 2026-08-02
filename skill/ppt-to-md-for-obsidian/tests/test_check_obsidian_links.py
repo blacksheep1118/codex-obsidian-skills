@@ -81,3 +81,17 @@ def test_check_links_ignores_external_anchor_mailto_obsidian_and_images(tmp_path
     assert checked == 0
     assert broken == []
     assert self_links == []
+
+
+def test_check_links_ignores_links_inside_fenced_and_inline_code(tmp_path: Path):
+    page = tmp_path / "a.md"
+    page.write_text(
+        "`arr[[1]]`\n\n```python\nself.branches[0](x)\ntriton_kernel[grid](x, BLOCK=block)\n```\n",
+        encoding="utf-8",
+    )
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 0
+    assert broken == []
+    assert self_links == []

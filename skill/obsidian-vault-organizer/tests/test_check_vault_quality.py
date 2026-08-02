@@ -68,7 +68,7 @@ def test_pattern_file_adds_custom_residue_patterns(tmp_path: Path):
 
 def test_forbid_report_notes_flags_audit_notes(tmp_path: Path):
     vault = tmp_path / "vault"
-    write(vault / "99_质量审查报告.md", "# Report\n\nGenerated audit.\n")
+    write(vault / "质量审查报告.md", "# Report\n\nGenerated audit.\n")
 
     issues = find_vault_issues(vault, forbid_report_notes=True)
 

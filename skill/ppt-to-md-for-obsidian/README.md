@@ -77,6 +77,7 @@ py -m pip install -r "$env:USERPROFILE\.codex\skills\ppt-to-md-for-obsidian\requ
 └── references/
     ├── modes.md
     ├── obsidian-style.md
+    ├── solvenotes-profile.md
     └── validation.md
 ```
 
