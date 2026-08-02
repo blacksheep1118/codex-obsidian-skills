@@ -5,9 +5,9 @@ Use this reference only when the target vault or repository clearly follows solv
 ## Generated Quality Artifacts
 
 - Keep generated quality artifacts out of regular study notes.
-- Page-level source supplements, weak keyword coverage rows, generated example indexes, generated-question review queues, old-PPT extraction limitations, and repository hygiene reports belong in the project-designated quality area, usually `99_质量审查/`.
-- Prefer generated scripts over hand-edited audit bodies when a generator owns the file.
-- Keep central quality pages short and split large artifacts by course or source group.
+- Do not recreate a removed quality directory or add an issue ledger merely because a strict review was performed. If the user or local project explicitly names a quality area, use that area; otherwise keep temporary reports outside the vault and write only corrected explanations and source markers into notes.
+- Prefer generated scripts over hand-edited coverage bodies when a generator owns the file.
+- Keep any explicitly requested central quality pages short and split large artifacts by course or source group.
 
 ## Solvenotes Validation
 

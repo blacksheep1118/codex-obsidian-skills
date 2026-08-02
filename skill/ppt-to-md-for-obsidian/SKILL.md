@@ -33,6 +33,14 @@ Treat slide/page text, visible titles, formulas, filenames, course order, and us
 
 For paper sources, verify the full title, year, and venue or publication status from the paper title page or an official bibliographic record. Do not infer them from a filename, surrounding notes, or memory. Distinguish a dated arXiv preprint from a peer-reviewed venue when the source only supports the former.
 
+## Source Ownership And Repair Protocol
+
+- In frontmatter, keep the note's own primary source explicit. Add another PDF/PPTX only when the note body explicitly cites, compares, or uses that source; do not build `source_files` or `source_manifest.md` by keyword similarity alone.
+- When chapter numbering or source names have shifted, repair the existing frontmatter and manifest target rather than adding a second mapping, audit paragraph, or reviewer note. A manifest row must point to the note that owns the source's subject.
+- Separate source fact, course-era convention, empirical observation, and generated teaching example. Put the scope beside the claim: dataset, metric, hardware, market/board, clinical population, date, software version, or tokenizer version.
+- Replace unsupported absolutes (`首次`, `完全解决`, `必然`, `保证`, `最强`) with the narrowest source-backed statement. Preserve a priority claim only when the cited paper or official record supports it at a locatable passage.
+- Treat high-risk domains as date/versioned content. Verify medical thresholds and medication routes, financial settlement and trading rules, and API/DBMS behavior against an authoritative source before presenting them as current.
+
 ## Semantic Correctness Gate
 
 Treat formulas, definitions, algorithms, examples, and paper conclusions as claims that need semantic review, not just Markdown or LaTeX syntax checks.
@@ -61,8 +69,8 @@ For each course or topic directory, prefer this structure:
 - `知识点详细版_含公式.md` as the full review page.
 - `知识点精简复习版_含公式.md` as the fast review page.
 - `source_manifest.md` when multiple source files are involved or extraction order could be disputed.
-- `99_内容覆盖审查.md` when the user asks for a strict check, exam review, or source-coverage assurance.
-- A centralized quality/audit directory only when local guidance asks for generated reports.
+- An existing `99_内容覆盖审查.md` only when the local validator already requires it; do not create a new issue ledger or reviewer-facing audit page for ordinary repairs.
+- A centralized quality/audit directory only when the user explicitly requests generated reports or local project guidance requires a named artifact.
 
 Keep the detailed review and concise review as two separate files. Do not replace the detailed version with the concise version.
 When an existing vault uses course-prefixed review pages, preserve that convention, for example `游戏数值策划知识点详细版_含公式.md` and `游戏数值策划知识点精简复习版_含公式.md`.
@@ -94,7 +102,7 @@ If the user explicitly asks for one exam review file instead of two review pages
    - If extracted PDF/OCR cells are obvious noise, mark them as extraction noise while preserving file/page mapping. Do not turn garbled strings into invented topics, examples, or formulas.
    - For exam-review requests, treat the exam outline or teacher-provided scope as a first-class source alongside PPT/PDF files. Preserve exact outline terms and common compact/space variants in the coverage map, for example `CPU性能公式` and `CPU 性能公式`.
    - Compare the source map with the requested exam scope. Mark topics as `included`, `out of scope by user`, `source noisy`, or `missing`.
-   - If the material is long or the user asks for strict checking, write a `source_manifest.md` plus `99_内容覆盖审查.md` instead of relying on memory.
+   - If the material is long or the user asks for strict checking, write or update `source_manifest.md`; reuse an existing `99_内容覆盖审查.md` only when the project validator requires it. Keep issue findings and machine-readable audit output outside the vault unless explicitly requested.
    - Keep coverage statuses internally consistent. Distinguish image-only/unreadable visual pages from real content gaps, and do not describe a single unresolved example as the only uncertainty when separate visual pages still need confirmation.
    - Do not claim completion from a short outline. If the notes do not yet explain the mechanisms, formulas, and examples from the source, keep expanding them.
    - If a keyword sweep reports a missing topic, verify whether the miss is caused by wording variation before treating it as absent; then add the source wording near the relevant concept or document why it is out of scope.
@@ -179,10 +187,8 @@ Good notes should answer:
 
 Poor notes usually look like:
 
-- direct slide dumps,
-- long bullet lists without explanation,
-- formulas without variable meaning,
-- duplicated link blocks,
+- direct slide dumps or long bullet lists without explanation,
+- formulas without variable meaning or duplicated link blocks,
 - course overviews that become too long to navigate,
 - exam review pages that contain only generic answer patterns instead of course-specific derivations, examples, and decisions.
 
@@ -190,14 +196,10 @@ Poor notes usually look like:
 
 The final response should include:
 
-- output folder and the main note files created or updated,
-- source coverage summary by PPT/PPTX/PDF file, including any extraction gaps,
-- review-page status for detailed and concise versions,
-- strict-depth status when used, including the exact thresholds or reason it was not used,
-- validation performed, including link, course-note, formula-fence, and keyword checks when run,
-- whether generated audit artifacts followed local guidance when created,
-- repository status and upload details when the user requested commit, push, or PR work,
-- unresolved assumptions, noisy formulas, missing slides, or source files that still need manual review.
+- output folder, main note files created or updated, and source coverage by PPT/PPTX/PDF file, including extraction gaps,
+- detailed/concise review-page status and strict-depth status, including exact thresholds or why strict depth was not used,
+- validation performed, including link, course-note, formula-fence, and keyword checks, plus whether requested audit artifacts followed local guidance,
+- repository/upload status when commit, push, or PR work was requested, and unresolved assumptions, noisy formulas, missing slides, or source files needing manual review.
 
 If only a dry run or audit was requested, report planned changes and validation commands without writing notes.
 
