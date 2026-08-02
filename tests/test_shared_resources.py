@@ -4,6 +4,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,3 +34,26 @@ def test_all_skills_keep_local_validator_copy():
 
     for skill_name, validator in expected.items():
         assert (ROOT / "skill" / skill_name / validator).exists(), skill_name
+
+
+def test_shared_link_checker_rejects_markdown_symlink_outside_root(tmp_path: Path):
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text("# Outside\n", encoding="utf-8")
+    try:
+        (vault / "linked.md").symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    result = subprocess.run(
+        [sys.executable, "scripts/check_obsidian_links.py", str(vault)],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+    )
+
+    assert result.returncode == 1
+    assert "OUTSIDE_ROOT" in result.stdout

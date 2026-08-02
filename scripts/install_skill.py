@@ -61,11 +61,53 @@ def selected_skills(all_skills: dict[str, Path], requested: list[str], include_a
     return selected
 
 
+def managed_files(root: Path) -> dict[Path, Path]:
+    """Return installable files without following ignored/generated artifacts."""
+
+    if not root.exists():
+        return {}
+    return {
+        path.relative_to(root): path
+        for path in root.rglob("*")
+        if path.is_file() and not should_ignore_relative(path.relative_to(root))
+    }
+
+
+def compare_skill(source: Path, destination: Path) -> dict[str, list[str]]:
+    """Compare managed files without mutating either tree."""
+
+    source_files = managed_files(source)
+    destination_files = managed_files(destination)
+    added = sorted(relative.as_posix() for relative in source_files.keys() - destination_files.keys())
+    stale = sorted(relative.as_posix() for relative in destination_files.keys() - source_files.keys())
+    changed = sorted(
+        relative.as_posix()
+        for relative in source_files.keys() & destination_files.keys()
+        if source_files[relative].read_bytes() != destination_files[relative].read_bytes()
+    )
+    unchanged = sorted(
+        relative.as_posix()
+        for relative in source_files.keys() & destination_files.keys()
+        if source_files[relative].read_bytes() == destination_files[relative].read_bytes()
+    )
+    return {"added": added, "changed": changed, "unchanged": unchanged, "stale": stale}
+
+
 def copy_skill(source: Path, destination: Path, dry_run: bool, prune: bool = False) -> None:
     if dry_run:
-        print(f"DRY-RUN install {source.relative_to(REPO_ROOT)} -> {destination}")
+        diff = compare_skill(source, destination)
+        print(
+            f"DRY-RUN install {source.relative_to(REPO_ROOT)} -> {destination} "
+            f"added={len(diff['added'])} changed={len(diff['changed'])} "
+            f"unchanged={len(diff['unchanged'])} stale={len(diff['stale'])}"
+        )
+        for kind in ("added", "changed", "stale"):
+            for relative in diff[kind]:
+                print(f"DRY-RUN {kind} {relative}")
         if prune:
-            print(f"DRY-RUN prune stale files under {destination}")
+            print(f"DRY-RUN prune stale files under {destination}: {len(diff['stale'])}")
+        else:
+            print(f"DRY-RUN prune not requested for {destination}")
         return
 
     destination.mkdir(parents=True, exist_ok=True)

@@ -20,6 +20,8 @@ SOLVENOTES_STUDY_RE = re.compile(
 REPORT_NOTE_NAME_RE = re.compile(r"(审查|复查|报告|覆盖审查|一致性严格审查)")
 BRIDGE_NOTE_RE = re.compile(r"本页保留旧路径，正文请读 \[\[[^\]]+\]\]。")
 WIKI_LINK_RE = re.compile(r"\[\[[^\]]+\]\]")
+DEFAULT_EXCLUDED_DIRS = frozenset({".git", ".obsidian", ".pytest_cache", ".ruff_cache", "__pycache__", "scripts", "skills", "build", "output"})
+DEFAULT_EXCLUDED_FILES = frozenset({"AGENT.md"})
 
 
 def configure_output_encoding() -> None:
@@ -36,7 +38,22 @@ class VaultIssue:
 
 
 def markdown_files(root: Path) -> list[Path]:
-    return sorted(path for path in root.rglob("*.md") if ".git" not in path.parts)
+    root = root.resolve()
+    return sorted(
+        path
+        for path in root.rglob("*.md")
+        if path.name not in DEFAULT_EXCLUDED_FILES
+        and not set(path.relative_to(root).parts) & DEFAULT_EXCLUDED_DIRS
+        and _is_within_root(root, path)
+    )
+
+
+def _is_within_root(root: Path, path: Path) -> bool:
+    try:
+        path.resolve().relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 def relative_issue(root: Path, path: Path, kind: str, message: str) -> VaultIssue:

@@ -12,7 +12,6 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import re
-import sys
 from zipfile import ZipFile
 import xml.etree.ElementTree as ET
 

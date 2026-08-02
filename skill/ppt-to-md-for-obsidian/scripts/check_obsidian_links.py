@@ -13,20 +13,97 @@ from urllib.parse import unquote
 
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
 WIKI_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
-FENCED_CODE_RE = re.compile(
-    r"(?ms)^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*\n.*?^[ \t]{0,3}(?P=fence)[ \t]*$"
-)
-INLINE_CODE_RE = re.compile(r"`+[^`\n]*`+")
+FENCE_OPEN_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*$")
+FENCE_CLOSE_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[ \t]*$")
+INDENTED_CODE_RE = re.compile(r"^(?: {4}|\t)")
 
 
 def text_without_code(text: str) -> str:
-    """Mask fenced and inline code while preserving line positions."""
+    """Mask fenced, indented, and inline code while preserving line positions.
 
-    def mask(match: re.Match[str]) -> str:
-        return "".join("\n" if char == "\n" else " " for char in match.group(0))
+    A closing fence may be longer than its opener (CommonMark), so a single
+    backreference-based regular expression is not sufficient here.  Scanning
+    line-by-line also lets us ignore four-space-indented code blocks.
+    """
 
-    text = FENCED_CODE_RE.sub(mask, text)
-    return INLINE_CODE_RE.sub(mask, text)
+    def mask(value: str) -> str:
+        return "".join("\n" if char == "\n" else " " for char in value)
+
+    masked_lines: list[str] = []
+    fence: tuple[str, int] | None = None
+    for line in text.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        if fence is not None:
+            masked_lines.append(mask(line))
+            closing = FENCE_CLOSE_RE.fullmatch(content)
+            if (
+                closing is not None
+                and closing.group("fence")[0] == fence[0]
+                and len(closing.group("fence")) >= fence[1]
+            ):
+                fence = None
+            continue
+
+        opening = FENCE_OPEN_RE.fullmatch(content)
+        if opening is not None:
+            token = opening.group("fence")
+            masked_lines.append(mask(line))
+            fence = (token[0], len(token))
+            continue
+
+        if INDENTED_CODE_RE.match(content):
+            masked_lines.append(mask(line))
+            continue
+
+        masked_lines.append(mask_inline_code(line))
+
+    return "".join(masked_lines)
+
+
+def mask_inline_code(line: str) -> str:
+    """Mask paired CommonMark backtick code spans on one line.
+
+    Code spans close with a backtick run of the same length as the opener;
+    shorter runs may occur inside the span.  Pairing runs explicitly avoids
+    treating those interior runs as an early close (which a simple regular
+    expression would do).  Unmatched runs are left untouched so links in
+    ordinary text are still checked.
+    """
+
+    runs: list[tuple[int, int, int]] = []
+    index = 0
+    while index < len(line):
+        if line[index] != "`":
+            index += 1
+            continue
+        end = index + 1
+        while end < len(line) and line[end] == "`":
+            end += 1
+        runs.append((index, end, end - index))
+        index = end
+
+    spans: list[tuple[int, int]] = []
+    run_index = 0
+    while run_index < len(runs) - 1:
+        start, _end, length = runs[run_index]
+        close_index = next(
+            (candidate for candidate in range(run_index + 1, len(runs)) if runs[candidate][2] == length),
+            None,
+        )
+        if close_index is None:
+            run_index += 1
+            continue
+        spans.append((start, runs[close_index][1]))
+        run_index = close_index + 1
+
+    if not spans:
+        return line
+    characters = list(line)
+    for start, end in spans:
+        for position in range(start, end):
+            if characters[position] != "\n":
+                characters[position] = " "
+    return "".join(characters)
 
 
 def configure_output_encoding() -> None:
@@ -72,6 +149,16 @@ def build_stem_index(files: list[Path]) -> dict[str, list[Path]]:
     return by_stem
 
 
+def is_within_root(root: Path, candidate: Path) -> bool:
+    """Return whether a resolved candidate stays inside the vault root."""
+
+    try:
+        candidate.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
+
+
 def resolve_target(root: Path, source: Path, raw_target: str, by_stem: dict[str, list[Path]]) -> list[Path]:
     target = clean_target(raw_target)
     if target is None:
@@ -80,15 +167,23 @@ def resolve_target(root: Path, source: Path, raw_target: str, by_stem: dict[str,
     if target.startswith("/"):
         target = target.lstrip("/")
 
+    root = root.resolve()
     candidates = []
     for base in (source.parent, root):
         candidate = (base / target).resolve()
-        candidates.append(candidate)
+        if is_within_root(root, candidate):
+            candidates.append(candidate)
         if not target.endswith(".md"):
-            candidates.append((base / f"{target}.md").resolve())
+            candidate = (base / f"{target}.md").resolve()
+            if is_within_root(root, candidate):
+                candidates.append(candidate)
 
     if "/" not in target and target in by_stem:
-        candidates.extend(by_stem[target])
+        candidates.extend(
+            candidate.resolve()
+            for candidate in by_stem[target]
+            if is_within_root(root, candidate.resolve())
+        )
 
     resolved = []
     for candidate in candidates:
@@ -98,9 +193,18 @@ def resolve_target(root: Path, source: Path, raw_target: str, by_stem: dict[str,
 
 
 def check_links(root: Path) -> tuple[list[LinkIssue], list[LinkIssue], int]:
-    files = sorted(path for path in root.rglob("*.md") if ".git" not in path.parts)
+    root = root.resolve()
+    files: list[Path] = []
+    boundary_issues: list[LinkIssue] = []
+    for path in sorted(path for path in root.rglob("*") if ".git" not in path.parts):
+        if path.is_symlink() and not is_within_root(root, path):
+            boundary_issues.append(LinkIssue(path, str(path.resolve()), "outside_root"))
+            continue
+        if not path.is_file() or path.suffix.lower() != ".md":
+            continue
+        files.append(path)
     by_stem = build_stem_index(files)
-    broken: list[LinkIssue] = []
+    broken: list[LinkIssue] = boundary_issues
     self_links: list[LinkIssue] = []
     checked = 0
 

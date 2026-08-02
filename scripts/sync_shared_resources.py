@@ -46,6 +46,7 @@ VALIDATORS = (
             "requirements.txt",
             "agents/openai.yaml",
             "scripts/build_scientific_deck.py",
+            "scripts/verify_pptx.py",
             "scripts/outline_note_deck.py",
             "scripts/validate_skill.py",
             "references/scientific-deck-style.md",

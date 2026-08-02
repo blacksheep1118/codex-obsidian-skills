@@ -64,6 +64,8 @@ def test_install_update_and_self_check(tmp_path: Path):
 
     dry_run = run_script("scripts/update_installed_skills.py", "--all", "--destination", str(destination), "--dry-run", "--prune")
     assert "DRY-RUN prune stale files" in dry_run.stdout
+    assert "stale=1" in dry_run.stdout
+    assert "DRY-RUN stale stale.txt" in dry_run.stdout
     assert stale.exists()
 
     update = run_script("scripts/update_installed_skills.py", "--all", "--destination", str(destination), "--prune", "--self-check")
@@ -80,6 +82,7 @@ def test_validate_all_lists_stable_step_ids():
 
     for step_id in (
         "root.compile",
+        "root.ruff",
         "root.tests",
         "root.repo_hygiene",
         "metadata.sync",
@@ -135,7 +138,7 @@ def test_validate_all_quick_runs_root_tests_before_metadata_sync():
     steps = validate_all.selected_steps(validate_all.build_steps(sys.executable), quick=True, skill=None)
     step_ids = [step.step_id for step in steps]
 
-    assert step_ids[:4] == ["root.compile", "root.repo_hygiene", "root.tests", "metadata.sync"]
+    assert step_ids[:5] == ["root.compile", "root.ruff", "root.repo_hygiene", "root.tests", "metadata.sync"]
 
 
 def test_validate_all_timeout_reports_context(monkeypatch, capsys):

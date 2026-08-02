@@ -11,7 +11,6 @@ import argparse
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 
 
 MACOS_SOFFICE = "/Applications/LibreOffice.app/Contents/MacOS/soffice"

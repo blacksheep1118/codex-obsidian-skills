@@ -15,12 +15,24 @@ from typing import Optional
 SOURCE_EXTENSIONS = {".pdf", ".ppt", ".pptx"}
 SOURCE_EXAMPLE_LABELS = ("源资料例题", "源课件例题")
 GENERATED_MARKER = "生成：PPT/PDF 未提供独立可抽取例题"
+EXAMPLE_CONTENT_MARKERS = ("例题", "例子", "练习", "worked example", "worked examples")
+NO_EXAMPLE_DECLARATIONS = (
+    "未提供独立",
+    "没有独立",
+    "无独立",
+    "不再据此声称",
+    "无可独立",
+)
 SUPPLEMENT_HEADING = "## PPT/PDF 页级补充索引"
 SOURCE_REF_RE = re.compile(r"`([^`]+\.(?:pdf|pptx?|PDF|PPTX?))`")
 WIKI_LINK_RE = re.compile(r"\[\[([^]|#]+)(?:#[^]|]+)?(?:\|[^\]]+)?\]\]")
 CHAPTER_RE = re.compile(r"第\s*([零〇一二三四五六七八九十百\d]+)\s*[章节章]")
 LECTURE_RE = re.compile(r"第\s*([零〇一二三四五六七八九十百\d]+)\s*[讲講]|lecture\s*0*(\d+[a-z]?)", re.I)
 EVIDENCE_MARKERS = ("来源", "源资料", "源课件", "补充题", "页/slide")
+PAGE_EVIDENCE_RE = re.compile(
+    r"(?:页\s*/?\s*slide|slide|page|p\.)\s*[:：]?\s*\d+|页\s*[:：]?\s*\d+",
+    re.I,
+)
 LEGACY_FAILURE_LABELS = ("PPT不可读", "PDF不可读", "待人工确认", "待手工确认")
 RESIDUAL_REVIEW_MARKERS = (
     "需复核",
@@ -30,6 +42,24 @@ RESIDUAL_REVIEW_MARKERS = (
     "打开课件确认",
     "open the slides manually",
 )
+DEFAULT_IGNORED_DIR_NAMES = frozenset(
+    {
+        ".git",
+        ".obsidian",
+        ".pytest_cache",
+        ".ruff_cache",
+        "__pycache__",
+        "build",
+        "converted_pptx",
+        "node_modules",
+        "output",
+        "scripts",
+        "skills",
+    }
+)
+DEFAULT_IGNORED_FILE_NAMES = frozenset({"AGENT.md"})
+STANDALONE_NOTES_DIR_NAMES = frozenset({"概念索引", "模板", "游戏数值策划", "科研方法论"})
+STANDALONE_NOTE_TYPES = frozenset({"concept_index", "standalone", "template", "methodology"})
 CHINESE_NUMBERS = {
     "零": 0,
     "〇": 0,
@@ -50,6 +80,7 @@ class CoverageIssue:
     kind: str
     path: Path
     message: str
+    status: str = "STRUCTURAL"
 
 
 @dataclass(frozen=True)
@@ -60,7 +91,9 @@ class SourceEntry:
     root_relative: str
     name: str
     stem: str
-    chapter_signature: Optional[str]
+    # Compatibility metadata only.  Owner decisions must not use a source
+    # stem or numeric ordinal; manifest/frontmatter/body checks own that gate.
+    chapter_signature: Optional[str] = None
 
 
 def configure_output_encoding() -> None:
@@ -93,6 +126,12 @@ def chinese_number_to_int(value: str) -> Optional[int]:
 
 
 def extract_chapter_signature(text: str) -> Optional[str]:
+    """Extract explicit chapter/lecture metadata for compatibility callers.
+
+    Numeric filename ordinals are intentionally ignored.  This metadata is
+    not an owner decision; canonical manifest/frontmatter/body checks are.
+    """
+
     match = CHAPTER_RE.search(text)
     if match:
         number = chinese_number_to_int(match.group(1))
@@ -108,11 +147,26 @@ def extract_chapter_signature(text: str) -> Optional[str]:
 
 
 def chapter_signatures_conflict(source_signature: Optional[str], target_signature: Optional[str]) -> bool:
+    """Compare explicit metadata for legacy callers, never filename ordinals."""
+
     if not source_signature or not target_signature:
         return False
     if not source_signature.startswith("chapter:") or not target_signature.startswith("chapter:"):
         return False
     return source_signature != target_signature
+
+
+def source_topic_compatible(entry: SourceEntry, note_path: Path) -> Optional[bool]:
+    """Return only positive body evidence; never infer a mismatch from names.
+
+    ``None`` means the source/note topic is not automatically provable and is
+    therefore a manual-review case.  This compatibility API deliberately has
+    no negative stem-to-title inference.
+    """
+
+    if page_source_evidence(note_body_text(note_path), entry):
+        return True
+    return None
 
 
 def parse_mapping(value: str) -> dict[str, str]:
@@ -132,25 +186,119 @@ def parse_mapping(value: str) -> dict[str, str]:
     return mapping
 
 
-def markdown_files(root: Path) -> list[Path]:
-    return sorted(path for path in root.rglob("*.md") if ".git" not in path.parts)
+def resolve_beneath(root: Path, raw: str) -> Path | None:
+    """Resolve a user-provided path while refusing root escapes and symlinks."""
+
+    normalized = normalize_path_text(raw)
+    if not normalized:
+        return None
+    if Path(normalized).is_absolute():
+        return None
+    root = root.expanduser().resolve()
+    candidate = (root / normalized).expanduser().resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate
 
 
-def source_files(source_root: Path) -> list[Path]:
+def validate_mapping_paths(
+    source_root: Path, notes_root: Path, mapping: dict[str, str]
+) -> tuple[dict[str, str], list[CoverageIssue]]:
+    """Drop mappings that would make the checker read outside either root."""
+
+    safe_mapping: dict[str, str] = {}
+    issues: list[CoverageIssue] = []
+    for source_name, notes_name in mapping.items():
+        source_path = resolve_beneath(source_root, source_name)
+        notes_path = resolve_beneath(notes_root, notes_name)
+        if source_path is None:
+            issues.append(
+                CoverageIssue(
+                    "mapping_source_outside_root",
+                    source_root,
+                    f"--mapping source path escapes source root: {source_name!r}",
+                )
+            )
+        if notes_path is None:
+            issues.append(
+                CoverageIssue(
+                    "mapping_notes_outside_root",
+                    notes_root,
+                    f"--mapping notes path escapes notes root: {notes_name!r}",
+                )
+            )
+        if source_path is not None and notes_path is not None:
+            safe_mapping[source_name] = notes_name
+    return safe_mapping, issues
+
+
+def _path_is_ignored(path: Path, root: Path, include_ignored: bool) -> bool:
+    if include_ignored:
+        return False
+    try:
+        relative_parts = path.relative_to(root).parts
+    except ValueError:
+        relative_parts = path.parts
+    return path.name in DEFAULT_IGNORED_FILE_NAMES or bool(set(relative_parts) & DEFAULT_IGNORED_DIR_NAMES)
+
+
+def is_within_root(root: Path, path: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def markdown_files(root: Path, include_ignored: bool = False) -> list[Path]:
     return sorted(
         path
-        for path in source_root.rglob("*")
-        if path.is_file() and path.suffix.lower() in SOURCE_EXTENSIONS
+        for path in root.rglob("*.md")
+        if is_within_root(root, path) and not _path_is_ignored(path, root, include_ignored)
     )
 
 
-def build_source_entries(source_root: Path, source_name: str) -> list[SourceEntry]:
+def source_files(source_root: Path, include_ignored: bool = False) -> list[Path]:
+    return sorted(
+        path
+        for path in source_root.rglob("*")
+        if is_within_root(source_root, path)
+        and path.is_file()
+        and path.suffix.lower() in SOURCE_EXTENSIONS
+        and not _path_is_ignored(path, source_root, include_ignored)
+    )
+
+
+def source_boundary_issues(source_root: Path, include_ignored: bool = False) -> list[CoverageIssue]:
+    """Report source symlinks that would make a scan read outside its root."""
+
+    if not source_root.is_dir():
+        return []
+    issues: list[CoverageIssue] = []
+    for path in sorted(source_root.rglob("*")):
+        if not path.is_symlink() or _path_is_ignored(path, source_root, include_ignored):
+            continue
+        if not is_within_root(source_root, path):
+            issues.append(
+                CoverageIssue(
+                    "source_symlink_outside_root",
+                    path,
+                    f"source symlink resolves outside source root: {path.resolve()}",
+                )
+            )
+    return issues
+
+
+def build_source_entries(
+    source_root: Path, source_name: str, include_ignored: bool = False
+) -> list[SourceEntry]:
     source_dir = source_root / source_name
     entries: list[SourceEntry] = []
-    for path in source_files(source_dir):
+    for path in source_files(source_dir, include_ignored=include_ignored):
         course_relative = path.relative_to(source_dir).as_posix()
         root_relative = path.relative_to(source_root).as_posix()
-        signature_text = "\n".join((root_relative, course_relative, path.stem))
         entries.append(
             SourceEntry(
                 course_name=source_name,
@@ -159,10 +307,39 @@ def build_source_entries(source_root: Path, source_name: str) -> list[SourceEntr
                 root_relative=root_relative,
                 name=path.name,
                 stem=path.stem,
-                chapter_signature=extract_chapter_signature(signature_text),
             )
         )
     return entries
+
+
+def discover_sibling_mappings(
+    source_root: Path,
+    notes_root: Path,
+    explicit_mapping: dict[str, str],
+    include_ignored: bool = False,
+) -> dict[str, str]:
+    """Discover source directories whose note directory has the same name.
+
+    Explicit mappings always win.  This catches source-only additions such as
+    ``cs231n`` without guessing across differently named directories such as
+    ``dehaze`` and ``去雾``.
+    """
+
+    mapping = dict(explicit_mapping)
+    if not source_root.is_dir() or not notes_root.is_dir():
+        return mapping
+    for source_dir in sorted(path for path in source_root.iterdir() if path.is_dir()):
+        source_name = source_dir.name
+        if not include_ignored and source_name in DEFAULT_IGNORED_DIR_NAMES:
+            continue
+        if source_name in mapping:
+            continue
+        if not source_files(source_dir, include_ignored=include_ignored):
+            continue
+        notes_dir = notes_root / source_name
+        if notes_dir.is_dir() and markdown_files(notes_dir, include_ignored=include_ignored):
+            mapping[source_name] = source_name
+    return mapping
 
 
 def course_text(notes_dir: Path) -> str:
@@ -172,6 +349,103 @@ def course_text(notes_dir: Path) -> str:
         if path.exists():
             pieces.append(path.read_text(encoding="utf-8", errors="replace"))
     return "\n".join(pieces)
+
+
+def frontmatter(path: Path) -> dict[str, object]:
+    """Read the small YAML subset used by solvenotes without requiring PyYAML."""
+
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    end = next((index for index in range(1, len(lines)) if lines[index].strip() == "---"), None)
+    if end is None:
+        return {}
+    values: dict[str, object] = {}
+    current_list: str | None = None
+    for line in lines[1:end]:
+        match = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*):(?:[ \t]*(.*))?$", line)
+        if match:
+            key, raw = match.group(1), (match.group(2) or "").strip()
+            current_list = None
+            if raw == "" and key == "source_files":
+                values[key] = []
+                current_list = key
+            elif raw == "[]":
+                values[key] = []
+                current_list = key
+            elif raw.startswith("[") and raw.endswith("]"):
+                values[key] = _parse_inline_list(raw)
+                current_list = key
+            else:
+                values[key] = _strip_yaml_scalar(raw)
+            continue
+        if current_list is not None:
+            item = re.match(r"^\s*-\s*(.*?)\s*$", line)
+            if item:
+                values.setdefault(current_list, [])
+                if isinstance(values[current_list], list):
+                    values[current_list].append(_strip_yaml_scalar(item.group(1)))
+    return values
+
+
+def note_body_text(path: Path) -> str:
+    """Return note body without YAML frontmatter source declarations."""
+
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return "\n".join(lines)
+    end = next((index for index in range(1, len(lines)) if lines[index].strip() == "---"), None)
+    if end is None:
+        return "\n".join(lines)
+    return "\n".join(lines[end + 1 :])
+
+
+def _strip_yaml_scalar(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value
+
+
+def _parse_inline_list(value: str) -> list[str]:
+    inner = value[1:-1].strip()
+    if not inner:
+        return []
+    items: list[str] = []
+    for match in re.finditer(r'''"([^"\\]*(?:\\.[^"\\]*)*)"|'([^']*)'|([^,]+)''', inner):
+        raw = match.group(1) or match.group(2) or match.group(3) or ""
+        items.append(_strip_yaml_scalar(raw.strip()))
+    return items
+
+
+def frontmatter_note_type(path: Path) -> str:
+    value = frontmatter(path).get("note_type", "")
+    return str(value).strip().strip('"\'')
+
+
+def frontmatter_source_files(path: Path) -> list[str]:
+    value = frontmatter(path).get("source_files", [])
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def is_standalone_notes_dir(notes_dir: Path) -> bool:
+    """Exclude known non-course note systems from source-dir reconciliation."""
+
+    if notes_dir.name in STANDALONE_NOTES_DIR_NAMES:
+        return True
+    for artifact_name in ("source_manifest.md", "99_内容覆盖审查.md"):
+        artifact = notes_dir / artifact_name
+        if not artifact.exists():
+            continue
+        note_type = frontmatter_note_type(artifact)
+        if note_type in STANDALONE_NOTE_TYPES:
+            return True
+        text = artifact.read_text(encoding="utf-8", errors="replace")
+        if "笔记侧独立体系" in text and "未确定的一一对应" in text:
+            return True
+    return False
 
 
 def match_source_entries(ref: str, entries: list[SourceEntry]) -> list[SourceEntry]:
@@ -191,7 +465,11 @@ def match_source_entries(ref: str, entries: list[SourceEntry]) -> list[SourceEnt
 
 
 def check_source_mappings(
-    source_root: Path, notes_root: Path, mapping: dict[str, str]
+    source_root: Path,
+    notes_root: Path,
+    mapping: dict[str, str],
+    include_ignored: bool = False,
+    require_canonical_refs: bool = False,
 ) -> tuple[int, list[Path], list[SourceEntry], list[CoverageIssue]]:
     issues: list[CoverageIssue] = []
     mapped_notes_dirs: list[Path] = []
@@ -207,13 +485,17 @@ def check_source_mappings(
             issues.append(CoverageIssue("missing_notes_dir", notes_dir, "mapped notes directory does not exist"))
             continue
         mapped_notes_dirs.append(notes_dir)
-        local_entries = build_source_entries(source_root, source_name)
+        local_entries = build_source_entries(source_root, source_name, include_ignored=include_ignored)
         entries.extend(local_entries)
         corpus = normalize_text(course_text(notes_dir))
         for entry in local_entries:
             total += 1
-            candidates = (entry.course_relative, entry.root_relative, entry.name, entry.stem)
-            if not any(normalize_text(candidate) in corpus for candidate in candidates):
+            if require_canonical_refs:
+                present = source_entry_mentioned_exact(corpus, entry)
+            else:
+                candidates = (entry.course_relative, entry.root_relative, entry.name, entry.stem)
+                present = any(normalize_text(candidate) in corpus for candidate in candidates)
+            if not present:
                 issues.append(
                     CoverageIssue(
                         "missing_source_mapping",
@@ -224,15 +506,352 @@ def check_source_mappings(
     return total, mapped_notes_dirs, entries, issues
 
 
+def source_entry_mentioned(text: str, entry: SourceEntry) -> bool:
+    normalized = normalize_text(text)
+    candidates = (entry.root_relative, entry.course_relative, entry.name, entry.stem)
+    return any(normalize_text(candidate) in normalized for candidate in candidates)
+
+
+def source_entry_mentioned_exact(text: str, entry: SourceEntry) -> bool:
+    """Match only the canonical source-root-relative path."""
+
+    canonical = normalize_text(entry.root_relative)
+    haystack = normalize_text(text)
+    # Do not let a longer path or a prefixed basename satisfy an exact-path
+    # contract.  Markdown punctuation/backticks remain valid delimiters;
+    # path-like characters and Unicode word characters do not.
+    pattern = rf"(?<![\w/.-]){re.escape(canonical)}(?![\w/.-])"
+    return re.search(pattern, haystack) is not None
+
+
+def page_source_evidence(text: str, entry: SourceEntry) -> bool:
+    """Require canonical path plus a page/slide locator in note body text."""
+
+    return source_entry_mentioned_exact(text, entry) and bool(PAGE_EVIDENCE_RE.search(text))
+
+
+def resolve_note_target(notes_dir: Path, raw_target: str) -> Path | None:
+    target = normalize_path_text(raw_target).strip().lstrip("/")
+    if not target:
+        return None
+    candidates: list[Path] = []
+    target_path = Path(target)
+    stripped = target
+    prefix = notes_dir.name + "/"
+    if stripped.startswith(prefix):
+        stripped = stripped[len(prefix) :]
+    for candidate in (notes_dir / target_path, notes_dir / stripped, notes_dir.parent / target_path):
+        if candidate.suffix.lower() != ".md":
+            candidate = candidate.with_suffix(".md")
+        try:
+            candidate.resolve().relative_to(notes_dir.parent.resolve())
+        except ValueError:
+            continue
+        if candidate.exists() and candidate not in candidates:
+            candidates.append(candidate)
+    return candidates[0] if candidates else None
+
+
+def source_family_signature(value: str) -> str:
+    """Normalize lecture parts so adjacent files can be reported together."""
+
+    stem = Path(value).stem
+    stem = normalize_text(stem).replace(" ", "_")
+    stem = re.sub(r"(?:[_-](?:part|pt)[_-]?\d+)$", "", stem)
+    return stem
+
+
+def adjacent_source_entries(entry: SourceEntry, entries: list[SourceEntry]) -> list[SourceEntry]:
+    family = source_family_signature(entry.stem)
+    if not family:
+        return []
+    return [
+        other
+        for other in entries
+        if other != entry
+        and other.course_name == entry.course_name
+        and source_family_signature(other.stem) == family
+    ]
+
+
+BODY_OWNER_MARKERS = ("来源：", "来源:", "对应源资料", "对应源课件", "源资料：", "源课件：")
+
+
+def body_source_owner_conflicts(
+    text: str,
+    entries: list[SourceEntry],
+    allowed_root_paths: set[str],
+) -> list[tuple[str, str]]:
+    """Find explicit body owner lines that name another canonical source.
+
+    A source stem, note filename, or numeric ordinal is never used here.
+    Only a canonical backticked source path on an owner-labelled body line
+    can contradict the manifest/frontmatter owner.  Other prose remains
+    outside the automatic owner decision and may require manual review.
+    """
+
+    allowed = {normalize_path_text(path) for path in allowed_root_paths}
+    exact_entries = {normalize_path_text(entry.root_relative): entry for entry in entries}
+    conflicts: list[tuple[str, str]] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if not any(marker in line for marker in BODY_OWNER_MARKERS):
+            continue
+        for raw in SOURCE_REF_RE.findall(line):
+            normalized = normalize_path_text(raw)
+            entry = exact_entries.get(normalized)
+            if entry is not None and normalized not in allowed:
+                conflicts.append((str(line_number), entry.root_relative))
+    return conflicts
+
+
+def check_four_way_source_coverage(
+    source_root: Path,
+    notes_root: Path,
+    mapping: dict[str, str],
+    entries: list[SourceEntry],
+    include_ignored: bool = False,
+    require_adjacent_source_evidence: bool = False,
+) -> list[CoverageIssue]:
+    """Check source existence, manifest, audit, and note ownership separately."""
+
+    issues: list[CoverageIssue] = []
+    for source_name, notes_name in mapping.items():
+        notes_dir = notes_root / notes_name
+        local_entries = [entry for entry in entries if entry.course_name == source_name]
+        if not notes_dir.is_dir():
+            continue
+        manifest_path = notes_dir / "source_manifest.md"
+        audit_path = notes_dir / "99_内容覆盖审查.md"
+        manifest_text = manifest_path.read_text(encoding="utf-8", errors="replace") if manifest_path.exists() else ""
+        audit_text = audit_path.read_text(encoding="utf-8", errors="replace") if audit_path.exists() else ""
+        if not manifest_path.exists():
+            issues.append(CoverageIssue("missing_source_manifest", notes_dir, "mapped notes directory has no source_manifest.md"))
+        if not audit_path.exists():
+            issues.append(CoverageIssue("missing_coverage_audit", notes_dir, "mapped notes directory has no 99_内容覆盖审查.md"))
+
+        note_paths = [
+            path
+            for path in markdown_files(notes_dir, include_ignored=include_ignored)
+            if path.name not in {"source_manifest.md", "99_内容覆盖审查.md"}
+        ]
+        for entry in local_entries:
+            if manifest_path.exists() and not source_entry_mentioned_exact(manifest_text, entry):
+                issues.append(
+                    CoverageIssue(
+                        "missing_source_manifest_mapping",
+                        manifest_path,
+                        f"canonical source {entry.root_relative!r} is absent from source_manifest.md",
+                    )
+                )
+            if audit_path.exists() and not source_entry_mentioned_exact(audit_text, entry):
+                issues.append(
+                    CoverageIssue(
+                        "missing_coverage_audit_mapping",
+                        audit_path,
+                        f"canonical source {entry.root_relative!r} is absent from 99_内容覆盖审查.md",
+                    )
+                )
+
+            frontmatter_paths: list[Path] = []
+            body_paths: list[Path] = []
+            for path in note_paths:
+                body = note_body_text(path)
+                declared = frontmatter_source_files(path)
+                if any(normalize_path_text(item) == normalize_path_text(entry.root_relative) for item in declared):
+                    frontmatter_paths.append(path)
+                if page_source_evidence(body, entry):
+                    body_paths.append(path)
+
+            if frontmatter_paths and not body_paths:
+                for path in frontmatter_paths:
+                    issues.append(
+                        CoverageIssue(
+                            "missing_body_source_evidence",
+                            path,
+                            f"frontmatter declares {entry.root_relative!r} but body lacks canonical path and page/slide evidence",
+                            status="MANUAL_REVIEW_REQUIRED",
+                        )
+                    )
+            if body_paths and not frontmatter_paths:
+                for path in body_paths:
+                    issues.append(
+                        CoverageIssue(
+                            "missing_frontmatter_source_evidence",
+                            path,
+                            f"body cites {entry.root_relative!r} with page/slide evidence but frontmatter omits the canonical source",
+                        )
+                    )
+
+            owner_paths = sorted(set(frontmatter_paths + body_paths))
+            if not owner_paths:
+                siblings = adjacent_source_entries(entry, local_entries)
+                kind = "missing_adjacent_source_evidence" if require_adjacent_source_evidence and siblings else "missing_note_source_ownership"
+                detail = f"source {entry.root_relative!r} has no owning note frontmatter/body evidence"
+                if siblings:
+                    detail += "; adjacent files: " + ", ".join(other.root_relative for other in siblings)
+                issues.append(
+                    CoverageIssue(
+                        kind,
+                        notes_dir,
+                        detail,
+                        status="MANUAL_REVIEW_REQUIRED" if kind == "missing_adjacent_source_evidence" else "STRUCTURAL",
+                    )
+                )
+    return issues
+
+
+def check_source_dir_reconciliation(
+    source_root: Path,
+    notes_root: Path,
+    mapping: dict[str, str],
+    include_ignored: bool = False,
+) -> list[CoverageIssue]:
+    """Report source directories and manifest-bearing note directories omitted from mapping."""
+
+    issues: list[CoverageIssue] = []
+    if not source_root.is_dir() or not notes_root.is_dir():
+        return issues
+    source_dirs = {
+        path.name
+        for path in source_root.iterdir()
+        if path.is_dir()
+        and (include_ignored or path.name not in DEFAULT_IGNORED_DIR_NAMES)
+        and source_files(path, include_ignored=include_ignored)
+    }
+    for source_name in sorted(source_dirs - set(mapping)):
+        issues.append(
+            CoverageIssue(
+                "unmapped_source_dir",
+                source_root / source_name,
+                "source directory contains PPT/PDF files but is not present in --mapping",
+            )
+        )
+    mapped_note_dirs = {str((notes_root / notes_name).resolve()) for notes_name in mapping.values()}
+    for notes_dir in sorted(path for path in notes_root.iterdir() if path.is_dir()):
+        if notes_dir.name in DEFAULT_IGNORED_DIR_NAMES:
+            continue
+        if is_standalone_notes_dir(notes_dir):
+            continue
+        if not any((notes_dir / name).exists() for name in ("source_manifest.md", "99_内容覆盖审查.md")):
+            continue
+        if str(notes_dir.resolve()) not in mapped_note_dirs:
+            issues.append(
+                CoverageIssue(
+                    "unmapped_notes_dir",
+                    notes_dir,
+                    "notes directory has source coverage artifacts but is not present in --mapping",
+                )
+            )
+    return issues
+
+
+def check_paper_source_ownership(
+    notes_root: Path,
+    source_root: Path,
+    include_ignored: bool = False,
+) -> list[CoverageIssue]:
+    """Ensure paper notes declare existing local source files and cite declared ownership."""
+
+    issues: list[CoverageIssue] = []
+    if not source_root.is_dir():
+        return issues
+    for path in markdown_files(notes_root, include_ignored=include_ignored):
+        if path.name in {"source_manifest.md", "99_内容覆盖审查.md"} or path.parent.name == "模板":
+            continue
+        if frontmatter_note_type(path) != "paper_note":
+            continue
+        declared = frontmatter_source_files(path)
+        if not declared:
+            issues.append(CoverageIssue("paper_source_missing", path, "paper_note has no non-empty source_files declaration"))
+            continue
+        declared_matches = {normalize_path_text(item) for item in declared}
+        for raw in declared:
+            if is_external_source_ref(raw):
+                continue
+            source_path = resolve_beneath(source_root, raw)
+            if source_path is None:
+                issues.append(
+                    CoverageIssue(
+                        "paper_source_outside_root",
+                        path,
+                        f"declared paper source escapes source root: {raw!r}",
+                    )
+                )
+                continue
+            if not source_path.exists():
+                issues.append(CoverageIssue("paper_source_not_found", path, f"declared paper source does not exist: {raw!r}"))
+        body = note_body_text(path)
+        for raw in SOURCE_REF_RE.findall(body):
+            if is_external_source_ref(raw):
+                continue
+            raw_norm = normalize_path_text(raw)
+            if resolve_beneath(source_root, raw_norm) is None:
+                issues.append(
+                    CoverageIssue(
+                        "paper_source_outside_root",
+                        path,
+                        f"body cites source outside source root: {raw!r}",
+                    )
+                )
+                continue
+            all_source_entries = [
+                SourceEntry(
+                    course_name="",
+                    path=source_path,
+                    course_relative=source_path.relative_to(source_root).as_posix(),
+                    root_relative=source_path.relative_to(source_root).as_posix(),
+                    name=source_path.name,
+                    stem=source_path.stem,
+                )
+                for source_path in source_files(source_root, include_ignored=include_ignored)
+            ]
+            basename_matches = [entry for entry in all_source_entries if entry.name == Path(raw_norm).name]
+            declared_basename_matches = [
+                declared_ref
+                for declared_ref in declared_matches
+                if Path(declared_ref).name == Path(raw_norm).name
+            ]
+            if raw_norm not in declared_matches and len(basename_matches) > 1:
+                issues.append(
+                    CoverageIssue(
+                        "paper_source_ambiguous_basename",
+                        path,
+                        f"body cites basename {Path(raw_norm).name!r}, which resolves to multiple source paths",
+                    )
+                )
+                continue
+            if raw_norm not in declared_matches and len(declared_basename_matches) != 1:
+                issues.append(
+                    CoverageIssue(
+                        "paper_source_not_declared",
+                        path,
+                        f"body cites local source {raw!r} but it is absent from frontmatter source_files",
+                    )
+                )
+    return issues
+
+
+def is_external_source_ref(value: str) -> bool:
+    return normalize_path_text(value).startswith(("http://", "https://", "mailto:"))
+
+
 def has_source_or_generated_example(line: str) -> bool:
-    has_source_example = any(label in line for label in SOURCE_EXAMPLE_LABELS) and (
-        "（/" in line or "来源：`" in line or "源资料：`" in line
+    has_source_label = any(label in line for label in SOURCE_EXAMPLE_LABELS)
+    has_source_example = has_source_label and (
+        "（/" in line
+        or "来源：`" in line
+        or "源资料：`" in line
+        or line.lstrip().startswith("#")
     )
-    has_generated_example = GENERATED_MARKER in line and "补充题（/" in line
+    has_generated_example = GENERATED_MARKER in line and (
+        "补充题（/" in line or "来源说明" in line or line.lstrip().startswith("#")
+    )
     return has_source_example or has_generated_example
 
 
-def check_example_evidence(notes_dirs: list[Path]) -> tuple[int, int, int, int, list[CoverageIssue]]:
+def check_example_evidence(
+    notes_dirs: list[Path], include_ignored: bool = False
+) -> tuple[int, int, int, int, list[CoverageIssue]]:
     supplement_notes = 0
     supplement_bullets = 0
     source_example_lines = 0
@@ -242,16 +861,27 @@ def check_example_evidence(notes_dirs: list[Path]) -> tuple[int, int, int, int, 
     for notes_dir in sorted({path.resolve() for path in notes_dirs}):
         local_source_examples = 0
         local_generated_lines = 0
-        files = markdown_files(notes_dir)
+        files = [
+            path
+            for path in markdown_files(notes_dir, include_ignored=include_ignored)
+            if path.name not in {"source_manifest.md", "99_内容覆盖审查.md"}
+        ]
+        explicit_no_example_boundary = any(
+            marker in course_text(notes_dir) and "例题" in course_text(notes_dir)
+            for marker in NO_EXAMPLE_DECLARATIONS
+        )
         for path in files:
             text = path.read_text(encoding="utf-8", errors="replace")
             in_supplement = False
+            local_has_example_content = False
             if SUPPLEMENT_HEADING in text:
                 supplement_notes += 1
             for line_number, line in enumerate(text.splitlines(), start=1):
                 if line.startswith("## "):
                     in_supplement = line.strip() == SUPPLEMENT_HEADING
                     continue
+                if any(marker in line.lower() for marker in EXAMPLE_CONTENT_MARKERS):
+                    local_has_example_content = True
                 if in_supplement and line.startswith("- "):
                     supplement_bullets += 1
                     if "来源：`" not in line or "页/slide：" not in line or "主题：" not in line:
@@ -262,25 +892,62 @@ def check_example_evidence(notes_dirs: list[Path]) -> tuple[int, int, int, int, 
                 if any(label in line for label in SOURCE_EXAMPLE_LABELS):
                     source_example_lines += 1
                     local_source_examples += 1
-                    if "（/" not in line and "源资料：`" not in line:
-                        issues.append(CoverageIssue("bad_source_example", path, f"line {line_number} lacks a traceable source marker"))
-                if "生成辅助题" in line or "补充题（/" in line:
+                    if (
+                        not line.lstrip().startswith("#")
+                        and "（/" not in line
+                        and "源资料：`" not in line
+                    ):
+                        issues.append(
+                            CoverageIssue(
+                                "bad_source_example",
+                                path,
+                                f"line {line_number} lacks a traceable source marker",
+                                status="MANUAL_REVIEW_REQUIRED",
+                            )
+                        )
+                if GENERATED_MARKER in line or "生成辅助题" in line or "补充题（/" in line:
                     generated_lines += 1
                     local_generated_lines += 1
                     if GENERATED_MARKER not in line and not any(label in line for label in SOURCE_EXAMPLE_LABELS):
-                        issues.append(CoverageIssue("bad_generated_example", path, f"line {line_number} lacks generated-question source rationale"))
+                        issues.append(
+                            CoverageIssue(
+                                "bad_generated_example",
+                                path,
+                                f"line {line_number} lacks generated-question source rationale",
+                                status="MANUAL_REVIEW_REQUIRED",
+                            )
+                        )
                 if any(marker in line for marker in RESIDUAL_REVIEW_MARKERS):
-                    issues.append(CoverageIssue("residual_manual_review_marker", path, f"line {line_number} still contains a manual-review marker"))
-        if files and local_source_examples + local_generated_lines == 0:
-            issues.append(CoverageIssue("no_example_evidence", notes_dir, "mapped notes directory has no source-derived or generated example evidence"))
+                    issues.append(
+                        CoverageIssue(
+                            "residual_manual_review_marker",
+                            path,
+                            f"line {line_number} still contains a manual-review marker",
+                            status="MANUAL_REVIEW_REQUIRED",
+                        )
+                    )
+        if (
+            files
+            and local_source_examples + local_generated_lines == 0
+            and not local_has_example_content
+            and not explicit_no_example_boundary
+        ):
+            issues.append(
+                CoverageIssue(
+                    "no_example_evidence",
+                    notes_dir,
+                    "mapped notes directory has no source-derived or generated example evidence",
+                    status="MANUAL_REVIEW_REQUIRED",
+                )
+            )
 
     return supplement_notes, supplement_bullets, source_example_lines, generated_lines, issues
 
 
-def check_text_hygiene(notes_dirs: list[Path]) -> list[CoverageIssue]:
+def check_text_hygiene(notes_dirs: list[Path], include_ignored: bool = False) -> list[CoverageIssue]:
     issues: list[CoverageIssue] = []
     for notes_dir in sorted({path.resolve() for path in notes_dirs}):
-        for path in markdown_files(notes_dir):
+        for path in markdown_files(notes_dir, include_ignored=include_ignored):
             text = path.read_text(encoding="utf-8", errors="replace")
             for line_number, line in enumerate(text.splitlines(), start=1):
                 bad_controls = [
@@ -298,7 +965,10 @@ def check_text_hygiene(notes_dirs: list[Path]) -> list[CoverageIssue]:
 
 
 def check_audit_source_tables(
-    notes_dirs: list[Path], entries: list[SourceEntry], require_course_prefixed_refs: bool
+    notes_dirs: list[Path],
+    entries: list[SourceEntry],
+    require_course_prefixed_refs: bool,
+    include_ignored: bool = False,
 ) -> list[CoverageIssue]:
     issues: list[CoverageIssue] = []
     audit_names = ("source_manifest.md", "99_内容覆盖审查.md")
@@ -314,6 +984,14 @@ def check_audit_source_tables(
                 links = WIKI_LINK_RE.findall(line)
                 for ref in refs:
                     matches = match_source_entries(ref, entries)
+                    if len(matches) > 1:
+                        issues.append(
+                            CoverageIssue(
+                                "ambiguous_source_ref",
+                                path,
+                                f"line {line_number} uses non-unique source reference {ref!r}; use the canonical root-relative path",
+                            )
+                        )
                     for entry in matches:
                         if require_course_prefixed_refs and entry.course_name not in ("", "."):
                             ref_norm = normalize_path_text(ref)
@@ -326,58 +1004,73 @@ def check_audit_source_tables(
                                         f"line {line_number} uses {ref!r}; prefer root-relative source path {entry.root_relative!r}",
                                     )
                                 )
-                        if not entry.chapter_signature:
-                            continue
                         for link in links:
-                            link_signature = extract_chapter_signature(link)
-                            if chapter_signatures_conflict(entry.chapter_signature, link_signature):
+                            target_path = resolve_note_target(notes_dir, link)
+                            if target_path is None:
                                 issues.append(
                                     CoverageIssue(
-                                        "chapter_mismatch_source_link",
+                                        "manifest_target_missing_note",
                                         path,
-                                        f"line {line_number} maps source {ref!r} to note {link!r} with conflicting chapter marker",
+                                        f"line {line_number} targets missing note {link!r} for canonical source {entry.root_relative!r}",
+                                    )
+                                )
+                                continue
+                            declared_refs = frontmatter_source_files(target_path)
+                            declared_owner = any(
+                                normalize_path_text(raw) == normalize_path_text(entry.root_relative)
+                                for raw in declared_refs
+                            )
+                            if not declared_owner:
+                                issues.append(
+                                    CoverageIssue(
+                                        "manifest_target_owner_mismatch",
+                                        path,
+                                        f"line {line_number} targets {link!r}, but that note lacks canonical frontmatter ownership for {entry.root_relative!r}",
+                                    )
+                                )
+                            allowed_refs = set(declared_refs)
+                            allowed_refs.add(entry.root_relative)
+                            body_conflicts = body_source_owner_conflicts(
+                                note_body_text(target_path),
+                                entries,
+                                allowed_refs,
+                            )
+                            for body_line, conflicting_source in body_conflicts:
+                                issues.append(
+                                    CoverageIssue(
+                                        "body_source_owner_mismatch",
+                                        target_path,
+                                        f"body line {body_line} names canonical source {conflicting_source!r}, conflicting with manifest/frontmatter owner {entry.root_relative!r}",
                                     )
                                 )
     return issues
 
 
-def note_heading(path: Path) -> str:
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if line.startswith("# "):
-            return line
-    return ""
-
-
-def line_mentions_source(line: str, entry: SourceEntry) -> bool:
-    line_norm = normalize_text(line)
-    candidates = (entry.root_relative, entry.course_relative, entry.name)
-    return any(normalize_text(candidate) in line_norm for candidate in candidates)
-
-
-def check_note_source_ownership(notes_dirs: list[Path], entries: list[SourceEntry]) -> list[CoverageIssue]:
+def check_note_source_ownership(
+    notes_dirs: list[Path], entries: list[SourceEntry], include_ignored: bool = False
+) -> list[CoverageIssue]:
     issues: list[CoverageIssue] = []
     skip_names = {"source_manifest.md", "99_内容覆盖审查.md"}
     for notes_dir in sorted({path.resolve() for path in notes_dirs}):
-        for path in markdown_files(notes_dir):
+        for path in markdown_files(notes_dir, include_ignored=include_ignored):
             if path.name in skip_names:
                 continue
-            note_signature = extract_chapter_signature(f"{path.stem}\n{note_heading(path)}")
-            if not note_signature:
+            declared_refs = frontmatter_source_files(path)
+            if not declared_refs:
                 continue
-            for line_number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
-                if not any(marker in line for marker in EVIDENCE_MARKERS):
-                    continue
-                for entry in entries:
-                    if not chapter_signatures_conflict(entry.chapter_signature, note_signature):
-                        continue
-                    if line_mentions_source(line, entry):
-                        issues.append(
-                            CoverageIssue(
-                                "chapter_mismatch_note_source",
-                                path,
-                                f"line {line_number} cites {entry.root_relative!r} inside a note with a conflicting chapter marker",
-                            )
-                        )
+            allowed_refs = set(declared_refs)
+            for line_number, conflicting_source in body_source_owner_conflicts(
+                note_body_text(path),
+                entries,
+                allowed_refs,
+            ):
+                issues.append(
+                    CoverageIssue(
+                        "body_source_owner_mismatch",
+                        path,
+                        f"body line {line_number} names canonical source {conflicting_source!r}, absent from frontmatter source_files",
+                    )
+                )
     return issues
 
 
@@ -389,8 +1082,43 @@ def main() -> int:
     parser.add_argument(
         "--mapping",
         type=parse_mapping,
-        required=True,
+        required=False,
         help="Comma-separated source=notes directory mapping, for example '课程源=课程笔记,raw=notes'",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Enable four-way coverage, sibling discovery, source-dir reconciliation, paper ownership, and adjacent-source checks",
+    )
+    parser.add_argument(
+        "--discover-sibling-mappings",
+        action="store_true",
+        help="Add source directories whose note directory has the same name (for example cs231n)",
+    )
+    parser.add_argument(
+        "--require-four-way-source-coverage",
+        action="store_true",
+        help="Require separate evidence in source_manifest.md, 99_内容覆盖审查.md, and an owning note",
+    )
+    parser.add_argument(
+        "--require-adjacent-source-evidence",
+        action="store_true",
+        help="Report missing ownership for adjacent source parts such as lecture_1_part_1/2",
+    )
+    parser.add_argument(
+        "--require-source-dir-reconciliation",
+        action="store_true",
+        help="Report source directories and manifest-bearing note directories omitted from --mapping",
+    )
+    parser.add_argument(
+        "--check-paper-source-ownership",
+        action="store_true",
+        help="Check paper_note source_files declarations and local source existence",
+    )
+    parser.add_argument(
+        "--include-ignored",
+        action="store_true",
+        help="Include default-ignored cache, generated, and scripts directories in scans",
     )
     parser.add_argument(
         "--require-course-prefixed-source-refs",
@@ -399,14 +1127,88 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if not args.mapping and not (
+        args.discover_sibling_mappings or args.strict or args.check_paper_source_ownership
+    ):
+        parser.error(
+            "--mapping is required unless --discover-sibling-mappings, --strict, or paper-only checking is used"
+        )
+
     source_root = args.source_root.resolve()
     notes_root = args.notes_root.resolve()
-    total_sources, mapped_notes_dirs, entries, mapping_issues = check_source_mappings(source_root, notes_root, args.mapping)
-    supplement_notes, supplement_bullets, source_examples, generated_lines, evidence_issues = check_example_evidence(mapped_notes_dirs)
-    hygiene_issues = check_text_hygiene(mapped_notes_dirs)
-    audit_issues = check_audit_source_tables(mapped_notes_dirs, entries, args.require_course_prefixed_source_refs)
-    ownership_issues = check_note_source_ownership(mapped_notes_dirs, entries)
-    issues = mapping_issues + evidence_issues + hygiene_issues + audit_issues + ownership_issues
+    discover = args.discover_sibling_mappings or args.strict
+    mapping, mapping_path_issues = validate_mapping_paths(
+        source_root,
+        notes_root,
+        args.mapping or {},
+    )
+    if discover:
+        mapping = discover_sibling_mappings(
+            source_root,
+            notes_root,
+            mapping,
+            include_ignored=args.include_ignored,
+        )
+    total_sources, mapped_notes_dirs, entries, mapping_check_issues = check_source_mappings(
+        source_root,
+        notes_root,
+        mapping,
+        include_ignored=args.include_ignored,
+        require_canonical_refs=args.strict or args.require_course_prefixed_source_refs,
+    )
+    supplement_notes, supplement_bullets, source_examples, generated_lines, evidence_issues = check_example_evidence(
+        mapped_notes_dirs,
+        include_ignored=args.include_ignored,
+    )
+    hygiene_issues = check_text_hygiene(mapped_notes_dirs, include_ignored=args.include_ignored)
+    audit_issues = check_audit_source_tables(
+        mapped_notes_dirs,
+        entries,
+        args.require_course_prefixed_source_refs,
+        include_ignored=args.include_ignored,
+    )
+    ownership_issues = check_note_source_ownership(
+        mapped_notes_dirs,
+        entries,
+        include_ignored=args.include_ignored,
+    )
+    four_way_issues = []
+    if args.require_four_way_source_coverage or args.strict:
+        four_way_issues = check_four_way_source_coverage(
+            source_root,
+            notes_root,
+            mapping,
+            entries,
+            include_ignored=args.include_ignored,
+            require_adjacent_source_evidence=args.require_adjacent_source_evidence or args.strict,
+        )
+    reconciliation_issues = []
+    if args.require_source_dir_reconciliation or args.strict:
+        reconciliation_issues = check_source_dir_reconciliation(
+            source_root,
+            notes_root,
+            mapping,
+            include_ignored=args.include_ignored,
+        )
+    paper_issues = []
+    if args.check_paper_source_ownership or args.strict:
+        paper_issues = check_paper_source_ownership(
+            notes_root,
+            source_root,
+            include_ignored=args.include_ignored,
+        )
+    boundary_issues = source_boundary_issues(source_root, include_ignored=args.include_ignored)
+    mapping_issues = mapping_path_issues + mapping_check_issues + boundary_issues
+    issues = (
+        mapping_issues
+        + evidence_issues
+        + hygiene_issues
+        + audit_issues
+        + ownership_issues
+        + four_way_issues
+        + reconciliation_issues
+        + paper_issues
+    )
 
     print(f"course_source_files {total_sources}")
     print(f"missing_source_mappings {len(mapping_issues)}")
@@ -417,7 +1219,14 @@ def main() -> int:
     print(f"text_hygiene_issues {len(hygiene_issues)}")
     print(f"source_table_issues {len(audit_issues)}")
     print(f"note_source_ownership_issues {len(ownership_issues)}")
+    print(f"four_way_source_issues {len(four_way_issues)}")
+    print(f"source_dir_reconciliation_issues {len(reconciliation_issues)}")
+    print(f"paper_source_ownership_issues {len(paper_issues)}")
     print(f"coverage_evidence_issues {len(issues)}")
+    structural_issues = [issue for issue in issues if issue.status == "STRUCTURAL"]
+    manual_review_issues = [issue for issue in issues if issue.status == "MANUAL_REVIEW_REQUIRED"]
+    print(f"structural_issues {len(structural_issues)}")
+    print(f"manual_review_required_issues {len(manual_review_issues)}")
     for issue in issues:
         try:
             display_path = issue.path.relative_to(notes_root)
@@ -426,8 +1235,12 @@ def main() -> int:
                 display_path = issue.path.relative_to(source_root)
             except ValueError:
                 display_path = issue.path
-        print(f"{issue.kind.upper()}: {display_path}: {issue.message}")
+        print(f"{issue.status}: {issue.kind.upper()}: {display_path}: {issue.message}")
 
+    # Keep the strict gate conservative: manual-review findings are not a
+    # pass or a claim of full coverage, and therefore remain non-zero until a
+    # human closes them.  The status prefix distinguishes them from concrete
+    # canonical-path/owner/manifest failures that are directly actionable.
     return 1 if issues else 0
 
 

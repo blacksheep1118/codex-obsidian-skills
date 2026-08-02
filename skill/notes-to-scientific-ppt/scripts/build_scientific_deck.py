@@ -22,6 +22,7 @@ SPINE_HEADINGS = {"Suggested Scientific Deck Spine", "建议科学演示主线"}
 BACKLOG_HEADINGS = {"Draft Slide Backlog", "草稿幻灯片待办"}
 NUMBERED_RE = re.compile(r"^\s*\d+\.\s+(.+?)\s*$")
 BACKLOG_RE = re.compile(r"^-\s+\[([^\]]+)\].*?`([^`]+)`.*?Proof object:\s*(.+?)\.?\s*$")
+MAX_TITLE_CHARS = 180
 
 
 @dataclass(frozen=True)
@@ -179,6 +180,22 @@ def ensure_required_specs(specs: list[SlideSpec], max_specs: int | None = None) 
     required = [limitation, appendix] if max_specs >= 2 else [limitation]
     base = [spec for spec in specs if spec.role not in {"limitations", "appendix"}]
     return [*base[: max_specs - len(required)], *required]
+
+
+def validate_deck_text(title: str, specs: list[SlideSpec]) -> None:
+    """Reject titles that cannot be trusted to fit the fixed-height title box."""
+
+    labels = [("deck title", title)]
+    labels.extend((f"slide {index} title", spec.title) for index, spec in enumerate(specs, start=1))
+    for label, value in labels:
+        if not value.strip():
+            raise ValueError(f"{label} must not be empty")
+        if "\n" in value or "\r" in value:
+            raise ValueError(f"{label} must be a single line")
+        if len(value) > MAX_TITLE_CHARS:
+            raise ValueError(
+                f"{label} is {len(value)} characters; maximum is {MAX_TITLE_CHARS} for the fixed title box"
+            )
 
 
 def slide_blocks(spec: SlideSpec, slide_number: int) -> list[str]:
@@ -372,6 +389,7 @@ def build_deck(
     if not specs:
         specs = parse_backlog(brief)
     specs = ensure_required_specs(specs, max_specs=max_slides - 1)
+    validate_deck_text(deck_title, specs)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     try:

@@ -2,7 +2,7 @@
 
 Codex skill for organizing, repairing, merging, and validating existing Obsidian vaults or Markdown note collections.
 
-Use this skill when the source of truth is already a vault or notes directory. It focuses on local guidance, source-file safety, navigation pages, duplicate-note cleanup, cross-links, review pages, and vault validation. For PPT/PPTX/PDF slide extraction and courseware conversion, use [`ppt-to-md-for-obsidian`](../ppt-to-md-for-obsidian).
+Use this skill when the source of truth is already a vault or notes directory. It focuses on local guidance, source-file safety, navigation pages, duplicate-note cleanup, cross-links, review pages, and vault validation. For PPT/PPTX/PDF slide extraction and courseware conversion, use the `ppt-to-md-for-obsidian` skill.
 
 ## Install
 
@@ -113,6 +113,8 @@ python3 scripts/link_inventory.py path/to/notes --format markdown --out after-li
 
 The inventory includes per-file Markdown links, wiki links, external links, unique targets, total counts, and directory-level counts.
 
+By default, inventories and quality scans exclude vault guidance (`AGENT.md`), tooling under `scripts/`, and cache/generated directories such as nested `.pytest_cache/`. Symlinks resolving outside the vault root are not read or counted.
+
 ## Quality Check
 
 Run the read-only quality checker against a local vault or notes directory:
@@ -135,7 +137,7 @@ python3 scripts/check_vault_quality.py --profile solvenotes path/to/notes
 
 Add custom residue patterns with `--pattern-file`. Plain lines are treated as literal text; lines starting with `regex:` or `re:` are compiled as regular expressions.
 
-See [../../docs/dry-run-mode.md](../../docs/dry-run-mode.md) for the expected dry-run report shape when using this skill from the full repository.
+See [references/validation.md](references/validation.md) for the bundled validation checks and dry-run review guidance.
 
 ## Validation
 

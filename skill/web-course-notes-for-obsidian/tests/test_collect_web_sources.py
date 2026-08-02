@@ -2,13 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+from urllib.error import HTTPError
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts import collect_web_sources
-from scripts.collect_web_sources import build_manifest, classify_url, collect_sources, collect_page, normalize_url
+from scripts import collect_web_sources  # noqa: E402
+from scripts.collect_web_sources import (  # noqa: E402
+    build_manifest,
+    classify_url,
+    collect_page,
+    collect_sources,
+    normalize_url,
+)
 
 
 def test_classify_url_detects_learning_resource_types():
@@ -97,6 +104,40 @@ def test_collect_page_accepts_file_uri_with_spaces(tmp_path: Path):
     assert page.title == "Course With Spaces"
     assert page.links[0].kind == "slides"
     assert "week%201.pptx" in page.links[0].url
+
+
+def test_collect_page_records_final_url_and_login_required_state(monkeypatch):
+    monkeypatch.setattr(
+        collect_web_sources,
+        "read_source_with_metadata",
+        lambda source_url, timeout=15.0: (
+            "<title>Login</title><form><input type='password'></form>",
+            "https://example.com/final-login",
+            200,
+        ),
+    )
+
+    page = collect_page("https://example.com/start")
+
+    assert page.final_url == "https://example.com/final-login"
+    assert page.http_status == 200
+    assert page.access_status == "login_required"
+    assert page.access_class == "login_required"
+    assert "final-login" in build_manifest([page])
+
+
+def test_collect_source_classifies_http_errors_without_collapsing_to_inaccessible(monkeypatch):
+    def raise_404(source_url: str, timeout: float = 15.0):
+        raise HTTPError(source_url, 404, "Not Found", hdrs=None, fp=None)
+
+    monkeypatch.setattr(collect_web_sources, "collect_page", raise_404)
+
+    page = collect_web_sources.collect_source("https://example.com/missing-course")
+
+    assert page.access_status == "http_404"
+    assert page.access_class == "http_error"
+    assert page.http_status == 404
+    assert page.error
 
 
 def test_normalize_url_preserves_windows_file_drive_colon():

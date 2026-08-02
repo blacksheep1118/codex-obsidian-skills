@@ -102,7 +102,15 @@ def pytest_env() -> dict[str, str]:
 
 
 def pytest_command(py: str, *args: str, cwd: Path = ROOT) -> CommandSpec:
-    return CommandSpec([py, "-m", "pytest", *args], cwd=cwd, env=pytest_env())
+    return CommandSpec([py, "-m", "pytest", *args, "-p", "no:cacheprovider"], cwd=cwd, env=pytest_env())
+
+
+def compile_command(py: str, cwd: Path = ROOT) -> CommandSpec:
+    return CommandSpec(
+        [py, "-m", "compileall", "scripts"],
+        cwd=cwd,
+        env={"PYTHONPYCACHEPREFIX": str(TMP / "codex-obsidian-skills-pycache")},
+    )
 
 
 def run_command(
@@ -128,7 +136,11 @@ def run_command(
 
 def build_steps(py: str) -> list[Step]:
     return [
-        Step("root.compile", (CommandSpec([py, "-m", "compileall", "scripts"]),)),
+        Step("root.compile", (compile_command(py),)),
+        Step(
+            "root.ruff",
+            (CommandSpec([py, "-m", "ruff", "check", ".", "--no-cache"]),),
+        ),
         Step("root.repo_hygiene", (CommandSpec([py, "scripts/check_repo_hygiene.py"]),)),
         Step("root.tests", (pytest_command(py, "-q"),)),
         Step(
@@ -136,18 +148,18 @@ def build_steps(py: str) -> list[Step]:
             (
                 CommandSpec([py, "scripts/check_openai_yaml_sync.py"]),
                 CommandSpec([py, "scripts/sync_shared_resources.py", "--check"]),
-                CommandSpec([py, "scripts/install_skill.py", "--all", "--dry-run", "--self-check"]),
             ),
         ),
         Step(
             "metadata.install",
             (
                 CommandSpec([py, "scripts/install_skill.py", "--all", "--destination", str(INSTALL_TMP), "--self-check"]),
-                CommandSpec([py, "scripts/update_installed_skills.py", "--all", "--destination", str(INSTALL_TMP), "--dry-run", "--prune"]),
+                CommandSpec([py, "scripts/update_installed_skills.py", "--all", "--destination", str(INSTALL_TMP), "--self-check"]),
+                CommandSpec([py, "scripts/update_installed_skills.py", "--all", "--destination", str(INSTALL_TMP), "--dry-run"]),
             ),
             quick=False,
         ),
-        Step("ppt.compile", (CommandSpec([py, "-m", "compileall", "scripts"], cwd=PPT_SKILL),), skill="ppt"),
+        Step("ppt.compile", (compile_command(py, cwd=PPT_SKILL),), skill="ppt"),
         Step("ppt.tests", (pytest_command(py, "-q", "tests", cwd=PPT_SKILL),), skill="ppt", quick=False),
         Step("ppt.validator", (CommandSpec([py, "scripts/validate_skill_repo.py"], cwd=PPT_SKILL),), skill="ppt"),
         Step(
@@ -162,7 +174,7 @@ def build_steps(py: str) -> list[Step]:
             skill="ppt",
             quick=False,
         ),
-        Step("vault.compile", (CommandSpec([py, "-m", "compileall", "scripts"], cwd=VAULT_SKILL),), skill="vault"),
+        Step("vault.compile", (compile_command(py, cwd=VAULT_SKILL),), skill="vault"),
         Step("vault.tests", (pytest_command(py, "-q", "tests", cwd=VAULT_SKILL),), skill="vault", quick=False),
         Step("vault.validator", (CommandSpec([py, "scripts/validate_skill.py"], cwd=VAULT_SKILL),), skill="vault"),
         Step(
@@ -174,7 +186,7 @@ def build_steps(py: str) -> list[Step]:
             skill="vault",
             quick=False,
         ),
-        Step("web.compile", (CommandSpec([py, "-m", "compileall", "scripts"], cwd=WEB_SKILL),), skill="web"),
+        Step("web.compile", (compile_command(py, cwd=WEB_SKILL),), skill="web"),
         Step("web.tests", (pytest_command(py, "-q", "tests", cwd=WEB_SKILL),), skill="web", quick=False),
         Step("web.validator", (CommandSpec([py, "scripts/validate_skill.py"], cwd=WEB_SKILL),), skill="web"),
         Step(
@@ -186,7 +198,7 @@ def build_steps(py: str) -> list[Step]:
             skill="web",
             quick=False,
         ),
-        Step("notes.compile", (CommandSpec([py, "-m", "compileall", "scripts"], cwd=NOTES_PPT_SKILL),), skill="notes"),
+        Step("notes.compile", (compile_command(py, cwd=NOTES_PPT_SKILL),), skill="notes"),
         Step("notes.tests", (pytest_command(py, "-q", "tests", cwd=NOTES_PPT_SKILL),), skill="notes", quick=False),
         Step("notes.validator", (CommandSpec([py, "scripts/validate_skill.py"], cwd=NOTES_PPT_SKILL),), skill="notes"),
         Step(
@@ -203,6 +215,33 @@ def build_steps(py: str) -> list[Step]:
                         "Blind Image Denoising",
                         "--mode",
                         "paper-reading",
+                    ],
+                    cwd=NOTES_PPT_SKILL,
+                ),
+                CommandSpec(
+                    [
+                        py,
+                        "scripts/build_scientific_deck.py",
+                        str(TMP / "scientific_deck_brief.md"),
+                        "--out",
+                        str(TMP / "scientific_deck.pptx"),
+                    ],
+                    cwd=NOTES_PPT_SKILL,
+                ),
+                CommandSpec(
+                    [
+                        py,
+                        "scripts/verify_pptx.py",
+                        str(TMP / "scientific_deck.pptx"),
+                        "--expected-slides",
+                        "15",
+                        "--expected-title",
+                        "Blind Image Denoising",
+                        "--expected-width-inches",
+                        "13.333",
+                        "--expected-height-inches",
+                        "7.5",
+                        "--render",
                     ],
                     cwd=NOTES_PPT_SKILL,
                 ),

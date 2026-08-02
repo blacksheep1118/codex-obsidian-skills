@@ -2,7 +2,7 @@
 
 Codex skill for turning course video websites, PPT/slide websites, book websites, and mixed online learning resources into Obsidian-ready notes.
 
-Use this skill when the source starts from URLs. For local PPT/PPTX/PDF files, use [`ppt-to-md-for-obsidian`](../ppt-to-md-for-obsidian). For existing vault cleanup, use [`obsidian-vault-organizer`](../obsidian-vault-organizer).
+Use this skill when the source starts from URLs. For local PPT/PPTX/PDF files, use the `ppt-to-md-for-obsidian` skill. For existing vault cleanup, use the `obsidian-vault-organizer` skill.
 
 ## Install
 

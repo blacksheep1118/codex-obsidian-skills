@@ -7,7 +7,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.check_vault_quality import find_vault_issues
+from scripts.check_vault_quality import find_vault_issues  # noqa: E402
 
 
 def write(path: Path, text: str) -> None:
@@ -73,3 +73,17 @@ def test_forbid_report_notes_flags_audit_notes(tmp_path: Path):
     issues = find_vault_issues(vault, forbid_report_notes=True)
 
     assert "report_note" in issue_kinds(issues)
+
+
+def test_vault_quality_excludes_guidance_tooling_cache_and_external_symlink(tmp_path: Path):
+    write(tmp_path / "Actual.md", "# Actual\n")
+    write(tmp_path / "AGENT.md", "# Guidance\n<<<<<<< should not be scanned\n")
+    write(tmp_path / "scripts" / "README.md", "# Tooling\nTODO\n")
+    write(tmp_path / ".pytest_cache" / "README.md", "# Cache\n<<<<<<< should not be scanned\n")
+    outside = tmp_path.parent / "luna-quality-outside.md"
+    write(outside, "# Outside\n<<<<<<< should not be scanned\n")
+    (tmp_path / "linked.md").symlink_to(outside)
+
+    issues = find_vault_issues(tmp_path)
+
+    assert issues == []

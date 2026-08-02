@@ -151,7 +151,19 @@ def inaccessible_resource(row: ManifestRow) -> bool:
     status = normalize_cell(row.values.get("Status", ""))
     error = row.values.get("Error", "")
     state = f"{access} {status}"
-    markers = ("inaccessible", "blocked", "paywalled", "skipped", "failed", "error")
+    markers = (
+        "inaccessible",
+        "blocked",
+        "paywalled",
+        "skipped",
+        "failed",
+        "error",
+        "http_",
+        "login_required",
+        "timeout",
+        "network_error",
+        "parse_error",
+    )
     return any(marker in state for marker in markers) or has_error_value(error)
 
 

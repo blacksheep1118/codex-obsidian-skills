@@ -4,6 +4,9 @@ All notable changes to this repository are documented here.
 
 ## Unreleased
 
+- Tightened strict source coverage to require canonical source paths, independent frontmatter/body page evidence, topic ownership checks, numeric chapter markers, and outside-root symlink rejection; manual-review markers are classified explicitly.
+- Added PPTX package/python-pptx reopen and slide-count verification, fixed-title overflow rejection, and optional LibreOffice/Poppler render checks for real deck smoke validation.
+- Made vault inventories exclude guidance/tooling/cache Markdown by default, made install dry-runs report per-file added/changed/stale state without pruning, and upgraded CI/local validation to full Ruff.
 - Added `web-course-notes-for-obsidian` for course video websites, PPT/slide websites, book websites, and mixed online learning resources.
 - Added web source manifest collection, examples, tests, and CI validation for the new skill.
 - Added cross-platform install, update, validation, and development documentation for macOS/Linux shells and Windows PowerShell.

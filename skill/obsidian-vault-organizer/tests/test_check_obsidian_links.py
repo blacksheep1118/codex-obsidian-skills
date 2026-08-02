@@ -49,3 +49,23 @@ def test_check_links_ignores_links_inside_fenced_and_inline_code(tmp_path: Path)
     assert checked == 0
     assert broken == []
     assert self_links == []
+
+
+def test_check_links_ignores_fence_closed_by_a_longer_fence(tmp_path: Path):
+    write(tmp_path / "Source.md", "```python\n[[missing]]\n````\n[[also-missing]]\n")
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 1
+    assert [issue.target for issue in broken] == ["also-missing"]
+    assert self_links == []
+
+
+def test_check_links_ignores_four_space_indented_code(tmp_path: Path):
+    write(tmp_path / "Source.md", "    [[missing]]\n\t[also-missing](no.md)\n")
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 0
+    assert broken == []
+    assert self_links == []

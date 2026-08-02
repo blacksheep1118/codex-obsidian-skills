@@ -110,11 +110,33 @@ python3 scripts/check_source_coverage.py \
   --notes-root /path/to/course-root/notes \
   --mapping '数学模型=数学模型,编译原理=编译原理' \
   --require-course-prefixed-source-refs
+
+# Strict mode also discovers same-name source/note directories (including
+# cs231n), checks manifest/audit/note ownership separately, reconciles source
+# directories, and validates local paper-note source ownership.
+python3 scripts/check_source_coverage.py \
+  --source-root /path/to/course-root \
+  --notes-root /path/to/course-root/notes \
+  --strict \
+  --require-course-prefixed-source-refs
 ```
+
+The checker treats both roots as trust boundaries: `--mapping` entries and
+paper-note `source_files` must resolve beneath the selected source/notes roots.
+Absolute paths, `../` escapes, and symlinks resolving outside those roots are
+reported as blockers instead of being opened or counted as source evidence.
+When source and note directory names differ, pass the complete explicit mapping
+(for example `All-in-One : Unified Image Restoration=all-in-one,dehaze=去雾,医学人工智能导论=医学人工智能`); strict reconciliation then checks those aliases instead of guessing.
+Known standalone note systems (`概念索引`, `模板`, `游戏数值策划`, `科研方法论`,
+or a matching standalone `note_type`) are excluded from course source-dir
+reconciliation and should not be added as fake source mappings.
 
 For this check, do not treat `course_note_issues 0` as enough. The strict source pass should also show:
 
 - `missing_source_mappings 0`
+- `four_way_source_issues 0`
+- `source_dir_reconciliation_issues 0`
+- `paper_source_ownership_issues 0`
 - `text_hygiene_issues 0`
 - `source_table_issues 0`
 - `note_source_ownership_issues 0`

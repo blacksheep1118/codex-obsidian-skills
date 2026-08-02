@@ -159,7 +159,18 @@ def build_vault_index(vault_root: Path) -> dict[str, list[Path]]:
     return index
 
 
+def is_within_vault(vault_root: Path, candidate: Path) -> bool:
+    """Keep local-link traversal inside the explicitly selected vault."""
+
+    try:
+        candidate.relative_to(vault_root)
+    except ValueError:
+        return False
+    return True
+
+
 def resolve_wiki_link(target: str, source: Path, vault_root: Path, index: dict[str, list[Path]]) -> Path | None:
+    vault_root = vault_root.expanduser().resolve()
     cleaned = split_wiki_target(target)
     if not cleaned:
         return None
@@ -169,12 +180,19 @@ def resolve_wiki_link(target: str, source: Path, vault_root: Path, index: dict[s
     for base in (source.parent, vault_root):
         for name in candidate_names:
             candidate = (base / name).resolve()
+            if not is_within_vault(vault_root, candidate):
+                continue
             if candidate.is_file() and candidate.suffix.lower() == ".md":
                 return candidate
-            if not str(candidate).endswith(".md") and candidate.with_suffix(".md").is_file():
-                return candidate.with_suffix(".md")
-    hits = index.get(cleaned) or index.get(cleaned.removesuffix(".md"))
-    return hits[0] if hits else None
+            with_suffix = candidate.with_suffix(".md")
+            if not str(candidate).endswith(".md") and is_within_vault(vault_root, with_suffix) and with_suffix.is_file():
+                return with_suffix
+    hits = index.get(cleaned) or index.get(cleaned.removesuffix(".md")) or ()
+    for hit in hits:
+        resolved = hit.resolve()
+        if is_within_vault(vault_root, resolved):
+            return resolved
+    return None
 
 
 def collect_linked_markdown_files(inputs: list[Path], vault_root: Path, max_depth: int) -> list[Path]:

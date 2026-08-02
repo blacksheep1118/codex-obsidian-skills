@@ -5,9 +5,11 @@ import subprocess
 import sys
 from zipfile import ZipFile
 
+import pytest
 from pptx import Presentation
 
-from scripts.build_scientific_deck import load_or_create_brief
+from scripts.build_scientific_deck import build_deck, load_or_create_brief
+from scripts.outline_note_deck import build_vault_index, collect_linked_markdown_files
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -151,6 +153,20 @@ def test_outline_note_deck_can_follow_local_wiki_links(tmp_path: Path):
     assert "result/comparison table" in result.stdout
 
 
+def test_outline_note_deck_does_not_follow_wiki_links_outside_vault(tmp_path: Path):
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    main = vault / "main.md"
+    outside = tmp_path / "outside.md"
+    main.write_text("# Main\n\nSee [[../outside]].\n", encoding="utf-8")
+    outside.write_text("# Outside\n", encoding="utf-8")
+
+    linked = collect_linked_markdown_files([main], vault, max_depth=1)
+
+    assert linked == [main]
+    assert build_vault_index(vault)
+
+
 def test_outline_note_deck_supports_explicit_proposal_mode(tmp_path: Path):
     note = tmp_path / "proposal.md"
     note.write_text(
@@ -226,6 +242,15 @@ def test_build_scientific_deck_generates_nonempty_pptx(tmp_path: Path):
     assert "[Content_Types].xml" in names
     assert "ppt/presentation.xml" in names
     assert any(name.startswith("ppt/slides/slide") for name in names)
+
+
+def test_build_scientific_deck_rejects_title_that_cannot_fit_fixed_box(tmp_path: Path):
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "note.md").write_text("# Note\n\nClaim.\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="maximum is 180"):
+        build_deck(notes, tmp_path / "too-long.pptx", title="x" * 181)
 
 
 def test_build_scientific_deck_respects_max_slides_from_notes_folder(tmp_path: Path):

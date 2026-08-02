@@ -60,7 +60,7 @@ py scripts\install_skill.py --all --self-check
 
 On Windows, replace `py` with `python` if the Python launcher is not installed.
 
-Installing from a GitHub clone is the normal path. The install and update scripts copy only the skill contents and automatically ignore caches, macOS resource files, Python bytecode, build directories, distribution metadata, and generated `converted_pptx/` outputs. You do not need to compress the repository before installing.
+Installing from a GitHub clone is the normal path. The install and update scripts copy only the skill contents and automatically ignore caches, macOS resource files, Python bytecode, build directories, distribution metadata, and generated `converted_pptx/` outputs. `install_skill.py` never prunes an existing destination; `update_installed_skills.py --dry-run` compares managed files and reports added, changed, unchanged, and stale paths without writing. You do not need to compress the repository before installing.
 
 Install only one skill when needed:
 
@@ -114,15 +114,15 @@ Update installed skills from a fresh checkout:
 
 ```bash
 git pull
-python3 scripts/update_installed_skills.py --all --prune --self-check
+python3 scripts/update_installed_skills.py --all --self-check
 ```
 
 ```powershell
 git pull
-py scripts\update_installed_skills.py --all --prune --self-check
+py scripts\update_installed_skills.py --all --self-check
 ```
 
-`update_installed_skills.py` does not create backups. Use `--dry-run` first when you want an audit of the changes.
+`update_installed_skills.py` does not create backups and performs a non-pruning synchronization by default. Use its dry-run mode first when you want an audit of the per-file changes; that mode never writes.
 
 ## Quick Start
 
@@ -214,6 +214,7 @@ The PPT skill includes deterministic helpers for the fragile parts of courseware
 - `ppt_to_obsidian_pipeline.py`: run source extraction, cleanup, and manifest creation.
 - `check_obsidian_links.py`: validate Markdown and Obsidian wiki links.
 - `check_course_notes.py`: validate expected course overview, review pages, template residue, and formula fences.
+- `check_source_coverage.py`: enforce canonical source references and separate manifest, audit, frontmatter, and body page evidence in strict mode.
 
 The vault organizer skill includes:
 
@@ -224,12 +225,13 @@ The vault organizer skill includes:
 The notes-to-scientific-ppt skill includes:
 
 - `outline_note_deck.py`: scan Markdown or Obsidian notes and create a source inventory, evidence ledger, mode-specific scientific deck spine, draft slide backlog, and coverage checklist before PPT construction.
+- `verify_pptx.py`: reopen a generated PPTX, compare package and python-pptx slide counts, and optionally render PDF/PNG previews.
 - `validate_skill.py`: validate skill metadata and bundled-resource references.
 
 Root management tools include:
 
-- `install_skill.py`: copy one or all skills into a Codex skills directory and run a self-check.
-- `update_installed_skills.py`: refresh installed skill folders from this repository without backups.
+- `install_skill.py`: copy one or all skills into a Codex skills directory, report per-file dry-run differences, and run a self-check without pruning.
+- `update_installed_skills.py`: refresh installed skill folders from this repository without backups; stale files are retained by the default synchronization and dry-run never writes.
 - `validate_all.py`: run the full CI-style validation suite locally.
 - `check_repo_hygiene.py`: fail if Git tracks cache files, macOS resource files, logs, scratch files, or generated outputs; use `--scan-worktree` for local ignored/untracked cleanup audits.
 - `check_openai_yaml_sync.py`: check `SKILL.md` and `agents/openai.yaml` consistency.
@@ -244,6 +246,7 @@ Before committing, run:
 
 ```bash
 python3 scripts/check_repo_hygiene.py
+python3 -m ruff check . --no-cache
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 python3 scripts/validate_all.py --quick
 ```

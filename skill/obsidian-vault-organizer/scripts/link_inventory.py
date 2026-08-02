@@ -15,20 +15,87 @@ from urllib.parse import unquote
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
 WIKI_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
 EXTERNAL_URL_RE = re.compile(r"\b(?:https?://|mailto:)[^\s<>)\]]+")
-FENCED_CODE_RE = re.compile(
-    r"(?ms)^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*\n.*?^[ \t]{0,3}(?P=fence)[ \t]*$"
-)
-INLINE_CODE_RE = re.compile(r"`+[^`\n]*`+")
+FENCE_OPEN_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*$")
+FENCE_CLOSE_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[ \t]*$")
+INDENTED_CODE_RE = re.compile(r"^(?: {4}|\t)")
+DEFAULT_EXCLUDED_DIRS = frozenset({".git", ".obsidian", ".pytest_cache", ".ruff_cache", "__pycache__", "scripts", "skills", "build", "output"})
+DEFAULT_EXCLUDED_FILES = frozenset({"AGENT.md"})
 
 
 def text_without_code(text: str) -> str:
-    """Mask fenced and inline code while preserving line positions."""
+    """Mask fenced, indented, and inline code while preserving line positions."""
 
-    def mask(match: re.Match[str]) -> str:
-        return "".join("\n" if char == "\n" else " " for char in match.group(0))
+    def mask(value: str) -> str:
+        return "".join("\n" if char == "\n" else " " for char in value)
 
-    text = FENCED_CODE_RE.sub(mask, text)
-    return INLINE_CODE_RE.sub(mask, text)
+    masked_lines: list[str] = []
+    fence: tuple[str, int] | None = None
+    for line in text.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        if fence is not None:
+            masked_lines.append(mask(line))
+            closing = FENCE_CLOSE_RE.fullmatch(content)
+            if (
+                closing is not None
+                and closing.group("fence")[0] == fence[0]
+                and len(closing.group("fence")) >= fence[1]
+            ):
+                fence = None
+            continue
+
+        opening = FENCE_OPEN_RE.fullmatch(content)
+        if opening is not None:
+            token = opening.group("fence")
+            masked_lines.append(mask(line))
+            fence = (token[0], len(token))
+            continue
+
+        if INDENTED_CODE_RE.match(content):
+            masked_lines.append(mask(line))
+            continue
+
+        masked_lines.append(mask_inline_code(line))
+
+    return "".join(masked_lines)
+
+
+def mask_inline_code(line: str) -> str:
+    """Mask paired CommonMark backtick code spans on one line."""
+
+    runs: list[tuple[int, int, int]] = []
+    index = 0
+    while index < len(line):
+        if line[index] != "`":
+            index += 1
+            continue
+        end = index + 1
+        while end < len(line) and line[end] == "`":
+            end += 1
+        runs.append((index, end, end - index))
+        index = end
+
+    spans: list[tuple[int, int]] = []
+    run_index = 0
+    while run_index < len(runs) - 1:
+        start, _end, length = runs[run_index]
+        close_index = next(
+            (candidate for candidate in range(run_index + 1, len(runs)) if runs[candidate][2] == length),
+            None,
+        )
+        if close_index is None:
+            run_index += 1
+            continue
+        spans.append((start, runs[close_index][1]))
+        run_index = close_index + 1
+
+    if not spans:
+        return line
+    characters = list(line)
+    for start, end in spans:
+        for position in range(start, end):
+            if characters[position] != "\n":
+                characters[position] = " "
+    return "".join(characters)
 
 
 @dataclass(frozen=True)
@@ -49,7 +116,22 @@ def configure_output_encoding() -> None:
 
 
 def markdown_files(root: Path) -> list[Path]:
-    return sorted(path for path in root.rglob("*.md") if ".git" not in path.parts)
+    root = root.resolve()
+    return sorted(
+        path
+        for path in root.rglob("*.md")
+        if path.name not in DEFAULT_EXCLUDED_FILES
+        and not set(path.relative_to(root).parts) & DEFAULT_EXCLUDED_DIRS
+        and _is_within_root(root, path)
+    )
+
+
+def _is_within_root(root: Path, path: Path) -> bool:
+    try:
+        path.resolve().relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 def is_external(target: str) -> bool:

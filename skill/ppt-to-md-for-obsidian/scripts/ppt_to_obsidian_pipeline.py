@@ -203,7 +203,7 @@ def disambiguated_stem(path: Path, source_identity: Path, used: dict[str, str]) 
 def write_manifest(config: PipelineConfig, processed: list[ProcessedSource]) -> None:
     manifest = config.output_dir / "pipeline_manifest.md"
     lines = [
-        f"# PPT/PDF To Obsidian Pipeline Manifest",
+        "# PPT/PDF To Obsidian Pipeline Manifest",
         "",
         f"- Source: `{config.source}`",
         f"- Output directory: `{config.output_dir}`",

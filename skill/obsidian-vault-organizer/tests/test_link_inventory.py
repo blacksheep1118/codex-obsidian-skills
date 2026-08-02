@@ -53,3 +53,38 @@ def test_link_inventory_ignores_links_inside_fenced_and_inline_code(tmp_path: Pa
     inventory = build_inventory(tmp_path)
 
     assert inventory["totals"]["total_links"] == 0
+
+
+def test_link_inventory_ignores_longer_fence_and_indented_code(tmp_path: Path):
+    write(
+        tmp_path / "Code.md",
+        "```python\n[[missing]]\n````\n[[outside]]\n\n    [[indented]]\n",
+    )
+
+    inventory = build_inventory(tmp_path)
+
+    assert inventory["totals"]["total_links"] == 1
+    assert inventory["totals"]["wiki_links"] == 1
+
+
+def test_link_inventory_masks_inline_spans_with_different_backtick_lengths(tmp_path: Path):
+    write(tmp_path / "Code.md", "``code ` [[inside]] ``\n[[outside]]\n")
+
+    inventory = build_inventory(tmp_path)
+
+    assert inventory["totals"]["total_links"] == 1
+    assert inventory["files"][0]["wiki_links"] == ["outside"]
+
+
+def test_link_inventory_excludes_guidance_tooling_cache_and_external_symlink(tmp_path: Path):
+    write(tmp_path / "Actual.md", "# Actual\n")
+    write(tmp_path / "AGENT.md", "# Guidance\n")
+    write(tmp_path / "scripts" / "README.md", "# Tooling\n")
+    write(tmp_path / ".pytest_cache" / "README.md", "# Cache\n")
+    outside = tmp_path.parent / "luna-organizer-outside.md"
+    write(outside, "# Outside\n")
+    (tmp_path / "linked.md").symlink_to(outside)
+
+    inventory = build_inventory(tmp_path)
+
+    assert [item["file"] for item in inventory["files"]] == ["Actual.md"]

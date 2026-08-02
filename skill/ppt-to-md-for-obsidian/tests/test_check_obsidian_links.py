@@ -95,3 +95,49 @@ def test_check_links_ignores_links_inside_fenced_and_inline_code(tmp_path: Path)
     assert checked == 0
     assert broken == []
     assert self_links == []
+
+
+def test_check_links_ignores_fence_closed_by_a_longer_fence(tmp_path: Path):
+    page = tmp_path / "a.md"
+    page.write_text("```python\n[[missing]]\n````\n[[also-missing]]\n", encoding="utf-8")
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 1
+    assert [issue.target for issue in broken] == ["also-missing"]
+    assert self_links == []
+
+
+def test_check_links_ignores_four_space_indented_code(tmp_path: Path):
+    page = tmp_path / "a.md"
+    page.write_text("    [[missing]]\n\t[also-missing](no.md)\n", encoding="utf-8")
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 0
+    assert broken == []
+    assert self_links == []
+
+
+def test_check_links_masks_inline_spans_with_different_backtick_lengths(tmp_path: Path):
+    page = tmp_path / "a.md"
+    page.write_text("``code ` [[inside]] ``\n[[outside]]\n", encoding="utf-8")
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 1
+    assert [issue.target for issue in broken] == ["outside"]
+    assert self_links == []
+
+
+def test_check_links_rejects_targets_that_escape_vault_root(tmp_path: Path):
+    vault = tmp_path / "vault"
+    (vault / "course").mkdir(parents=True)
+    (tmp_path / "outside.md").write_text("# Outside\n", encoding="utf-8")
+    (vault / "course" / "lesson.md").write_text("[outside](../../outside.md)\n", encoding="utf-8")
+
+    broken, self_links, checked = check_links(vault)
+
+    assert checked == 1
+    assert [issue.target for issue in broken] == ["../../outside.md"]
+    assert self_links == []

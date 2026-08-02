@@ -8,9 +8,11 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 import re
+import socket
 import sys
 from typing import Iterable
 from urllib.parse import quote, unquote, urljoin, urlparse, urlsplit, urlunsplit
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, url2pathname, urlopen
 
 
@@ -23,6 +25,10 @@ TRANSCRIPT_EXTENSIONS = (".vtt", ".srt", ".ttml", ".txt")
 BOOK_PATH_RE = re.compile(r"(/book|/books|/chapter|/chapters|/readings?|/textbook)", re.I)
 COURSE_PATH_RE = re.compile(r"(/course|/courses|/class|/classes|/syllabus|/module|/modules)", re.I)
 DIRECT_RESOURCE_KINDS = {"book", "book_pdf", "pdf", "slides", "transcript"}
+LOGIN_PAGE_RE = re.compile(
+    r"(?:<input[^>]+type=[\"']password|\b(sign\s*in|log\s*in|login|required\s+login)\b|登录|登入)",
+    re.I,
+)
 
 
 @dataclass(frozen=True)
@@ -43,6 +49,9 @@ class PageRecord:
     description: str
     error: str
     links: tuple[LinkRecord, ...]
+    final_url: str = ""
+    http_status: int | None = None
+    access_class: str = "unknown"
 
     @property
     def source(self) -> str:
@@ -136,16 +145,21 @@ def normalize_url(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, path, query, fragment))
 
 
-def read_source(source_url: str, timeout: float = 15.0) -> str:
+def read_source_with_metadata(source_url: str, timeout: float = 15.0) -> tuple[str, str, int | None]:
     parsed = urlparse(source_url)
     if parsed.scheme == "file":
-        return Path(url2pathname(parsed.path)).read_text(encoding="utf-8", errors="replace")
+        return Path(url2pathname(parsed.path)).read_text(encoding="utf-8", errors="replace"), source_url, 200
     request = Request(source_url, headers={"User-Agent": "codex-obsidian-skills/1.0"})
     with urlopen(request, timeout=timeout) as response:
         content_type = response.headers.get("content-type", "")
         charset_match = re.search(r"charset=([^;\s]+)", content_type)
         encoding = charset_match.group(1) if charset_match else "utf-8"
-        return response.read().decode(encoding, errors="replace")
+        final_url = normalize_url(response.geturl() or source_url)
+        return response.read().decode(encoding, errors="replace"), final_url, response.getcode()
+
+
+def read_source(source_url: str, timeout: float = 15.0) -> str:
+    return read_source_with_metadata(source_url, timeout=timeout)[0]
 
 
 def error_summary(exc: BaseException) -> str:
@@ -192,15 +206,20 @@ def collect_page(source: str, timeout: float = 15.0) -> PageRecord:
             description=f"Direct {source_kind.replace('_', ' ')} resource collected from the input URL.",
             error="",
             links=(),
+            final_url=source_url,
+            access_class="recorded",
         )
 
-    text = read_source(source_url, timeout=timeout)
+    text, final_url, http_status = read_source_with_metadata(source_url, timeout=timeout)
     parser = LearningHTMLParser()
     parser.feed(text)
 
-    page_url = normalize_url(urljoin(source_url, parser.canonical)) if parser.canonical else source_url
+    page_url = normalize_url(urljoin(final_url, parser.canonical)) if parser.canonical else final_url
     title = parser.title or Path(urlparse(page_url).path).name or page_url
     page_kind = classify_url(page_url, title)
+    login_required = bool(LOGIN_PAGE_RE.search(text[:20000])) and (
+        "password" in text[:20000].lower() or any(marker in title.lower() for marker in ("login", "sign in", "log in"))
+    )
     links = []
     for href, label in parser.links:
         absolute = normalize_url(urljoin(page_url, href))
@@ -214,10 +233,13 @@ def collect_page(source: str, timeout: float = 15.0) -> PageRecord:
         canonical_url=page_url,
         title=title,
         kind=page_kind,
-        access_status="ok",
+        access_status="login_required" if login_required else "ok",
         description=parser.description,
         error="",
         links=tuple(dedupe_links(links)),
+        final_url=final_url,
+        http_status=http_status,
+        access_class="login_required" if login_required else "ok",
     )
 
 
@@ -230,15 +252,48 @@ def collect_source(source: str, timeout: float = 15.0) -> PageRecord:
         except Exception:
             source_url = source
         source_kind = classify_url(source_url)
+        if isinstance(exc, HTTPError):
+            http_status = exc.code
+            access_status = f"http_{http_status}"
+            access_class = "http_error"
+            description = f"HTTP request returned status {http_status}; kept for manifest coverage."
+            final_url = normalize_url(exc.geturl() or source_url)
+        elif isinstance(exc, (TimeoutError, socket.timeout)):
+            http_status = None
+            access_status = "timeout"
+            access_class = "timeout"
+            description = "Source request timed out; kept for manifest coverage."
+            final_url = source_url
+        elif isinstance(exc, URLError):
+            http_status = None
+            access_status = "network_error"
+            access_class = "network_error"
+            description = "Source could not be reached; kept for manifest coverage."
+            final_url = source_url
+        elif isinstance(exc, (FileNotFoundError, IsADirectoryError)):
+            http_status = None
+            access_status = "inaccessible"
+            access_class = "filesystem_error"
+            description = "Source could not be read; kept for manifest coverage."
+            final_url = source_url
+        else:
+            http_status = None
+            access_status = "parse_error"
+            access_class = "parse_error"
+            description = "Source could not be parsed; kept for manifest coverage."
+            final_url = source_url
         return PageRecord(
             original_source=source,
             canonical_url=source_url,
             title=title_from_url(source_url),
             kind=source_kind,
-            access_status="inaccessible",
-            description="Source could not be read; kept for manifest coverage.",
+            access_status=access_status,
+            description=description,
             error=error_summary(exc),
             links=(),
+            final_url=final_url,
+            http_status=http_status,
+            access_class=access_class,
         )
 
 
@@ -277,6 +332,21 @@ def build_manifest(pages: list[PageRecord]) -> str:
             f"| {page.kind} | {markdown_escape_cell(page.title)} | {markdown_escape_cell(page.original_source)} | "
             f"{markdown_escape_cell(page.canonical_url)} | {page.access_status} | {status} | "
             f"{markdown_escape_cell(page.error)} | {markdown_escape_cell(page.description)} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Access Evidence",
+            "",
+            "| Original Source | Final URL | HTTP Status | Access Class |",
+            "| --- | --- | ---: | --- |",
+        ]
+    )
+    for page in pages:
+        lines.append(
+            f"| {markdown_escape_cell(page.original_source)} | {markdown_escape_cell(page.final_url or page.canonical_url)} | "
+            f"{page.http_status if page.http_status is not None else ''} | {page.access_class} |"
         )
 
     lines.extend(
