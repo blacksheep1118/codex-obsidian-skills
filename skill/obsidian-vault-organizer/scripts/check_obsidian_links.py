@@ -15,47 +15,327 @@ MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
 WIKI_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
 FENCE_OPEN_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*$")
 FENCE_CLOSE_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[ \t]*$")
-INDENTED_CODE_RE = re.compile(r"^(?: {4}|\t)")
+LIST_ITEM_RE = re.compile(
+    r"^(?P<indent>[ \t]*)(?P<marker>[-+*]|\d{1,9}[.)])(?:(?P<spacing>[ \t]+)|$)"
+)
+
+
+@dataclass
+class ListContext:
+    content_indent: int
+    has_body: bool
+
+
+@dataclass(frozen=True)
+class ListItemLayout:
+    marker_indent: int
+    content_indent: int
+    body_index: int
+    has_body: bool
+
+
+@dataclass(frozen=True)
+class FenceContext:
+    marker: str
+    length: int
+    quote_depth: int
+    list_indents: tuple[int, ...]
+
+
+def indentation_columns(value: str, start: int = 0) -> int:
+    columns = start
+    for char in value:
+        if char == " ":
+            columns += 1
+        elif char == "\t":
+            columns += 4 - (columns % 4)
+        else:
+            break
+    return columns
+
+
+def leading_whitespace(line: str) -> tuple[int, int]:
+    index = 0
+    while index < len(line) and line[index] in " \t":
+        index += 1
+    return index, indentation_columns(line[:index])
+
+
+def blockquote_prefix(line: str, max_depth: int | None = None) -> tuple[int, int]:
+    """Return explicit CommonMark blockquote depth and consumed character count."""
+
+    depth = 0
+    cursor = 0
+    while max_depth is None or depth < max_depth:
+        marker = cursor
+        spaces = 0
+        while marker < len(line) and line[marker] == " " and spaces < 3:
+            marker += 1
+            spaces += 1
+        if marker >= len(line) or line[marker] != ">":
+            break
+        cursor = marker + 1
+        if cursor < len(line) and line[cursor] in " \t":
+            cursor += 1
+        depth += 1
+    return depth, cursor
+
+
+def is_thematic_break(line: str) -> bool:
+    whitespace_end, indent = leading_whitespace(line)
+    if indent > 3:
+        return False
+    compact = re.sub(r"[ \t]", "", line[whitespace_end:])
+    return len(compact) >= 3 and len(set(compact)) == 1 and compact[0] in "*-_"
+
+
+def list_item_layout(line: str) -> ListItemLayout | None:
+    """Return CommonMark list layout, including empty-marker items."""
+
+    if is_thematic_break(line):
+        return None
+
+    match = LIST_ITEM_RE.match(line)
+    if match is None:
+        return None
+    marker_indent = indentation_columns(match.group("indent"))
+    marker_end = marker_indent + len(match.group("marker"))
+    marker_end_index = len(match.group("indent")) + len(match.group("marker"))
+    spacing = match.group("spacing") or ""
+    unpadded_body_index = marker_end_index + len(spacing)
+    has_body = bool(line[unpadded_body_index:].strip())
+    if not has_body:
+        # CommonMark gives an empty list item W + 1 columns of padding,
+        # regardless of how much trailing whitespace follows its marker.
+        padding = 1
+        body_index = unpadded_body_index
+    elif not spacing:
+        padding = 1
+        body_index = marker_end_index
+    else:
+        spacing_end = indentation_columns(spacing, start=marker_end)
+        padding = spacing_end - marker_end
+        if 1 <= padding <= 4:
+            body_index = marker_end_index + len(spacing)
+        else:
+            padding = 1
+            body_index = marker_end_index + 1
+    return ListItemLayout(
+        marker_indent=marker_indent,
+        content_indent=marker_end + padding,
+        body_index=body_index,
+        has_body=has_body,
+    )
+
+
+def updated_list_stack(
+    stack: list[ListContext],
+    layout: ListItemLayout,
+) -> list[ListContext] | None:
+    """Return an updated list-container stack, or None when layout is code text."""
+
+    updated = list(stack)
+    while updated and layout.marker_indent < updated[-1].content_indent:
+        updated.pop()
+    container_indent = updated[-1].content_indent if updated else 0
+    if not 0 <= layout.marker_indent - container_indent <= 3:
+        return None
+    updated.append(
+        ListContext(
+            content_indent=layout.content_indent,
+            has_body=layout.has_body,
+        )
+    )
+    return updated
+
+
+def list_continuation_view(
+    line: str,
+    stack: list[ListContext],
+    previous_blank: bool,
+) -> tuple[str, int, list[ListContext]]:
+    """Strip an active list container and return logical content plus prefix width."""
+
+    if not line.strip():
+        return "", len(line), stack
+    whitespace_end, indent = leading_whitespace(line)
+    matching_context = next(
+        (index for index in range(len(stack) - 1, -1, -1) if indent >= stack[index].content_indent),
+        None,
+    )
+    if matching_context is not None:
+        updated = stack[: matching_context + 1]
+        relative_indent = indent - updated[-1].content_indent
+        logical = " " * relative_indent + line[whitespace_end:]
+        return logical, whitespace_end, updated
+    if previous_blank:
+        return line, 0, []
+    return line, 0, stack
+
+
+def mask_prefix(value: str, end: int) -> str:
+    characters = list(value)
+    for position in range(min(end, len(characters))):
+        if characters[position] not in "\r\n":
+            characters[position] = " "
+    return "".join(characters)
 
 
 def text_without_code(text: str) -> str:
-    """Mask fenced, indented, and inline code while preserving line positions.
+    """Mask CommonMark code and expose non-code container bodies in place.
 
     A closing fence may be longer than its opener (CommonMark), so a single
-    backreference-based regular expression is not sufficient here.  Scanning
-    line-by-line also lets us ignore four-space-indented code blocks.
+    backreference-based regular expression is not sufficient.  The scanner
+    removes blockquote and list container prefixes before classifying fenced
+    or indented code, while keeping output line and character positions stable.
     """
 
     def mask(value: str) -> str:
         return "".join("\n" if char == "\n" else " " for char in value)
 
     masked_lines: list[str] = []
-    fence: tuple[str, int] | None = None
+    fence: FenceContext | None = None
+    list_stack: list[ListContext] = []
+    active_quote_depth = 0
+    in_indented_code = False
+    previous_blank = True
     for line in text.splitlines(keepends=True):
-        content = line.rstrip("\r\n")
+        raw = line.rstrip("\r\n")
+
         if fence is not None:
-            masked_lines.append(mask(line))
-            closing = FENCE_CLOSE_RE.fullmatch(content)
-            if (
-                closing is not None
-                and closing.group("fence")[0] == fence[0]
-                and len(closing.group("fence")) >= fence[1]
-            ):
+            required_quote_depth = fence.quote_depth
+            quote_depth, quote_end = blockquote_prefix(raw, max_depth=required_quote_depth)
+            if quote_depth == required_quote_depth:
+                content = raw[quote_end:]
+                remains_in_list = True
+                if fence.list_indents and content.strip():
+                    _whitespace_end, indent = leading_whitespace(content)
+                    active_indents = tuple(
+                        context.content_indent
+                        for context in list_stack[: len(fence.list_indents)]
+                    )
+                    remains_in_list = (
+                        active_indents == fence.list_indents
+                        and indent >= fence.list_indents[-1]
+                    )
+                if remains_in_list:
+                    logical, _list_prefix, list_stack = list_continuation_view(
+                        content,
+                        list_stack,
+                        previous_blank=False,
+                    )
+                    masked_lines.append(mask(line))
+                    closing = FENCE_CLOSE_RE.fullmatch(logical)
+                    if (
+                        closing is not None
+                        and closing.group("fence")[0] == fence.marker
+                        and len(closing.group("fence")) >= fence.length
+                    ):
+                        fence = None
+                    previous_blank = not content.strip()
+                    continue
+
+                # A nonblank outdent closes a fence opened in a list. Keep
+                # only any outer list containers that the current line still
+                # belongs to, then process this same line as ordinary Markdown.
                 fence = None
+                in_indented_code = False
+                _whitespace_end, indent = leading_whitespace(content)
+                matching_context = next(
+                    (
+                        index
+                        for index in range(len(list_stack) - 1, -1, -1)
+                        if indent >= list_stack[index].content_indent
+                    ),
+                    None,
+                )
+                list_stack = (
+                    list_stack[: matching_context + 1]
+                    if matching_context is not None
+                    else []
+                )
+            else:
+                fence = None
+                list_stack = []
+                in_indented_code = False
+
+        quote_depth, quote_end = blockquote_prefix(raw)
+        if quote_depth != active_quote_depth:
+            list_stack = []
+            in_indented_code = False
+            active_quote_depth = quote_depth
+        content = raw[quote_end:]
+        prefix_end = quote_end
+        line_list_indents: tuple[int, ...] = ()
+
+        layout = list_item_layout(content)
+        if layout is not None:
+            next_stack = updated_list_stack(list_stack, layout)
+        else:
+            next_stack = None
+        if next_stack is not None:
+            list_stack = next_stack
+            logical = content[layout.body_index:]
+            prefix_end = quote_end + layout.body_index
+            line_list_indents = tuple(context.content_indent for context in list_stack)
+        else:
+            logical, list_prefix, list_stack = list_continuation_view(
+                content,
+                list_stack,
+                previous_blank=previous_blank,
+            )
+            prefix_end = quote_end + list_prefix
+            if list_prefix:
+                line_list_indents = tuple(context.content_indent for context in list_stack)
+
+        if not logical.strip():
+            if in_indented_code:
+                masked_lines.append(mask(line))
+            else:
+                masked_lines.append(mask_prefix(line, prefix_end))
+            previous_blank = True
             continue
 
-        opening = FENCE_OPEN_RE.fullmatch(content)
+        opening = FENCE_OPEN_RE.fullmatch(logical)
         if opening is not None:
             token = opening.group("fence")
             masked_lines.append(mask(line))
-            fence = (token[0], len(token))
+            if not line_list_indents:
+                list_stack = []
+            fence = FenceContext(
+                marker=token[0],
+                length=len(token),
+                quote_depth=quote_depth,
+                list_indents=line_list_indents,
+            )
+            in_indented_code = False
+            if list_stack:
+                list_stack[-1].has_body = True
+            previous_blank = False
             continue
 
-        if INDENTED_CODE_RE.match(content):
+        logical_indent = indentation_columns(logical)
+        if in_indented_code and logical_indent >= 4:
             masked_lines.append(mask(line))
+            previous_blank = False
+            continue
+        in_indented_code = False
+
+        can_start_indented_code = logical_indent >= 4 and (
+            not list_stack or previous_blank or not list_stack[-1].has_body
+        )
+        if can_start_indented_code:
+            masked_lines.append(mask(line))
+            in_indented_code = True
+            if list_stack:
+                list_stack[-1].has_body = True
+            previous_blank = False
             continue
 
-        masked_lines.append(mask_inline_code(line))
+        if list_stack:
+            list_stack[-1].has_body = True
+        masked_lines.append(mask_prefix(mask_inline_code(line), prefix_end))
+        previous_blank = False
 
     return "".join(masked_lines)
 

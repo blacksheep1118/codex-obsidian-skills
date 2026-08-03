@@ -15,6 +15,7 @@ from collections.abc import Mapping
 
 
 ROOT = Path(__file__).resolve().parents[1]
+RUFF_CONFIG = ROOT / "pyproject.toml"
 PPT_SKILL = ROOT / "skill" / "ppt-to-md-for-obsidian"
 VAULT_SKILL = ROOT / "skill" / "obsidian-vault-organizer"
 WEB_SKILL = ROOT / "skill" / "web-course-notes-for-obsidian"
@@ -139,7 +140,11 @@ def build_steps(py: str) -> list[Step]:
         Step("root.compile", (compile_command(py),)),
         Step(
             "root.ruff",
-            (CommandSpec([py, "-m", "ruff", "check", ".", "--no-cache"]),),
+            (
+                CommandSpec(
+                    [py, "-m", "ruff", "check", ".", "--no-cache", "--config", str(RUFF_CONFIG)]
+                ),
+            ),
         ),
         Step("root.repo_hygiene", (CommandSpec([py, "scripts/check_repo_hygiene.py"]),)),
         Step("root.tests", (pytest_command(py, "-q"),)),

@@ -10,11 +10,20 @@ Each collection folder should contain:
 - `00_学习地图.md` for Chinese or `00_Learning_Map.md` for English,
 - one or more numbered source or chapter notes.
 
-`scripts/create_web_notes.py` defaults to `--language auto`: Chinese inputs, titles, or descriptions produce Chinese scaffolds; English-only inputs produce English scaffolds. Use `--language zh` or `--language en` when the user explicitly wants one language. Use `--root-folder-name` and `--map-note-name` when the vault requires custom fallback folders or entry note filenames.
+`scripts/create_web_notes.py` defaults to `--language auto`. Chinese inputs, titles, or descriptions produce Chinese scaffolds under `网络资源/` with `00_学习地图.md`; English-only inputs produce English scaffolds under `Web Resources/` with `00_Learning_Map.md`. Use `--language zh|en`, `--root-folder-name`, or `--map-note-name` when the user or vault requires explicit language, placement, or entry-note naming.
+
+## Scaffold Lifecycle
+
+Treat script-created notes as work in progress until all four steps are complete:
+
+1. Read or extract the accessible source content.
+2. Replace placeholders with source-linked explanations that match nearby notes.
+3. Run `scripts/check_web_notes.py` with every required `--source` and, when applicable, `--per-link-notes` argument.
+4. Resolve scaffold residue and validation errors before reporting the collection as complete.
 
 ## Detailed Note Standard
 
-Script-created notes are scaffolds, not final deliverables. They become final only after the accessible source content has been read or extracted and the placeholders have been rewritten. A final note should be comparable to nearby notes in the destination vault folder and should not contain `status: scaffold`, `待补充`, `To complete`, or TODO placeholders.
+A final note should be comparable to nearby notes in the destination vault folder and should not contain `status: scaffold`, `待补充`, `To complete`, or TODO placeholders.
 
 Before final delivery, run:
 

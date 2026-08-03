@@ -66,25 +66,26 @@ def render_pptx(path: Path, output_dir: Path, expected_slides: int | None, requi
         return
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    profile_dir = Path(tempfile.mkdtemp(prefix="scientific-deck-lo-"))
-    subprocess.run(
-        [
-            converter,
-            "--headless",
-            f"-env:UserInstallation={profile_dir.as_uri()}",
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            str(output_dir),
-            str(path),
-        ],
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    with tempfile.TemporaryDirectory(prefix="scientific-deck-lo-") as profile_name:
+        profile_dir = Path(profile_name)
+        subprocess.run(
+            [
+                converter,
+                "--headless",
+                f"-env:UserInstallation={profile_dir.as_uri()}",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                str(output_dir),
+                str(path),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
     pdf = output_dir / f"{path.stem}.pdf"
     if not pdf.exists():
         raise RuntimeError(f"LibreOffice did not create {pdf}")

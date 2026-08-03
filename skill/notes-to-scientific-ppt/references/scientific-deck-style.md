@@ -2,11 +2,11 @@
 
 ## Core Standard
 
-A good research deck is detailed, vivid, and rigorous at the same time:
+A good research deck makes its claims easy to inspect:
 
-- detailed: it preserves the mechanism, assumptions, formulas, and evidence chain;
-- vivid: it uses diagrams, examples, annotated results, and failure cases to make ideas inspectable;
-- rigorous: every technical claim is traceable to notes, source URLs, experiments, or clearly marked inference.
+- Preserve the mechanism, assumptions, formulas, and evidence chain.
+- Use diagrams, examples, annotated results, and failure cases to expose how the claim works.
+- Trace every technical claim to notes, source URLs, experiments, or clearly marked inference.
 
 ## Slide-Level Rules
 

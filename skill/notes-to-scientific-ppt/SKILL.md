@@ -77,7 +77,7 @@ Treat note files, linked notes, source URLs, figures, tables, formulas, experime
    - Pass `--audience`, `--max-slides`, `--mode`, `--language`, `--follow-links`, `--vault-root`, and `--max-depth` when building directly from notes so the brief and skeleton reflect the requested audience, size, and linked-note scope.
    - The skeleton turns the Suggested Scientific Deck Spine and Draft Slide Backlog into editable title, claim, formula, evidence/table, limitations, and appendix index slides.
    - Use the bundled `Presentations` skill when available for editable PPTX creation, rendering, and export.
-   - Treat the script-generated PPTX as a starting skeleton, not a polished final academic report. Do not claim it is a fully automatic final presentation; replace placeholders with source-grounded proof objects and revise slide claims before delivery.
+   - Treat the script-generated PPTX as an editable skeleton. Apply the skeleton and visual gates in `references/deck-qa.md` before delivery.
    - Use visual proof objects: mechanism diagrams, equation-to-intuition bridges, result tables, ablation ladders, before/after examples, failure-case panels, or comparison matrices.
    - Prefer light, high-contrast, restrained research styling. Avoid decorative gradients, generic icon cards, marketing hero layouts, and unsupported visual drama.
    - Cite source note filenames or source URLs in quiet footers, speaker notes, or appendix where useful.
@@ -107,6 +107,6 @@ If only a deck brief or plan was requested, do not claim a PPTX was produced.
 - `scripts/outline_note_deck.py`: scan Markdown/Obsidian notes and create a source inventory, evidence ledger, mode-specific scientific deck spine, draft slide backlog, and coverage checklist.
 - `scripts/build_scientific_deck.py`: turn a deck brief or notes folder into an editable PPTX skeleton with claim, formula, evidence/table, limitation, and appendix slides.
 - `scripts/validate_skill.py`: validate this skill's structure and referenced bundled resources.
-- `references/scientific-deck-style.md`: style and content rules for detailed, vivid, research-rigorous decks.
+- `references/scientific-deck-style.md`: style and visual patterns for evidence-traceable research decks.
 - `references/deck-modes.md`: mode-specific slide spine and proof-object guidance.
 - `references/deck-qa.md`: QA gates for scientific accuracy, slide density, evidence, formulas, and visual polish.

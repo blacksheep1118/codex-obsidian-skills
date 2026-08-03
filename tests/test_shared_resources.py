@@ -57,3 +57,26 @@ def test_shared_link_checker_rejects_markdown_symlink_outside_root(tmp_path: Pat
 
     assert result.returncode == 1
     assert "OUTSIDE_ROOT" in result.stdout
+
+
+def test_shared_link_checker_keeps_list_continuations_but_masks_top_level_code(tmp_path: Path):
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "note.md").write_text(
+        "    [hidden](hidden.md)\n\n- Body item\n    [visible](visible.md)\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, "scripts/check_obsidian_links.py", str(vault)],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+    )
+
+    assert result.returncode == 1
+    assert "checked_links 1" in result.stdout
+    assert "visible.md" in result.stdout
+    assert "hidden.md" not in result.stdout

@@ -137,6 +137,10 @@ python3 scripts/check_vault_quality.py --profile solvenotes path/to/notes
 
 Add custom residue patterns with `--pattern-file`. Plain lines are treated as literal text; lines starting with `regex:` or `re:` are compiled as regular expressions.
 
+Under the solvenotes profile, `--allow-formal-coverage-audits` accepts a typed `99_内容覆盖审查.md` only when the same directory also contains a typed `source_manifest.md`. See `references/solvenotes-profile.md` for the exact contract.
+
+Use repeatable `--skip-dir RELATIVE_DIR` only for independently validated nested topics, and validate each excluded topic separately. Paths use exact, canonical root-relative spelling; invalid or alias-like paths fail closed. See `references/solvenotes-profile.md` for the full rules.
+
 See [references/validation.md](references/validation.md) for the bundled validation checks and dry-run review guidance.
 
 ## Validation

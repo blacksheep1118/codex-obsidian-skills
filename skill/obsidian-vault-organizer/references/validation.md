@@ -44,6 +44,16 @@ The checker covers:
 
 Report broken links and self-links before making content claims.
 
+## Strict Solvenotes Report Gate
+
+Run the formal coverage exception only for a solvenotes course directory:
+
+```bash
+python3 scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes --allow-formal-coverage-audits /path/to/course
+```
+
+The exception accepts only `99_内容覆盖审查.md` with frontmatter `note_type: coverage_audit` and a sibling `source_manifest.md` with frontmatter `note_type: source_manifest`. A missing or wrongly typed manifest fails as `REPORT_NOTE`. See `solvenotes-profile.md` for nested-topic skip rules.
+
 ## Manual Review
 
 Before finishing substantial edits, confirm:

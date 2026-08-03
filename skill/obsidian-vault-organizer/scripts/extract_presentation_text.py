@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
+import hashlib
 from pathlib import Path
 import re
 import struct
@@ -255,6 +257,42 @@ def output_path_for(source: Path, output_dir: Path) -> Path:
     return output_dir / f"{stem}.txt"
 
 
+def allocate_output_paths(sources: list[Path], output_dir: Path) -> list[Path]:
+    """Allocate stable output names without overwriting same-basename sources.
+
+    Preserve the familiar <stem>.txt name when it is unique.  When basenames
+    collide case-insensitively, append a short hash of the resolved source path
+    to every colliding name.  A deterministic numeric suffix handles duplicate
+    arguments or the extremely unlikely case of a hash collision.
+    """
+
+    default_paths = [output_path_for(source, output_dir) for source in sources]
+    basename_counts = Counter(path.name.casefold() for path in default_paths)
+    allocated: list[Path] = []
+    used_names: set[str] = set()
+
+    for source, default_path in zip(sources, default_paths):
+        candidate = default_path
+        if basename_counts[default_path.name.casefold()] > 1:
+            identity = source.expanduser().resolve().as_posix()
+            digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:10]
+            candidate = output_dir / f"{default_path.stem}--{digest}{default_path.suffix}"
+
+        if candidate.name.casefold() in used_names:
+            index = 2
+            while True:
+                numbered = candidate.with_name(f"{candidate.stem}--{index}{candidate.suffix}")
+                if numbered.name.casefold() not in used_names:
+                    candidate = numbered
+                    break
+                index += 1
+
+        used_names.add(candidate.name.casefold())
+        allocated.append(candidate)
+
+    return allocated
+
+
 def main() -> int:
     configure_output_encoding()
     parser = argparse.ArgumentParser(description="Extract text from PPTX and legacy PPT files.")
@@ -264,9 +302,12 @@ def main() -> int:
 
     if args.output_dir:
         args.output_dir.mkdir(parents=True, exist_ok=True)
+        output_paths = allocate_output_paths(args.sources, args.output_dir)
+    else:
+        output_paths = [None] * len(args.sources)
 
     exit_code = 0
-    for source in args.sources:
+    for source, target in zip(args.sources, output_paths):
         try:
             text = extract(source)
         except Exception as exc:
@@ -274,10 +315,9 @@ def main() -> int:
             exit_code = 1
             continue
 
-        if args.output_dir:
-            target = output_path_for(source, args.output_dir)
+        if target is not None:
             target.write_text(text, encoding="utf-8")
-            print(f"wrote {target}")
+            print(f"wrote {target} source={source}")
         else:
             print(f"===== {source} =====")
             print(text, end="")

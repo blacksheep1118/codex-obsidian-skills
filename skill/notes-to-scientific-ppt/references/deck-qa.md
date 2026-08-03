@@ -4,7 +4,7 @@
 
 - Source gate: every non-obvious claim is backed by a note file, source URL, figure, table, experiment, or explicitly marked inference.
 - Brief gate: the deck brief includes source inventory, evidence ledger, mode-specific spine, draft slide backlog, and missing-input questions before PPT construction.
-- Skeleton gate: when `scripts/build_scientific_deck.py` is used, treat the PPTX as an editable skeleton generated from the brief, not a finished deck. Replace every placeholder proof-object block before final delivery.
+- Skeleton gate: when `scripts/build_scientific_deck.py` is used, apply the finalization requirements under Brief To PPTX Skeleton before delivery.
 - Coverage gate: the deck brief maps important note sections to slides or appendix; important material is not silently dropped.
 - Formula gate: key equations include variable definitions, intuition, assumptions, and at least one sentence on why the formula matters.
 - Evidence gate: results slides include task, dataset or source context, metric names, units, and interpretation.

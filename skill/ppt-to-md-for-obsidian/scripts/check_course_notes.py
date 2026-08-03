@@ -9,6 +9,11 @@ from pathlib import Path
 import re
 import sys
 
+try:
+    from .check_obsidian_links import text_without_code
+except ImportError:
+    from check_obsidian_links import text_without_code
+
 
 OVERVIEW_NAMES = ("00_课程总览.md", "00_学习地图.md")
 DETAIL_REVIEW = "知识点详细版_含公式.md"
@@ -195,24 +200,28 @@ def find_course_note_issues(
 
     for path in files:
         text = path.read_text(encoding="utf-8", errors="replace")
+        masked_text = text_without_code(text)
         has_conflict_edges = "<<<<<<<" in text and ">>>>>>>" in text
         if not text.strip():
             issues.append(relative_issue(root, path, "empty_file", "Markdown file has no content"))
             continue
 
-        for line_number, line in enumerate(text.splitlines(), start=1):
+        for line_number, (line, masked_line) in enumerate(
+            zip(text.splitlines(), masked_text.splitlines()),
+            start=1,
+        ):
             if is_conflict_marker(line, has_conflict_edges):
                 issues.append(relative_issue(root, path, "conflict_marker", f"line {line_number} contains merge conflict marker"))
-            if TEMPLATE_RE.search(line):
+            if TEMPLATE_RE.search(masked_line):
                 issues.append(relative_issue(root, path, "template_residue", f"line {line_number} contains leftover template text"))
-            if strict_depth and STRICT_TEMPLATE_RE.search(line):
+            if strict_depth and STRICT_TEMPLATE_RE.search(masked_line):
                 issues.append(relative_issue(root, path, "generic_template_residue", f"line {line_number} contains generic/template wording"))
 
         if sum(1 for line in text.splitlines() if line.strip().startswith("```")) % 2:
             issues.append(relative_issue(root, path, "unbalanced_fence", "odd number of fenced code block delimiters"))
         if text.count("$$") % 2:
             issues.append(relative_issue(root, path, "unbalanced_math", "odd number of block math delimiters"))
-        issues.extend(find_table_issues(root, path, text))
+        issues.extend(find_table_issues(root, path, masked_text))
 
         if strict_depth:
             nonblank_lines = count_nonblank_lines(text)

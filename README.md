@@ -219,7 +219,7 @@ The PPT skill includes deterministic helpers for the fragile parts of courseware
 The vault organizer skill includes:
 
 - `check_obsidian_links.py`: validate existing notes or vault directories.
-- `check_vault_quality.py`: report empty files, conflict markers, unbalanced fences/math, duplicate note stems, and leftover template text.
+- `check_vault_quality.py`: report empty files, conflict markers, unbalanced fences/math, duplicate note stems, and leftover template text; repeatable `--skip-dir` excludes only an exact canonical root-relative nested directory subtree that is validated separately, rejecting symlink components and non-canonical spelling.
 - `validate_skill.py`: validate skill metadata and bundled-resource references.
 
 The notes-to-scientific-ppt skill includes:

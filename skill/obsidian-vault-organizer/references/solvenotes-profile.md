@@ -4,8 +4,8 @@ Use this reference only when the target vault or repository clearly follows solv
 
 ## Quality Checks
 
-- Do not recreate a removed quality-review directory or add an issue ledger to ordinary study notes. Keep unresolved findings in the final response or an explicitly requested external review.
-- When the project requires source coverage, use `source_manifest.md` and the existing `99_内容覆盖审查.md` contract; do not create a separate quality-review page.
+- Keep backups and audit artifacts outside the vault by default. Create an in-vault artifact only when explicitly requested or required by local guidance.
+- When source coverage is required, use the existing `source_manifest.md` and `99_内容覆盖审查.md` contracts instead of creating a separate quality-review page.
 - Keep any explicitly requested central pages short and use course/source shards for long tables so Obsidian does not need to open one huge page.
 - Generated review queues, example indexes, concept indexes, and source-coverage reports should follow the project’s existing filenames and validators.
 - Do not place page-level coverage dump sections into ordinary study notes.
@@ -37,6 +37,19 @@ Use this reference only when the target vault or repository clearly follows solv
 
 ## Solvenotes Validation
 
-- For strict cleanup, run `scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes` on affected note directories.
+- For strict cleanup, run `scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes --allow-formal-coverage-audits` separately on each affected course directory, not on the vault root where legitimate course pages reuse filenames.
+  - Apply the formal-coverage exception only under the solvenotes profile. Accept only `99_内容覆盖审查.md` with frontmatter `note_type: coverage_audit` when the same directory contains `source_manifest.md` with frontmatter `note_type: source_manifest`. Treat a missing or wrongly typed manifest as a report-note failure, and keep ordinary audit and report notes forbidden.
+- A course may contain a nested topic that local guidance treats as an independent validation root. Pass repeatable `--skip-dir` values for those exact root-relative directories, then validate each nested directory separately.
+  - Use the canonical directory-entry spelling for every path component.
+  - Reject absolute paths, parent traversal, missing paths, non-directories, internal or external symlink components, and non-canonical letter case or spelling.
+  - Never canonicalize an alias or use substring or basename matching.
+
+  For the independently validated `计算机视觉/图像Raw域去噪` topic, run both commands:
+
+  ```bash
+  python3 scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes --allow-formal-coverage-audits --skip-dir 图像Raw域去噪 /path/to/notes/计算机视觉
+  python3 scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes --allow-formal-coverage-audits /path/to/notes/计算机视觉/图像Raw域去噪
+  ```
+
 - Prefer local project validators over bundled generic scripts. A typical solvenotes-style subset may include `check_links.py`, `check_frontmatter.py`, `check_headings.py`, `check_markdown_tables.py`, `check_all_notes.py`, generated-artifact `--check` commands, and repository hygiene/package checks.
 - Before upload, run `git status`, stage only intended files, and leave unrelated dirty files untouched.

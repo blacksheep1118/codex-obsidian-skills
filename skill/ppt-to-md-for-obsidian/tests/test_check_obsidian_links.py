@@ -119,6 +119,17 @@ def test_check_links_ignores_four_space_indented_code(tmp_path: Path):
     assert self_links == []
 
 
+def test_check_links_checks_four_space_list_continuation_as_body_text(tmp_path: Path):
+    page = tmp_path / "a.md"
+    page.write_text("- Body item\n    [missing](missing.md)\n", encoding="utf-8")
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 1
+    assert [issue.target for issue in broken] == ["missing.md"]
+    assert self_links == []
+
+
 def test_check_links_masks_inline_spans_with_different_backtick_lengths(tmp_path: Path):
     page = tmp_path / "a.md"
     page.write_text("``code ` [[inside]] ``\n[[outside]]\n", encoding="utf-8")

@@ -141,6 +141,24 @@ def test_validate_all_quick_runs_root_tests_before_metadata_sync():
     assert step_ids[:5] == ["root.compile", "root.ruff", "root.repo_hygiene", "root.tests", "metadata.sync"]
 
 
+def test_validate_all_ruff_step_uses_root_config():
+    steps = validate_all.build_steps(sys.executable)
+    ruff_step = next(step for step in steps if step.step_id == "root.ruff")
+
+    assert len(ruff_step.commands) == 1
+    assert ruff_step.commands[0].cwd == ROOT
+    assert ruff_step.commands[0].command == [
+        sys.executable,
+        "-m",
+        "ruff",
+        "check",
+        ".",
+        "--no-cache",
+        "--config",
+        str(ROOT / "pyproject.toml"),
+    ]
+
+
 def test_validate_all_timeout_reports_context(monkeypatch, capsys):
     def raise_timeout(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd=kwargs.get("args", args[0]), timeout=7)

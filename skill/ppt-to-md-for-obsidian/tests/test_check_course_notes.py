@@ -42,7 +42,7 @@ def test_check_course_notes_reports_broken_markdown_table(tmp_path: Path) -> Non
             [
                 "| 正则式 | 语言 |",
                 "|---|---|",
-                "| `a|b` | `{a,b}` |",
+                "| a|b | {a,b} |",
             ]
         ),
     )
@@ -70,6 +70,94 @@ def test_check_course_notes_accepts_escaped_pipes_and_plain_wiki_links(tmp_path:
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "course_note_issues 0" in result.stdout
+
+
+def test_check_course_notes_masks_inline_fenced_and_indented_code(tmp_path: Path) -> None:
+    course = tmp_path / "课程"
+    write_minimal_course(
+        course,
+        "\n".join(
+            [
+                "| 公式 | 含义 |",
+                "|---|---|",
+                "| `P(s_{t+1}|s_t,a_t)` | 转移概率 |",
+                "",
+                "路径示意：`anaconda3/envs/<环境名>/.../site-packages`。",
+                "",
+                "```python",
+                "TODO = '... | ...'",
+                "```",
+                "",
+                "    indented = 'TODO ... | ...'",
+            ]
+        ),
+    )
+
+    result = run_checker(
+        course,
+        "--strict-depth",
+        "--min-chapter-lines",
+        "1",
+        "--min-detailed-lines",
+        "1",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "course_note_issues 0" in result.stdout
+
+
+def test_check_course_notes_reports_template_residue_in_list_continuation(tmp_path: Path) -> None:
+    course = tmp_path / "课程"
+    write_minimal_course(
+        course,
+        "- 尚未完成的正文条目：\n    TODO 后续补全机制解释。",
+    )
+
+    result = run_checker(
+        course,
+        "--strict-depth",
+        "--min-chapter-lines",
+        "1",
+        "--min-detailed-lines",
+        "1",
+    )
+
+    assert result.returncode == 1
+    assert "TEMPLATE_RESIDUE" in result.stdout
+
+
+def test_check_course_notes_still_masks_top_level_indented_code(tmp_path: Path) -> None:
+    course = tmp_path / "课程"
+    write_minimal_course(course, "    TODO = 'code placeholder'")
+
+    result = run_checker(
+        course,
+        "--strict-depth",
+        "--min-chapter-lines",
+        "1",
+        "--min-detailed-lines",
+        "1",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "course_note_issues 0" in result.stdout
+
+
+def test_check_course_notes_keeps_body_template_residue_visible(tmp_path: Path) -> None:
+    course = tmp_path / "课程"
+    write_minimal_course(course, "正文仍然包含 ... 占位内容。")
+
+    result = run_checker(
+        course,
+        "--strict-depth",
+        "--min-chapter-lines",
+        "1",
+        "--min-detailed-lines",
+        "1",
+    )
+
+    assert result.returncode == 1
+    assert "GENERIC_TEMPLATE_RESIDUE" in result.stdout
 
 
 def test_check_course_notes_skip_dir_ignores_non_course_index_dirs(tmp_path: Path) -> None:

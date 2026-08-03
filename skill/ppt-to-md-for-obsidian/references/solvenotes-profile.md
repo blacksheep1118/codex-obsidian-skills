@@ -4,8 +4,8 @@ Use this reference only when the target vault or repository clearly follows solv
 
 ## Quality Checks
 
-- Do not create an issue ledger or reviewer-facing audit page merely because a strict review was performed. Keep temporary reports outside the vault and write corrected explanations and source markers into notes.
-- When source coverage must be recorded, update `source_manifest.md` or an existing `99_内容覆盖审查.md` only when the local validator requires it; do not create a separate quality directory.
+- Follow the Audit Output Placement rule in `SKILL.md`: keep temporary reports outside the vault and write corrections and source markers into notes.
+- When source coverage must be recorded, update `source_manifest.md` or an existing `99_内容覆盖审查.md` only when local guidance or a validator requires it.
 - Prefer generated scripts over hand-edited coverage bodies when a generator owns the file.
 - Keep any explicitly required central coverage page short and split large tables by course or source group.
 

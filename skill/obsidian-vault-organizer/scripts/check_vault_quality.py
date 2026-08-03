@@ -7,6 +7,7 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import stat
 import sys
 
 
@@ -18,6 +19,14 @@ SOLVENOTES_STUDY_RE = re.compile(
     r"关键不是背结论|信息如何进入价格|收益、方差、估值或技术指标)"
 )
 REPORT_NOTE_NAME_RE = re.compile(r"(审查|复查|报告|覆盖审查|一致性严格审查)")
+FORMAL_COVERAGE_AUDIT_NAME = "99_内容覆盖审查.md"
+FORMAL_COVERAGE_NOTE_TYPE_RE = re.compile(
+    r'''note_type\s*:\s*(?:coverage_audit|"coverage_audit"|'coverage_audit')\s*'''
+)
+SOURCE_MANIFEST_NAME = "source_manifest.md"
+SOURCE_MANIFEST_NOTE_TYPE_RE = re.compile(
+    r'''note_type\s*:\s*(?:source_manifest|"source_manifest"|'source_manifest')\s*'''
+)
 BRIDGE_NOTE_RE = re.compile(r"本页保留旧路径，正文请读 \[\[[^\]]+\]\]。")
 WIKI_LINK_RE = re.compile(r"\[\[[^\]]+\]\]")
 DEFAULT_EXCLUDED_DIRS = frozenset({".git", ".obsidian", ".pytest_cache", ".ruff_cache", "__pycache__", "scripts", "skills", "build", "output"})
@@ -37,15 +46,106 @@ class VaultIssue:
     message: str
 
 
-def markdown_files(root: Path) -> list[Path]:
+def normalized_skip_dirs(
+    root: Path,
+    skip_dirs: list[Path] | None = None,
+) -> tuple[tuple[str, ...], ...]:
+    """Validate exact root-relative directory exclusions and return their parts."""
+
     root = root.resolve()
-    return sorted(
-        path
-        for path in root.rglob("*.md")
-        if path.name not in DEFAULT_EXCLUDED_FILES
-        and not set(path.relative_to(root).parts) & DEFAULT_EXCLUDED_DIRS
-        and _is_within_root(root, path)
-    )
+    normalized: set[tuple[str, ...]] = set()
+    for raw_skip_dir in skip_dirs or []:
+        relative = Path(raw_skip_dir)
+        if relative.is_absolute():
+            raise ValueError(f"--skip-dir must be root-relative: {raw_skip_dir}")
+        if not relative.parts or any(part in {"", ".", ".."} for part in relative.parts):
+            raise ValueError(f"--skip-dir must name a directory below root: {raw_skip_dir}")
+
+        parent = root
+        for component in relative.parts:
+            entries = {entry.name: entry for entry in parent.iterdir()}
+            candidate = entries.get(component)
+            if candidate is None:
+                case_aliases = sorted(
+                    name
+                    for name in entries
+                    if name.casefold() == component.casefold()
+                )
+                if case_aliases:
+                    exact_names = ", ".join(repr(name) for name in case_aliases)
+                    raise ValueError(
+                        f"--skip-dir uses non-canonical spelling {component!r}; "
+                        f"exact directory entry is {exact_names}: {raw_skip_dir}"
+                    )
+                raise ValueError(
+                    f"--skip-dir does not exist: {raw_skip_dir} "
+                    f"(missing component: {component})"
+                )
+
+            mode = candidate.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                raise ValueError(
+                    f"--skip-dir contains symlink component {component!r}: "
+                    f"{raw_skip_dir}"
+                )
+            if not stat.S_ISDIR(mode):
+                raise ValueError(
+                    f"--skip-dir is not a directory at component "
+                    f"{component!r}: {raw_skip_dir}"
+                )
+            parent = candidate
+        normalized.add(relative.parts)
+    return tuple(sorted(normalized))
+
+
+def markdown_files(
+    root: Path,
+    skip_dirs: list[Path] | None = None,
+) -> list[Path]:
+    root = root.resolve()
+    excluded_subtrees = normalized_skip_dirs(root, skip_dirs)
+    files: list[Path] = []
+    for path in root.rglob("*.md"):
+        relative = path.relative_to(root)
+        if not _is_regular_file_without_symlink_components(root, path):
+            continue
+        if path.name in DEFAULT_EXCLUDED_FILES:
+            continue
+        if set(relative.parts) & DEFAULT_EXCLUDED_DIRS:
+            continue
+        if any(
+            relative.parts[: len(excluded)] == excluded
+            for excluded in excluded_subtrees
+        ):
+            continue
+        if not _is_within_root(root, path):
+            continue
+        files.append(path)
+    return sorted(files)
+
+
+def _is_regular_file_without_symlink_components(root: Path, path: Path) -> bool:
+    """Accept only a regular file reached without traversing symlink components."""
+
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return False
+    if not relative.parts:
+        return False
+
+    current = root
+    try:
+        for index, component in enumerate(relative.parts):
+            current = current / component
+            mode = current.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                return False
+            if index < len(relative.parts) - 1 and not stat.S_ISDIR(mode):
+                return False
+        return stat.S_ISREG(mode)
+    except OSError:
+        return False
 
 
 def _is_within_root(root: Path, path: Path) -> bool:
@@ -71,6 +171,50 @@ def is_bridge_note(text: str) -> bool:
         return False
     lines = [line.strip() for line in stripped.splitlines() if line.strip()]
     return bool(lines and lines[0].startswith("# ") and "旧入口" in lines[0] and BRIDGE_NOTE_RE.search(stripped))
+
+
+def has_frontmatter_note_type(text: str, note_type_pattern: re.Pattern[str]) -> bool:
+    """Return whether frontmatter has exactly one matching note_type field."""
+
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return False
+    try:
+        closing_index = next(index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---")
+    except StopIteration:
+        return False
+    note_type_lines = [line.strip() for line in lines[1:closing_index] if re.match(r"^note_type\s*:", line)]
+    return len(note_type_lines) == 1 and note_type_pattern.fullmatch(note_type_lines[0]) is not None
+
+
+def is_formal_coverage_audit(path: Path, text: str) -> bool:
+    """Match a typed coverage audit backed by a typed sibling source manifest."""
+
+    if path.name != FORMAL_COVERAGE_AUDIT_NAME:
+        return False
+    if not has_frontmatter_note_type(text, FORMAL_COVERAGE_NOTE_TYPE_RE):
+        return False
+
+    try:
+        manifest_path = next(
+            (
+                sibling
+                for sibling in path.parent.iterdir()
+                if sibling.name == SOURCE_MANIFEST_NAME
+            ),
+            None,
+        )
+    except OSError:
+        return False
+    if manifest_path is None:
+        return False
+    try:
+        if not stat.S_ISREG(manifest_path.lstat().st_mode):
+            return False
+        manifest_text = manifest_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return has_frontmatter_note_type(manifest_text, SOURCE_MANIFEST_NOTE_TYPE_RE)
 
 
 def load_pattern_file(path: Path) -> list[re.Pattern[str]]:
@@ -111,10 +255,12 @@ def find_vault_issues(
     allow_duplicate_stems: bool = False,
     strict_study: bool = False,
     forbid_report_notes: bool = False,
+    allow_formal_coverage_audits: bool = False,
     profile: str = "generic",
     pattern_files: list[Path] | None = None,
+    skip_dirs: list[Path] | None = None,
 ) -> list[VaultIssue]:
-    files = markdown_files(root)
+    files = markdown_files(root, skip_dirs=skip_dirs)
     issues: list[VaultIssue] = []
     stems: dict[str, list[Path]] = {}
     residue_patterns = profile_patterns(profile, pattern_files)
@@ -127,7 +273,15 @@ def find_vault_issues(
         has_conflict_edges = "<<<<<<<" in text and ">>>>>>>" in text
         lines = text.splitlines()
 
-        if forbid_report_notes and REPORT_NOTE_NAME_RE.search(path.stem):
+        if (
+            forbid_report_notes
+            and REPORT_NOTE_NAME_RE.search(path.stem)
+            and not (
+                allow_formal_coverage_audits
+                and profile == "solvenotes"
+                and is_formal_coverage_audit(path, text)
+            )
+        ):
             issues.append(relative_issue(root, path, "report_note", "audit/report-style note is present in the vault"))
 
         if not stripped:
@@ -181,7 +335,24 @@ def main() -> int:
     parser.add_argument("--strict-study", action="store_true", help="flag generic strict study-note link-placement issues")
     parser.add_argument("--profile", choices=["generic", "solvenotes"], default="generic", help="quality profile for project-specific residue patterns")
     parser.add_argument("--pattern-file", action="append", default=[], type=Path, help="custom residue pattern file; plain lines are literal text, regex:/re: lines are regular expressions")
+    parser.add_argument(
+        "--skip-dir",
+        action="append",
+        default=[],
+        type=Path,
+        metavar="RELATIVE_DIR",
+        help="skip one existing directory subtree by exact canonical root-relative spelling; symlink components are rejected; may be repeated",
+    )
     parser.add_argument("--forbid-report-notes", action="store_true", help="flag audit/report-style Markdown notes in the checked tree")
+    parser.add_argument(
+        "--allow-formal-coverage-audits",
+        action="store_true",
+        help=(
+            "with --profile solvenotes and --forbid-report-notes, allow only "
+            "99_内容覆盖审查.md with note_type: coverage_audit backed by sibling "
+            "source_manifest.md with note_type: source_manifest"
+        ),
+    )
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -196,8 +367,10 @@ def main() -> int:
             allow_duplicate_stems=args.allow_duplicate_stems,
             strict_study=args.strict_study,
             forbid_report_notes=args.forbid_report_notes,
+            allow_formal_coverage_audits=args.allow_formal_coverage_audits,
             profile=args.profile,
             pattern_files=args.pattern_file,
+            skip_dirs=args.skip_dir,
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))

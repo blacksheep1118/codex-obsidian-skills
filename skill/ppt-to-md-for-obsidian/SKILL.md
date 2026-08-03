@@ -54,11 +54,11 @@ Treat formulas, definitions, algorithms, examples, and paper conclusions as clai
 - For condition-bearing theory such as A*, KKT, Slater, complexity bounds, or universal approximation, put the search mode, sign convention, constraint qualification, domain, activation, or asymptotic assumptions next to the conclusion. Separate necessity, sufficiency, strong duality, and empirical evidence.
 - For medicine, finance, and other high-stakes notes, state units, population/product/market, and applicable date. Verify diagnostic thresholds, medication examples, fees, taxes, settlement/trading rules, and board-specific rules against an authoritative source; if the source is course-era or incomplete, label it as historical/course scope instead of guessing a current rule.
 
-## Repair Output Boundary
+## Audit Output Placement
 
-Write corrected explanations and traceable source markers into the notes. Keep temporary issue ledgers, machine-readable audit data, and intermediate reports outside the vault unless the user explicitly requests them or local project guidance requires a named coverage page. Do not resurrect removed quality directories or generated pages merely to hold audit output. Never leave `TODO`, `待核实`, or unresolved placeholder text in a delivered note; if evidence is unavailable, state the bounded limitation and its source status directly.
+Write corrected explanations and traceable source markers into the notes. Keep temporary issue ledgers, machine-readable audit data, intermediate reports, and reviewer-facing prose outside the vault by default. Create or update an in-vault coverage page only when the user explicitly requests it or local guidance or a validator requires the named artifact. Do not recreate a removed quality directory merely to hold audit output.
 
-Do not write reviewer-facing prose into ordinary notes. Replace phrases such as “不能泛化”“这不是对所有任务的保证” or “证据边界” with a direct scope statement: name the dataset, metric, model configuration, market, date, or clinical setting that the evidence covers. Keep audit findings and patch ledgers in the final response or an explicitly requested review artifact, not in the knowledge pages.
+Resolve `TODO`, `待核实`, and other placeholders before delivery. If evidence remains unavailable, state its bounded source status directly in the note. Replace review labels such as `不能泛化`, `这不是对所有任务的保证`, and `证据边界` with the supported dataset, metric, model configuration, market, date, or clinical setting.
 
 ## Default Outputs
 
@@ -69,11 +69,9 @@ For each course or topic directory, prefer this structure:
 - `知识点详细版_含公式.md` as the full review page.
 - `知识点精简复习版_含公式.md` as the fast review page.
 - `source_manifest.md` when multiple source files are involved or extraction order could be disputed.
-- An existing `99_内容覆盖审查.md` only when the local validator already requires it; do not create a new issue ledger or reviewer-facing page for ordinary repairs.
-- Keep temporary review output outside the vault unless the user explicitly requests a named artifact or local project guidance requires one.
+- An existing `99_内容覆盖审查.md` only when local guidance or a validator requires it, following Audit Output Placement.
 
-Keep the detailed review and concise review as two separate files. Do not replace the detailed version with the concise version.
-When an existing vault uses course-prefixed review pages, preserve that convention, for example `游戏数值策划知识点详细版_含公式.md` and `游戏数值策划知识点精简复习版_含公式.md`.
+Keep the detailed review and concise review as two separate files. Do not replace the detailed version with the concise version. When an existing vault uses course-prefixed review pages, preserve that convention, for example `游戏数值策划知识点详细版_含公式.md` and `游戏数值策划知识点精简复习版_含公式.md`.
 If the user explicitly asks for one exam review file instead of two review pages, keep the single file but make the overview link it and validate with `--allow-exam-review`.
 
 ## Workflow
@@ -98,11 +96,11 @@ If the user explicitly asks for one exam review file instead of two review pages
    - Every example must include a detailed explanation, not just an answer. Include the tested concept, known conditions, formula or rule choice, substitution or reasoning steps, conclusion, and the common mistake or boundary condition to avoid.
    - Use a stable generated-question format when the source has no standalone example: `题目` states the concrete givens, `解法` shows the rule/formula and steps, `关键陷阱` states what can go wrong, and `来源说明` carries the generated marker.
    - Keep source-derived examples and generated auxiliary questions visibly distinct. Never relabel a generated question as a PPT/PDF example. If examples are graded or reviewed by project scripts, improve low-grade rows by adding analysis, steps, conclusion, and pitfalls while preserving the original source marker.
-   - Do not leave long-lived `需复核`, `人工确认`, or “open the slides manually” states. When a weak keyword hit has enough file/page/topic evidence, update an existing `99_内容覆盖审查.md` only if the local validator requires it; otherwise state the bounded limitation in the final response. Never create a new audit page or quality directory inside the vault merely to hold findings.
+   - Resolve `需复核`, `人工确认`, and `open the slides manually` states before delivery. If evidence remains unavailable, use the bounded source-status rule under Audit Output Placement; update `99_内容覆盖审查.md` only when local guidance or a validator requires it.
    - If extracted PDF/OCR cells are obvious noise, mark them as extraction noise while preserving file/page mapping. Do not turn garbled strings into invented topics, examples, or formulas.
    - For exam-review requests, treat the exam outline or teacher-provided scope as a first-class source alongside PPT/PDF files. Preserve exact outline terms and common compact/space variants in the coverage map, for example `CPU性能公式` and `CPU 性能公式`.
    - Compare the source map with the requested exam scope. Mark topics as `included`, `out of scope by user`, `source noisy`, or `missing`.
-   - If the material is long or the user asks for strict checking, write or update `source_manifest.md`; reuse an existing `99_内容覆盖审查.md` only when the project validator requires it. Keep issue findings and machine-readable audit output outside the vault unless explicitly requested.
+   - If the material is long or the user asks for strict checking, write or update `source_manifest.md`. Follow Audit Output Placement for coverage pages and temporary audit output.
    - Keep coverage statuses internally consistent. Distinguish image-only/unreadable visual pages from real content gaps, and do not describe a single unresolved example as the only uncertainty when separate visual pages still need confirmation.
    - Do not claim completion from a short outline. If the notes do not yet explain the mechanisms, formulas, and examples from the source, keep expanding them.
    - If a keyword sweep reports a missing topic, verify whether the miss is caused by wording variation before treating it as absent; then add the source wording near the relevant concept or document why it is out of scope.
@@ -146,9 +144,11 @@ If the user explicitly asks for one exam review file instead of two review pages
    - Prefer project-local validators from `AGENT.md` when present. If the project follows a known profile such as solvenotes, load its bundled reference before choosing checks.
    - If the project has no equivalent validators, check broken links and self-links with `scripts/check_obsidian_links.py`.
    - If the project has no equivalent validators, check course-note output structure with `scripts/check_course_notes.py`; it also catches unbalanced fences/math, stale residue, and malformed Markdown tables.
-   - For strict PPT/PDF coverage audits, run the project-local source coverage checker first. If only the bundled `scripts/check_source_coverage.py` is available, run it with explicit source-to-notes mappings. Treat the selected source and notes roots as trust boundaries: reject absolute paths, `../` escapes, or symlinks outside them in mappings and paper-note `source_files`. For renamed directories, provide the complete mapping explicitly; standalone systems such as `概念索引`, `模板`, `游戏数值策划`, and `科研方法论` remain outside course reconciliation.
+   - For strict PPT/PDF coverage audits, run the project-local source coverage checker first. If only the bundled `scripts/check_source_coverage.py` is available, run it with explicit source-to-notes mappings.
+   - Treat the selected source and notes roots as trust boundaries: reject absolute paths, `../` escapes, and symlinks outside those roots in mappings and paper-note `source_files`. Provide complete mappings for renamed directories, and keep standalone systems such as `概念索引`, `模板`, `游戏数值策划`, and `科研方法论` outside course reconciliation.
    - The course-note checker accepts either exact review filenames or local course-prefixed review filenames; do not rename working review pages only to satisfy a generic template.
-   - For long courseware or strict review requests, run `scripts/check_course_notes.py --strict-depth --require-coverage-audit`. Add `--allow-exam-review` when using one exam review file instead of the two default review pages. If a vault contains non-course generated index or audit folders, either run this checker per course directory or pass repeated `--skip-dir <name>` values for directories such as `概念索引`, and report the thresholds and skipped directory names used.
+   - For long courseware or strict review requests, run `scripts/check_course_notes.py --strict-depth --require-coverage-audit`; add `--allow-exam-review` when using one exam review file instead of the two default review pages.
+   - If a vault contains non-course generated index or audit folders, run this checker per course directory or pass repeated `--skip-dir <name>` values for directories such as `概念索引`. Report the thresholds and skipped directory names used.
    - Check empty files, conflict markers, leftover template phrases such as `相关知识链接`, and review-page coverage.
    - Run a direct keyword/formula sweep against source-derived terms before the final response. Missing hits should be explained as out of scope, noisy extraction, or corrected before delivery.
    - For paper-note work, also check that each actual paper note records title, year, venue/status, source evidence, contribution, and failure boundary. Read strong-claim keyword hits in context; negated boundary statements are not errors.

@@ -2,6 +2,14 @@
 
 Run checks after creating or updating Obsidian notes.
 
+## Contents
+
+- [Basic Shell Checks](#basic-shell-checks)
+- [Scripted Checks](#scripted-checks)
+- [Review Page Coverage](#review-page-coverage)
+- [Source Coverage Audit](#source-coverage-audit)
+- [Link Checks](#link-checks)
+
 ## Basic Shell Checks
 
 macOS/Linux:

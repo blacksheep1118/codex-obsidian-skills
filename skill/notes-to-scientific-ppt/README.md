@@ -1,6 +1,6 @@
 # notes-to-scientific-ppt
 
-Codex skill for turning Obsidian or Markdown notes into detailed, vivid, scientifically rigorous PowerPoint decks.
+Codex skill for turning Obsidian or Markdown notes into editable research decks with clear claims, traceable evidence, readable formulas, and purposeful visuals.
 
 Use this skill when the source starts from notes. For local PPT/PPTX/PDF courseware extraction, use the `ppt-to-md-for-obsidian` skill. For vault-only cleanup, use the `obsidian-vault-organizer` skill.
 
@@ -97,7 +97,7 @@ python3 scripts/build_scientific_deck.py examples/sample-notes --out "${TMPDIR:-
 
 `build_scientific_deck.py` accepts `--audience`, `--max-slides`, `--mode`, `--language`, `--follow-links`, `--vault-root`, and `--max-depth` when building from notes. Use `--follow-links --vault-root <vault> --max-depth <n>` to include linked Obsidian notes in the generated brief before the skeleton is built.
 
-The skeleton consumes the Suggested Scientific Deck Spine and Draft Slide Backlog. It creates editable placeholders for title, claim, formula, evidence/table, limitations, and appendix index slides. It does not paste note paragraphs into slides. Treat it as an editable first draft, not a fully automatic final academic presentation; replace placeholders with source-grounded proof objects before final delivery.
+The script creates an editable PPTX skeleton from the Suggested Scientific Deck Spine and Draft Slide Backlog. Before delivery, apply the skeleton and visual gates in `references/deck-qa.md`.
 
 After building, run `python3 scripts/verify_pptx.py <deck.pptx>` to reopen the package with `python-pptx` and verify the slide count. Add `--render --require-render` when LibreOffice and Poppler are available to create a PDF and PNG preview set; otherwise report the render gate as `MANUAL_REVIEW_REQUIRED`.
 

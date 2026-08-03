@@ -132,13 +132,39 @@ def is_hidden(path: Path) -> bool:
     return any(part.startswith(".") for part in path.parts)
 
 
-def markdown_files(inputs: list[Path]) -> list[Path]:
+def normalized_exclude_paths(exclude_paths: set[Path] | None) -> set[Path]:
+    return {path.expanduser().resolve() for path in (exclude_paths or set())}
+
+
+def is_excluded(path: Path, excluded: set[Path]) -> bool:
+    """Return whether path is an exact or existing-filesystem alias exclusion."""
+
+    resolved = path.expanduser().resolve()
+    if resolved in excluded:
+        return True
+    for excluded_path in excluded:
+        try:
+            if resolved.exists() and excluded_path.exists() and resolved.samefile(excluded_path):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def markdown_files(inputs: list[Path], exclude_paths: set[Path] | None = None) -> list[Path]:
+    excluded = normalized_exclude_paths(exclude_paths)
     files: list[Path] = []
     for input_path in inputs:
         path = input_path.expanduser()
         if path.is_dir():
-            files.extend(sorted(candidate for candidate in path.rglob("*.md") if not is_hidden(candidate.relative_to(path))))
-        elif path.is_file() and path.suffix.lower() == ".md":
+            files.extend(
+                sorted(
+                    candidate
+                    for candidate in path.rglob("*.md")
+                    if not is_hidden(candidate.relative_to(path)) and not is_excluded(candidate, excluded)
+                )
+            )
+        elif path.is_file() and path.suffix.lower() == ".md" and not is_excluded(path, excluded):
             files.append(path)
     return sorted(dict.fromkeys(files))
 
@@ -147,8 +173,8 @@ def split_wiki_target(value: str) -> str:
     return value.split("|", 1)[0].split("#", 1)[0].strip()
 
 
-def build_vault_index(vault_root: Path) -> dict[str, list[Path]]:
-    files = markdown_files([vault_root])
+def build_vault_index(vault_root: Path, exclude_paths: set[Path] | None = None) -> dict[str, list[Path]]:
+    files = markdown_files([vault_root], exclude_paths=exclude_paths)
     index: dict[str, list[Path]] = {}
     for path in files:
         index.setdefault(path.stem, []).append(path)
@@ -195,10 +221,16 @@ def resolve_wiki_link(target: str, source: Path, vault_root: Path, index: dict[s
     return None
 
 
-def collect_linked_markdown_files(inputs: list[Path], vault_root: Path, max_depth: int) -> list[Path]:
-    seed_files = markdown_files(inputs)
+def collect_linked_markdown_files(
+    inputs: list[Path],
+    vault_root: Path,
+    max_depth: int,
+    exclude_paths: set[Path] | None = None,
+) -> list[Path]:
+    excluded = normalized_exclude_paths(exclude_paths)
+    seed_files = markdown_files(inputs, exclude_paths=excluded)
     vault_root = vault_root.expanduser().resolve()
-    index = build_vault_index(vault_root)
+    index = build_vault_index(vault_root, exclude_paths=excluded)
     seen = {path.resolve() for path in seed_files}
     queue: list[tuple[Path, int]] = [(path.resolve(), 0) for path in seed_files]
     result = list(seed_files)
@@ -215,7 +247,7 @@ def collect_linked_markdown_files(inputs: list[Path], vault_root: Path, max_dept
             if target is None:
                 continue
             resolved = target.resolve()
-            if resolved in seen:
+            if is_excluded(resolved, excluded) or resolved in seen:
                 continue
             seen.add(resolved)
             result.append(target)
@@ -665,12 +697,23 @@ def localize_brief(text: str, language: str) -> str:
     return text
 
 
-def gather_files(inputs: list[Path], follow_links: bool = False, vault_root: Path | None = None, max_depth: int = 1) -> list[Path]:
+def gather_files(
+    inputs: list[Path],
+    follow_links: bool = False,
+    vault_root: Path | None = None,
+    max_depth: int = 1,
+    exclude_paths: set[Path] | None = None,
+) -> list[Path]:
     if not follow_links:
-        return markdown_files(inputs)
+        return markdown_files(inputs, exclude_paths=exclude_paths)
     if vault_root is None:
         raise ValueError("--vault-root is required when --follow-links is used")
-    return collect_linked_markdown_files(inputs, vault_root, max_depth=max_depth)
+    return collect_linked_markdown_files(
+        inputs,
+        vault_root,
+        max_depth=max_depth,
+        exclude_paths=exclude_paths,
+    )
 
 
 def build_brief(
@@ -683,8 +726,15 @@ def build_brief(
     follow_links: bool = False,
     vault_root: Path | None = None,
     max_depth: int = 1,
+    exclude_paths: set[Path] | None = None,
 ) -> str:
-    files = gather_files(inputs, follow_links=follow_links, vault_root=vault_root, max_depth=max_depth)
+    files = gather_files(
+        inputs,
+        follow_links=follow_links,
+        vault_root=vault_root,
+        max_depth=max_depth,
+        exclude_paths=exclude_paths,
+    )
     if not files:
         raise ValueError("no Markdown note files found")
     summaries = [summarize_note(path) for path in files]
@@ -735,6 +785,7 @@ def main() -> int:
             follow_links=args.follow_links,
             vault_root=args.vault_root,
             max_depth=args.max_depth,
+            exclude_paths={args.out} if args.out else None,
         )
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

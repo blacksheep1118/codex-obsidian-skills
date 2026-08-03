@@ -61,8 +61,8 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
    - If no existing folder fits, create a language-specific fallback folder under the notes directory: `网络资源/<collection-title>/` for Chinese scaffolds or `Web Resources/<collection-title>/` for English scaffolds.
    - Use `scripts/create_web_notes.py --notes-dir <notes-dir> <url...>` to create the collection folder, `source_manifest.md`, the language-specific entry map note, and detailed note scaffolds.
    - Use `--category <folder>` when the user or context clearly identifies the destination category.
-   - `--language auto` is the default. It writes Chinese scaffolds when user inputs, collected titles, or descriptions contain Chinese characters and English scaffolds otherwise. Chinese defaults to `网络资源/` and `00_学习地图.md`; English defaults to `Web Resources/` and `00_Learning_Map.md`. Use `--language zh|en`, `--root-folder-name`, or `--map-note-name` when the scaffold language or placement should be explicit.
-   - Treat script-created scaffolds as unfinished. Do not deliver them as final notes until the accessible source content has been read, extracted, and rewritten into the scaffold.
+   - Use `--language auto` by default. Read `references/note-output.md` for its detection, placement, and naming rules; use `--language zh|en`, `--root-folder-name`, or `--map-note-name` for explicit overrides.
+   - Follow the scaffold lifecycle in `references/note-output.md`; do not deliver unfinished scaffolds.
 
 4. Extract only appropriate content.
    - Prefer official transcripts/captions for videos when available.
@@ -79,7 +79,7 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
    - For paper-like resources, include problem background, method overview, mechanism details, formulas and variables, experiments or evidence, comparison with related methods, advantages, limits, open questions, reproduction/application notes, and a concise review section.
    - Link concepts where they first become relevant.
    - Cite source URLs near the sections they support.
-   - Remove scaffold residue before final delivery. A note that still contains `status: scaffold`, `待补充`, or TODO-style placeholders is incomplete and must be reported as unfinished, not presented as done.
+   - Apply the scaffold completion gate in `references/note-output.md`. Report any unresolved scaffold markers as unfinished.
    - Avoid templated per-link notes. Repeated headings are acceptable only if the body contains source-specific mechanisms, formulas, datasets, risks, or reading questions. Replace phrases like "important", "valuable", and "helpful" with concrete reasons and checks.
 
 6. Validate before finishing.
@@ -111,12 +111,12 @@ The final response should include:
 - validation performed, including source coverage, scaffold residue, link checks, and anti-template review when applicable,
 - remaining source gaps that would require full reading, login access, or user-provided material.
 
-If the run only produced scaffolds, say they are unfinished scaffolds and do not present them as final notes.
+If the run only produced scaffolds, report it as unfinished under the scaffold lifecycle in `references/note-output.md`.
 
 ## Bundled Resources
 
 - `scripts/collect_web_sources.py`: collect titles, descriptions, access status, errors, and learning-resource links from URL or local HTML inputs.
-- `scripts/create_web_notes.py`: classify sources into a notes directory, create a collection folder, and write `source_manifest.md`, a language-specific entry map note, and detailed note scaffolds that must be expanded before final delivery.
+- `scripts/create_web_notes.py`: classify sources into a notes directory and write `source_manifest.md`, a language-specific entry map note, and detailed note scaffolds for the lifecycle in `references/note-output.md`.
 - `scripts/check_web_notes.py`: validate finalized web-note collections for source coverage, scaffold residue, and per-link note coverage when required.
 - `references/source-policy.md`: source access, copyright, attribution, and safety rules.
 - `references/note-output.md`: note structures for video courses, PPT sites, book sites, and mixed web learning resources.

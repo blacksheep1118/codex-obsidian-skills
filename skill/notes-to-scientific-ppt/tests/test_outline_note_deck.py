@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -9,7 +10,7 @@ import pytest
 from pptx import Presentation
 
 from scripts.build_scientific_deck import build_deck, load_or_create_brief
-from scripts.outline_note_deck import build_vault_index, collect_linked_markdown_files
+from scripts.outline_note_deck import build_vault_index, collect_linked_markdown_files, is_excluded
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -151,6 +152,135 @@ def test_outline_note_deck_can_follow_local_wiki_links(tmp_path: Path):
     assert "`main.md`" in result.stdout
     assert "`Linked.md`" in result.stdout
     assert "result/comparison table" in result.stdout
+
+
+def test_outline_note_deck_excludes_output_inside_scanned_notes_and_is_byte_stable(tmp_path: Path):
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "method.md").write_text("# Method\n\n## Evidence\n\nSource-grounded result.\n", encoding="utf-8")
+    out = notes / "generated_deck_brief.md"
+
+    run_script(str(notes), "--out", str(out), "--title", "Stable Brief", "--language", "en")
+    first = out.read_bytes()
+    run_script(str(notes), "--out", str(out), "--title", "Stable Brief", "--language", "en")
+
+    assert out.read_bytes() == first
+    assert "generated_deck_brief.md" not in out.read_text(encoding="utf-8")
+
+
+def test_outline_note_deck_excludes_case_alias_for_existing_output_on_case_insensitive_fs(
+    tmp_path: Path,
+):
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "method.md").write_text("# Method\n\n## Evidence\n\nSource-grounded result.\n", encoding="utf-8")
+    lower_out = notes / "generated_deck_brief.md"
+    upper_out = notes / "GENERATED_DECK_BRIEF.md"
+
+    run_script(str(notes), "--out", str(lower_out), "--title", "Stable Brief", "--language", "en")
+    try:
+        aliases_same_file = upper_out.exists() and upper_out.samefile(lower_out)
+    except OSError:
+        aliases_same_file = False
+    if not aliases_same_file:
+        pytest.skip("filesystem is case-sensitive")
+
+    first = lower_out.read_bytes()
+    run_script(str(notes), "--out", str(upper_out), "--title", "Stable Brief", "--language", "en")
+    assert lower_out.read_bytes() == first
+    run_script(str(notes), "--out", str(upper_out), "--title", "Stable Brief", "--language", "en")
+
+    assert lower_out.read_bytes() == first
+
+
+def test_output_exclusion_does_not_fold_distinct_case_paths_on_case_sensitive_fs(tmp_path: Path):
+    lower = tmp_path / "generated_deck_brief.md"
+    upper = tmp_path / "GENERATED_DECK_BRIEF.md"
+    lower.write_text("lower\n", encoding="utf-8")
+    upper.write_text("upper\n", encoding="utf-8")
+    try:
+        paths_are_distinct = not lower.samefile(upper)
+    except OSError:
+        paths_are_distinct = False
+    if not paths_are_distinct:
+        pytest.skip("filesystem is case-insensitive")
+
+    assert not is_excluded(lower, {upper.resolve()})
+
+
+def test_outline_note_deck_excludes_existing_hardlink_output_alias(tmp_path: Path):
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "method.md").write_text("# Method\n\n## Evidence\n\nSource-grounded result.\n", encoding="utf-8")
+    original_out = notes / "generated_deck_brief.md"
+    alias_out = notes / "brief_alias.md"
+
+    run_script(str(notes), "--out", str(original_out), "--title", "Stable Brief", "--language", "en")
+    try:
+        os.link(original_out, alias_out)
+    except OSError as exc:
+        pytest.skip(f"hard links unavailable: {exc}")
+
+    first = original_out.read_bytes()
+    run_script(str(notes), "--out", str(alias_out), "--title", "Stable Brief", "--language", "en")
+    assert original_out.read_bytes() == first
+    run_script(str(notes), "--out", str(alias_out), "--title", "Stable Brief", "--language", "en")
+
+    assert original_out.read_bytes() == first
+
+
+def test_outline_note_deck_excludes_existing_symlink_output_alias(tmp_path: Path):
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "method.md").write_text("# Method\n\n## Evidence\n\nSource-grounded result.\n", encoding="utf-8")
+    original_out = notes / "generated_deck_brief.md"
+    alias_out = notes / "brief_alias.md"
+
+    run_script(str(notes), "--out", str(original_out), "--title", "Stable Brief", "--language", "en")
+    try:
+        alias_out.symlink_to(original_out.name)
+    except OSError as exc:
+        pytest.skip(f"symbolic links unavailable: {exc}")
+
+    first = original_out.read_bytes()
+    run_script(str(notes), "--out", str(alias_out), "--title", "Stable Brief", "--language", "en")
+    assert original_out.read_bytes() == first
+    run_script(str(notes), "--out", str(alias_out), "--title", "Stable Brief", "--language", "en")
+
+    assert original_out.read_bytes() == first
+
+
+def test_outline_note_deck_follow_links_excludes_linked_output_and_is_byte_stable(tmp_path: Path):
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    main = vault / "main.md"
+    out = vault / "generated_deck_brief.md"
+    main.write_text(
+        "# Main\n\nSee [[Evidence]] and [[generated_deck_brief]].\n",
+        encoding="utf-8",
+    )
+    (vault / "Evidence.md").write_text("# Evidence\n\n## Result\n\nMeasured evidence.\n", encoding="utf-8")
+    args = (
+        str(main),
+        "--out",
+        str(out),
+        "--title",
+        "Linked Stable Brief",
+        "--language",
+        "en",
+        "--follow-links",
+        "--vault-root",
+        str(vault),
+        "--max-depth",
+        "1",
+    )
+
+    run_script(*args)
+    first = out.read_bytes()
+    run_script(*args)
+
+    assert out.read_bytes() == first
+    assert "generated_deck_brief.md" not in out.read_text(encoding="utf-8")
 
 
 def test_outline_note_deck_does_not_follow_wiki_links_outside_vault(tmp_path: Path):

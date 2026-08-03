@@ -96,9 +96,9 @@ py scripts\create_web_notes.py https://openaccess.thecvf.com/content_cvpr_2016/p
 
 The script inspects existing top-level folders under `--notes-dir`. For CVPR/image resources it prefers an existing matching folder; otherwise it creates `网络资源/<collection-title>/` for Chinese scaffolds and `Web Resources/<collection-title>/` for English scaffolds. Use `--category <folder>` to force a destination category.
 
-`create_web_notes.py` is a deterministic placement and scaffolding helper. Its generated notes are marked `status: scaffold`; Codex should then read or extract the accessible source content, inspect nearby notes in the destination category, and replace the scaffold placeholders with a finished note before reporting the task as complete.
+`create_web_notes.py` handles deterministic placement and scaffolding. Complete the source-reading, rewriting, and validation lifecycle in `references/note-output.md` before delivery.
 
-By default, `--language auto` chooses Chinese when the user input, collected title, or description contains Chinese characters and chooses English otherwise. The resolved language also controls fallback placement and entry note names: Chinese uses `网络资源/` and `00_学习地图.md`; English uses `Web Resources/` and `00_Learning_Map.md`. Choose scaffold language explicitly when needed:
+By default, `--language auto` chooses Chinese when the input or collected metadata contains Chinese and English otherwise. Use `--language zh|en` to override it; see `references/note-output.md` for the full placement and naming rules.
 
 ```bash
 python3 scripts/create_web_notes.py https://example.com/course --notes-dir ~/notes --language en
@@ -107,7 +107,7 @@ python3 scripts/create_web_notes.py https://example.com/course --notes-dir ~/not
 
 Use `--root-folder-name <folder>` or `--map-note-name <name.md>` when a vault needs custom placement or entry note naming.
 
-Scaffolds are not final delivery. After Codex reads or extracts the accessible source content and rewrites the placeholders into finished notes, run `scripts/check_web_notes.py` before reporting the collection as complete.
+After completing the scaffold lifecycle in `references/note-output.md`, run `scripts/check_web_notes.py` before reporting the collection as complete.
 
 ## Validation
 
