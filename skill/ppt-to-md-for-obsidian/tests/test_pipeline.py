@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from scripts.check_obsidian_links import check_links
 from scripts.extract_pdf_text import LOW_COVERAGE_WARNING, PdfExtractionResult
 from scripts.extract_legacy_ppt_text import LegacyPptTextResult
@@ -135,3 +137,89 @@ def test_pipeline_disambiguates_same_named_sources(monkeypatch, tmp_path: Path):
     assert raw_stems == cleaned_stems
     assert "lecture" in raw_stems
     assert any(stem.startswith("lecture-") for stem in raw_stems)
+
+
+@pytest.mark.parametrize("directory_name", ["raw_extracted", "cleaned", "notes_skeleton", "converted_pptx"])
+def test_pipeline_rejects_symlinked_generated_directories(tmp_path: Path, directory_name: str) -> None:
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (output_dir / directory_name).symlink_to(outside, target_is_directory=True)
+    config = PipelineConfig(
+        source=Path("examples/sample-course/raw/sample_course.pptx"),
+        output_dir=output_dir,
+    )
+
+    with pytest.raises(ValueError, match="symlink"):
+        run(config)
+
+    assert list(outside.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "pipeline_manifest.md",
+        "notes_skeleton/00_课程总览.md",
+        "notes_skeleton/知识点详细版_含公式.md",
+        "raw_extracted/sample_course.md",
+        "cleaned/sample_course.md",
+    ],
+)
+@pytest.mark.parametrize("dangling", [False, True])
+def test_pipeline_rejects_existing_and_dangling_output_symlinks(
+    tmp_path: Path,
+    relative_path: str,
+    dangling: bool,
+) -> None:
+    output_dir = tmp_path / "out"
+    target = output_dir / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    outside = tmp_path / "outside.md"
+    if not dangling:
+        outside.write_text("external content", encoding="utf-8")
+    target.symlink_to(outside)
+    config = PipelineConfig(
+        source=Path("examples/sample-course/raw/sample_course.pptx"),
+        output_dir=output_dir,
+    )
+
+    with pytest.raises(ValueError, match="symlink"):
+        run(config)
+
+    if dangling:
+        assert not outside.exists()
+    else:
+        assert outside.read_text(encoding="utf-8") == "external content"
+
+
+@pytest.mark.parametrize("field", ["converted_dir", "overview_name"])
+@pytest.mark.parametrize("unsafe", ["../escape", "/absolute/escape"])
+def test_pipeline_rejects_unsafe_configured_child_paths(
+    tmp_path: Path,
+    field: str,
+    unsafe: str,
+) -> None:
+    config = PipelineConfig(
+        source=Path("examples/sample-course/raw/sample_course.pptx"),
+        output_dir=tmp_path / "out",
+    )
+    setattr(config, field, unsafe)
+
+    with pytest.raises(ValueError, match=field):
+        run(config)
+
+
+def test_pipeline_supports_safe_nested_configured_child_paths(tmp_path: Path) -> None:
+    config = PipelineConfig(
+        source=Path("examples/sample-course/raw/sample_course.pptx"),
+        output_dir=tmp_path / "out",
+        converted_dir="conversion/cache",
+        overview_name="navigation/00_课程总览.md",
+    )
+
+    processed = run(config)
+
+    assert len(processed) == 1
+    assert (config.output_dir / "notes_skeleton" / "navigation" / "00_课程总览.md").is_file()

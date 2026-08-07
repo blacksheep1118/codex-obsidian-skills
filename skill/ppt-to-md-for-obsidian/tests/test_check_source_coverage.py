@@ -4,6 +4,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_source_coverage.py"
 
@@ -669,3 +671,100 @@ def test_real_notes_adapter_wrong_frontmatter_owner_remains_structural_fail(tmp_
     assert "STRUCTURAL: MANIFEST_TARGET_OWNER_MISMATCH" in result.stdout
     assert "STRUCTURAL: MISSING_FRONTMATTER_SOURCE_EVIDENCE" in result.stdout
     assert "structural_issues" in result.stdout
+
+
+def write_strict_complete_course(source_root: Path, notes_root: Path) -> None:
+    source = "course/lecture.pdf"
+    write(source_root / source, "fake pdf")
+    for name in ("source_manifest.md", "99_内容覆盖审查.md"):
+        write(
+            notes_root / "course" / name,
+            f"| source | note |\n|---|---|\n| `{source}` | [[course/01_intro]] |\n",
+        )
+    write(
+        notes_root / "course" / "01_intro.md",
+        "---\n"
+        "source_files:\n"
+        f"  - {source}\n"
+        "---\n"
+        "# Intro\n\n"
+        f"对应源资料：`{source}` p.1。源资料例题：例 1（/course/lecture p.1）。\n",
+    )
+
+
+@pytest.mark.parametrize("artifact_name", ["source_manifest.md", "99_内容覆盖审查.md"])
+def test_strict_source_coverage_rejects_external_fixed_artifact_symlink(
+    tmp_path: Path,
+    artifact_name: str,
+) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    write_strict_complete_course(source_root, notes_root)
+    artifact = notes_root / "course" / artifact_name
+    content = artifact.read_text(encoding="utf-8")
+    artifact.unlink()
+    outside = tmp_path / artifact_name
+    write(outside, content)
+    artifact.symlink_to(outside)
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "course=course",
+        "--strict",
+    )
+
+    assert result.returncode == 1
+    assert "NOTES_ARTIFACT_SYMLINK_OUTSIDE_ROOT" in result.stdout
+    assert "STRUCTURAL" in result.stdout
+
+
+def test_strict_source_coverage_accepts_regular_fixed_artifacts(tmp_path: Path) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    write_strict_complete_course(source_root, notes_root)
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "course=course",
+        "--strict",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_fixed_artifact_symlink_in_ignored_directory_requires_include_ignored(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    (source_root / "course").mkdir(parents=True)
+    (notes_root / "course").mkdir(parents=True)
+    outside = tmp_path / "outside_manifest.md"
+    write(outside, "# External manifest\n")
+    ignored_artifact = notes_root / ".obsidian" / "source_manifest.md"
+    ignored_artifact.parent.mkdir()
+    ignored_artifact.symlink_to(outside)
+    args = (
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "course=course",
+    )
+
+    default_result = run_checker(*args)
+    included_result = run_checker(*args, "--include-ignored")
+
+    assert default_result.returncode == 0, default_result.stdout + default_result.stderr
+    assert "NOTES_ARTIFACT_SYMLINK" not in default_result.stdout
+    assert included_result.returncode == 1
+    assert "NOTES_ARTIFACT_SYMLINK_OUTSIDE_ROOT" in included_result.stdout

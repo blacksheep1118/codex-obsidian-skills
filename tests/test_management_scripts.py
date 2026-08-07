@@ -4,6 +4,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -22,6 +24,7 @@ def run_script(
     *args: str,
     cwd: Path = ROOT,
     timeout: int = SUBPROCESS_TIMEOUT_SECONDS,
+    check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, *args],
@@ -30,7 +33,7 @@ def run_script(
         encoding="utf-8",
         errors="replace",
         capture_output=True,
-        check=True,
+        check=check,
         timeout=timeout,
     )
 
@@ -74,6 +77,171 @@ def test_install_update_and_self_check(tmp_path: Path):
 
     self_check = run_script("scripts/install_skill.py", "--all", "--destination", str(destination), "--self-check-only")
     assert "install_self_check ok skills=4" in self_check.stdout
+
+
+def test_update_dry_run_self_check_requires_installed_copy(tmp_path: Path):
+    destination = tmp_path / "missing-skills"
+    skill_name = "ppt-to-md-for-obsidian"
+
+    plain_dry_run = run_script(
+        "scripts/update_installed_skills.py",
+        "--skill",
+        skill_name,
+        "--destination",
+        str(destination),
+        "--dry-run",
+    )
+    assert plain_dry_run.returncode == 0
+
+    checked_dry_run = run_script(
+        "scripts/update_installed_skills.py",
+        "--skill",
+        skill_name,
+        "--destination",
+        str(destination),
+        "--dry-run",
+        "--self-check",
+        check=False,
+    )
+    assert checked_dry_run.returncode != 0
+    assert "source_self_check ok skills=1" in checked_dry_run.stdout
+    assert "not installed" in checked_dry_run.stderr
+
+
+def test_update_dry_run_self_check_rejects_broken_installed_metadata(tmp_path: Path):
+    destination = tmp_path / "skills"
+    skill_name = "ppt-to-md-for-obsidian"
+    run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        skill_name,
+        "--destination",
+        str(destination),
+    )
+    openai_yaml = destination / skill_name / "agents" / "openai.yaml"
+    valid_lines = openai_yaml.read_text(encoding="utf-8").splitlines()
+    openai_yaml.write_text(
+        "\n".join(line for line in valid_lines if "default_prompt:" not in line) + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_script(
+        "scripts/update_installed_skills.py",
+        "--skill",
+        skill_name,
+        "--destination",
+        str(destination),
+        "--dry-run",
+        "--self-check",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "source_self_check ok skills=1" in result.stdout
+    assert "missing default_prompt:" in result.stderr
+
+
+def test_update_dry_run_self_check_validates_source_and_installed_copy(tmp_path: Path):
+    destination = tmp_path / "skills"
+    skill_name = "ppt-to-md-for-obsidian"
+    run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        skill_name,
+        "--destination",
+        str(destination),
+    )
+
+    result = run_script(
+        "scripts/update_installed_skills.py",
+        "--skill",
+        skill_name,
+        "--destination",
+        str(destination),
+        "--dry-run",
+        "--self-check",
+    )
+
+    assert "source_self_check ok skills=1" in result.stdout
+    assert "install_self_check ok skills=1" in result.stdout
+
+
+@pytest.mark.parametrize("dangling", [False, True])
+def test_install_rejects_existing_or_dangling_skill_symlink(tmp_path: Path, dangling: bool):
+    destination = tmp_path / "skills"
+    destination.mkdir()
+    skill_name = "ppt-to-md-for-obsidian"
+    target = tmp_path / ("missing-target" if dangling else "outside")
+    if not dangling:
+        target.mkdir()
+    (destination / skill_name).symlink_to(target, target_is_directory=True)
+
+    result = run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        skill_name,
+        "--destination",
+        str(destination),
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "symlink" in result.stderr.lower()
+    assert (destination / skill_name).is_symlink()
+    assert not (target / "SKILL.md").exists()
+
+
+def test_install_rejects_symlink_destination_root(tmp_path: Path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    destination = tmp_path / "skills-link"
+    destination.symlink_to(outside, target_is_directory=True)
+
+    result = run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        "ppt-to-md-for-obsidian",
+        "--destination",
+        str(destination),
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "symlink" in result.stderr.lower()
+    assert list(outside.iterdir()) == []
+
+
+def test_update_prune_rejects_internal_symlink_before_copying(tmp_path: Path):
+    destination = tmp_path / "skills"
+    skill_name = "ppt-to-md-for-obsidian"
+    run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        skill_name,
+        "--destination",
+        str(destination),
+    )
+    installed = destination / skill_name
+    local_skill_text = "locally modified\n"
+    (installed / "SKILL.md").write_text(local_skill_text, encoding="utf-8")
+    outside = tmp_path / "outside"
+    write_file(outside / "sentinel.txt", "keep\n")
+    (installed / "stale-link").symlink_to(outside, target_is_directory=True)
+
+    result = run_script(
+        "scripts/update_installed_skills.py",
+        "--skill",
+        skill_name,
+        "--destination",
+        str(destination),
+        "--prune",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "symlink" in result.stderr.lower()
+    assert (installed / "SKILL.md").read_text(encoding="utf-8") == local_skill_text
+    assert (outside / "sentinel.txt").read_text(encoding="utf-8") == "keep\n"
 
 
 def test_validate_all_lists_stable_step_ids():

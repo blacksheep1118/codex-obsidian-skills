@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from datetime import date
+import os
 from pathlib import Path
 import re
+import stat
 import sys
 
 from collect_web_sources import PageRecord, build_manifest, collect_sources, title_from_url
@@ -100,7 +102,95 @@ def token_set(text: str) -> set[str]:
 def existing_dirs(root: Path) -> list[Path]:
     if not root.exists():
         return []
-    return [path for path in sorted(root.iterdir()) if path.is_dir() and not path.name.startswith(".")]
+    directories: list[Path] = []
+    for path in sorted(root.iterdir()):
+        if path.name.startswith("."):
+            continue
+        try:
+            mode = path.lstat().st_mode
+        except OSError:
+            continue
+        if stat.S_ISDIR(mode):
+            directories.append(path)
+    return directories
+
+
+def _relative_beneath(root: Path, path: Path) -> Path:
+    root = root.expanduser().resolve()
+    candidate = path.expanduser()
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    candidate = Path(os.path.abspath(candidate))
+    try:
+        return candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"path must remain inside --notes-dir: {path}") from exc
+
+
+def ensure_safe_directory(root: Path, path: Path, *, create: bool) -> Path:
+    """Validate or create a directory without traversing symlink components."""
+
+    root = root.expanduser().resolve()
+    relative = _relative_beneath(root, path)
+    current = root
+    for component in relative.parts:
+        current = current / component
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            if not create:
+                break
+            current.mkdir()
+            mode = current.lstat().st_mode
+        if stat.S_ISLNK(mode):
+            raise ValueError(f"directory path contains symlink component: {current}")
+        if not stat.S_ISDIR(mode):
+            raise ValueError(f"directory path component is not a directory: {current}")
+    return root / relative
+
+
+def ensure_safe_output_path(root: Path, path: Path) -> Path:
+    root = root.expanduser().resolve()
+    relative = _relative_beneath(root, path)
+    candidate = root / relative
+    ensure_safe_directory(root, candidate.parent, create=False)
+    try:
+        mode = candidate.lstat().st_mode
+    except FileNotFoundError:
+        return candidate
+    if stat.S_ISLNK(mode):
+        raise ValueError(f"output path is a symlink: {candidate}")
+    if not stat.S_ISREG(mode):
+        raise ValueError(f"output path is not a regular file: {candidate}")
+    return candidate
+
+
+def write_text_no_follow(root: Path, path: Path, content: str) -> None:
+    """Create a new UTF-8 file atomically and never follow a final symlink."""
+
+    candidate = ensure_safe_output_path(root, path)
+    try:
+        mode = candidate.lstat().st_mode
+    except FileNotFoundError:
+        mode = None
+    if mode is not None:
+        if candidate.read_text(encoding="utf-8") == content:
+            return
+        raise FileExistsError(f"refusing to replace existing output file: {candidate}")
+
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(candidate, flags, 0o666)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError(f"created output is not a regular file: {candidate}")
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
+            descriptor = -1
+            stream.write(content)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
 def choose_category_dir(
@@ -113,15 +203,13 @@ def choose_category_dir(
     if explicit_category:
         category = Path(explicit_category)
         notes_root = notes_dir.resolve()
+        if ".." in category.parts:
+            raise ValueError("explicit category must remain inside --notes-dir")
         candidate = category if category.is_absolute() else notes_root / category
-        resolved = candidate.resolve()
-        try:
-            resolved.relative_to(notes_root)
-        except ValueError as exc:
-            raise ValueError("explicit category must remain inside --notes-dir") from exc
-        if resolved == notes_root:
+        candidate = ensure_safe_directory(notes_root, candidate, create=False)
+        if candidate == notes_root:
             raise ValueError("explicit category must name a folder below --notes-dir")
-        return resolved
+        return candidate
 
     context_lower = context.lower()
     children = existing_dirs(notes_dir)
@@ -157,18 +245,21 @@ def note_stem(file_name: str) -> str:
     return Path(file_name).stem
 
 
-def available_file(path: Path, content: str) -> Path:
+def available_file(root: Path, path: Path, content: str) -> Path:
+    path = ensure_safe_output_path(root, path)
     if not path.exists():
         return path
-    try:
-        if path.read_text(encoding="utf-8") == content:
-            return path
-    except OSError:
-        pass
+    if path.read_text(encoding="utf-8") == content:
+        return path
 
     for index in range(2, 100):
-        candidate = path.with_name(f"{path.stem}_{index}{path.suffix}")
+        candidate = ensure_safe_output_path(
+            root,
+            path.with_name(f"{path.stem}_{index}{path.suffix}"),
+        )
         if not candidate.exists():
+            return candidate
+        if candidate.read_text(encoding="utf-8") == content:
             return candidate
     raise RuntimeError(f"could not find an available path near {path}")
 
@@ -576,6 +667,11 @@ def create_notes(
     map_note_name: str | None = None,
     dry_run: bool = False,
 ) -> CreatedNotes:
+    notes_root = notes_dir.expanduser().resolve()
+    if notes_root.exists() and not notes_root.is_dir():
+        raise ValueError(f"--notes-dir must be an existing directory: {notes_dir}")
+    if not notes_root.exists() and not dry_run:
+        raise ValueError(f"--notes-dir must be an existing directory: {notes_dir}")
     pages = collect_sources(sources, timeout=timeout)
     resolved_language = resolve_language(language, pages, sources)
     today = date.today()
@@ -584,13 +680,14 @@ def create_notes(
     map_file_name = note_file_name(map_note_name, DEFAULT_MAP_NOTE_NAMES[resolved_language])
     map_note_stem = note_stem(map_file_name)
     category_dir = choose_category_dir(
-        notes_dir,
+        notes_root,
         f"{chosen_title} {context_for_pages(pages)}",
         category,
         default_root_folder=fallback_root_folder,
     )
     folder_name = safe_path_name(folder or chosen_title, "web-resource")
     collection_dir = category_dir / folder_name
+    collection_dir = ensure_safe_directory(notes_root, collection_dir, create=False)
 
     manifest = build_manifest(pages)
     note_paths: list[Path] = []
@@ -600,24 +697,25 @@ def create_notes(
         note_title = safe_path_name(display_title, f"source-{index}")
         note_name = f"{index:02d}_{note_title}"
         content = page_note_content(page, index, today, display_title, resolved_language, map_note_stem)
-        note_path = available_file(collection_dir / f"{note_name}.md", content)
+        note_path = available_file(notes_root, collection_dir / f"{note_name}.md", content)
         note_paths.append(note_path)
         note_names.append(note_path.stem)
 
     map_body = map_content(chosen_title, pages, note_names, today, resolved_language)
-    map_path = available_file(collection_dir / map_file_name, map_body)
-    manifest_path = available_file(collection_dir / "source_manifest.md", manifest)
+    map_path = available_file(notes_root, collection_dir / map_file_name, map_body)
+    manifest_path = available_file(notes_root, collection_dir / "source_manifest.md", manifest)
     files = (map_path, manifest_path, *note_paths)
 
     if not dry_run:
-        collection_dir.mkdir(parents=True, exist_ok=True)
-        map_path.write_text(map_body, encoding="utf-8")
-        manifest_path.write_text(manifest, encoding="utf-8")
+        ensure_safe_directory(notes_root, collection_dir, create=True)
+        write_text_no_follow(notes_root, map_path, map_body)
+        write_text_no_follow(notes_root, manifest_path, manifest)
         for index, (note_path, page) in enumerate(zip(note_paths, pages), start=1):
             display_title = title if title and len(pages) == 1 else page.title or title_from_url(page.url)
-            note_path.write_text(
+            write_text_no_follow(
+                notes_root,
+                note_path,
                 page_note_content(page, index, today, display_title, resolved_language, map_note_stem),
-                encoding="utf-8",
             )
 
     return CreatedNotes(collection_dir=collection_dir, files=files)

@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import hashlib
+import os
 from pathlib import Path
 import re
+import stat
 import struct
 import sys
 import zipfile
@@ -293,6 +295,42 @@ def allocate_output_paths(sources: list[Path], output_dir: Path) -> list[Path]:
     return allocated
 
 
+def ensure_safe_output_path(output_dir: Path, path: Path) -> Path:
+    output_root = output_dir.resolve()
+    candidate = Path(os.path.abspath(path))
+    try:
+        relative = candidate.relative_to(output_root)
+    except ValueError as exc:
+        raise ValueError(f"generated output escapes --output-dir: {path}") from exc
+    candidate = output_root / relative
+    try:
+        mode = candidate.lstat().st_mode
+    except FileNotFoundError:
+        return candidate
+    if stat.S_ISLNK(mode):
+        raise ValueError(f"generated output path is a symlink: {candidate}")
+    if not stat.S_ISREG(mode):
+        raise ValueError(f"generated output path is not a regular file: {candidate}")
+    return candidate
+
+
+def write_text_no_follow(output_dir: Path, path: Path, content: str) -> None:
+    candidate = ensure_safe_output_path(output_dir, path)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(candidate, flags, 0o666)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError(f"generated output path is not a regular file: {candidate}")
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
+            descriptor = -1
+            stream.write(content)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def main() -> int:
     configure_output_encoding()
     parser = argparse.ArgumentParser(description="Extract text from PPTX and legacy PPT files.")
@@ -301,26 +339,32 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.output_dir:
+        args.output_dir = args.output_dir.expanduser().resolve()
         args.output_dir.mkdir(parents=True, exist_ok=True)
-        output_paths = allocate_output_paths(args.sources, args.output_dir)
+        try:
+            output_paths = [
+                ensure_safe_output_path(args.output_dir, path)
+                for path in allocate_output_paths(args.sources, args.output_dir)
+            ]
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: unsafe output path: {exc}", file=sys.stderr)
+            return 1
     else:
         output_paths = [None] * len(args.sources)
 
     exit_code = 0
     for source, target in zip(args.sources, output_paths):
         try:
-            text = extract(source)
+            extracted_text = extract(source)
+            if target is not None:
+                write_text_no_follow(args.output_dir, target, extracted_text)
+                print(f"wrote {target} source={source}")
+            else:
+                print(f"===== {source} =====")
+                print(extracted_text, end="")
         except Exception as exc:
             print(f"ERROR: {source}: {exc}", file=sys.stderr)
             exit_code = 1
-            continue
-
-        if target is not None:
-            target.write_text(text, encoding="utf-8")
-            print(f"wrote {target} source={source}")
-        else:
-            print(f"===== {source} =====")
-            print(text, end="")
 
     return exit_code
 

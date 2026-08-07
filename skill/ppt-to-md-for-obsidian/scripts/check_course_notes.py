@@ -7,6 +7,7 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import stat
 import sys
 
 try:
@@ -63,22 +64,66 @@ def relative_issue(root: Path, path: Path, kind: str, message: str) -> CourseNot
     return CourseNoteIssue(path.relative_to(root), kind, message)
 
 
+def is_regular_file_without_symlink_components(root: Path, path: Path) -> bool:
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return False
+    current = root
+    try:
+        for index, component in enumerate(relative.parts):
+            current = current / component
+            mode = current.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                return False
+            if index < len(relative.parts) - 1 and not stat.S_ISDIR(mode):
+                return False
+        return stat.S_ISREG(mode)
+    except OSError:
+        return False
+
+
+def symlink_issues(root: Path, skip_dirs: set[str] | None = None) -> list[CourseNoteIssue]:
+    skip_dirs = skip_dirs or set()
+    issues: list[CourseNoteIssue] = []
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if any(part in skip_dirs for part in relative.parts):
+            continue
+        try:
+            if not stat.S_ISLNK(path.lstat().st_mode):
+                continue
+        except OSError:
+            continue
+        issues.append(
+            relative_issue(
+                root,
+                path,
+                "unsafe_symlink",
+                "course-note validation does not accept symlinked files or directories",
+            )
+        )
+    return issues
+
+
 def markdown_files(root: Path, skip_dirs: set[str] | None = None) -> list[Path]:
     skip_dirs = skip_dirs or set()
     return sorted(
         path
         for path in root.rglob("*.md")
-        if ".git" not in path.parts and not any(part in skip_dirs for part in path.relative_to(root).parts[:-1])
+        if ".git" not in path.parts
+        and not any(part in skip_dirs for part in path.relative_to(root).parts[:-1])
+        and is_regular_file_without_symlink_components(root, path)
     )
 
 
 def find_overview(root: Path) -> Path | None:
     for name in OVERVIEW_NAMES:
         path = root / name
-        if path.exists():
+        if is_regular_file_without_symlink_components(root, path):
             return path
     for pattern in ("00_*课程总览.md", "00_*学习地图.md", "00_*总览.md"):
-        matches = sorted(root.glob(pattern))
+        matches = sorted(path for path in root.glob(pattern) if is_regular_file_without_symlink_components(root, path))
         if matches:
             return matches[0]
     return None
@@ -95,14 +140,22 @@ def is_exam_review(path: Path) -> bool:
 def find_review_pair(root: Path) -> tuple[Path | None, Path | None]:
     exact_detail = root / DETAIL_REVIEW
     exact_concise = root / CONCISE_REVIEW
-    detail = exact_detail if exact_detail.exists() else None
-    concise = exact_concise if exact_concise.exists() else None
+    detail = exact_detail if is_regular_file_without_symlink_components(root, exact_detail) else None
+    concise = exact_concise if is_regular_file_without_symlink_components(root, exact_concise) else None
 
     if detail is None:
-        detail_matches = sorted(path for path in root.glob("*.md") if DETAIL_REVIEW_RE.match(path.name))
+        detail_matches = sorted(
+            path
+            for path in root.glob("*.md")
+            if DETAIL_REVIEW_RE.match(path.name) and is_regular_file_without_symlink_components(root, path)
+        )
         detail = detail_matches[0] if detail_matches else None
     if concise is None:
-        concise_matches = sorted(path for path in root.glob("*.md") if CONCISE_REVIEW_RE.match(path.name))
+        concise_matches = sorted(
+            path
+            for path in root.glob("*.md")
+            if CONCISE_REVIEW_RE.match(path.name) and is_regular_file_without_symlink_components(root, path)
+        )
         concise = concise_matches[0] if concise_matches else None
 
     return detail, concise
@@ -172,7 +225,7 @@ def find_course_note_issues(
     min_detailed_lines: int = 250,
     min_exam_review_lines: int = 250,
 ) -> list[CourseNoteIssue]:
-    issues: list[CourseNoteIssue] = []
+    issues = symlink_issues(root, skip_dirs=skip_dirs)
     files = markdown_files(root, skip_dirs=skip_dirs)
 
     overview = find_overview(root)

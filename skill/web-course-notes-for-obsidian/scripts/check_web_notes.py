@@ -7,6 +7,7 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import stat
 import sys
 from urllib.parse import unquote
 
@@ -16,6 +17,28 @@ SKIPPED_RE = re.compile(r"\b(skipped|inaccessible)\b|不可访问|跳过")
 URL_RE = re.compile(r"https?://[^\s)>\]]+|file://[^\s)>\]]+")
 DIRECT_RESOURCE_KINDS = {"book", "book_pdf", "pdf", "slides", "transcript"}
 READING_LIST_KINDS = {"book_or_chapter", "book", "book_pdf", "pdf"}
+ENTRY_MAP_RE = re.compile(
+    r"^00[_ ].*(?:学习地图|课程总览|Learning[_ ]+Map|Course[_ ]+Overview).*\.md$",
+    re.I,
+)
+SUPPORT_NOTE_STEMS = frozenset(
+    {
+        "agent",
+        "agents",
+        "readme",
+        "source_manifest",
+        "99_内容覆盖审查",
+        "99_来源覆盖审查",
+        "99_质量审查",
+        "内容覆盖审查",
+        "来源覆盖审查",
+        "质量审查",
+        "source_coverage_audit",
+        "content_coverage_audit",
+        "coverage_audit",
+        "validation_report",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -96,8 +119,82 @@ def load_manifest_rows(manifest: Path) -> list[ManifestRow]:
     return rows
 
 
+def is_regular_file_without_symlink_components(root: Path, path: Path) -> bool:
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return False
+    current = root
+    try:
+        for index, component in enumerate(relative.parts):
+            current = current / component
+            mode = current.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                return False
+            if index < len(relative.parts) - 1 and not stat.S_ISDIR(mode):
+                return False
+        return stat.S_ISREG(mode)
+    except OSError:
+        return False
+
+
+def symlink_issues(root: Path) -> list[WebNoteIssue]:
+    issues: list[WebNoteIssue] = []
+    for path in sorted(root.rglob("*")):
+        try:
+            is_symlink = stat.S_ISLNK(path.lstat().st_mode)
+        except OSError:
+            continue
+        if is_symlink:
+            issues.append(
+                WebNoteIssue(
+                    "unsafe_symlink",
+                    path.relative_to(root),
+                    "finalized collection files and directories must not be symlinks",
+                )
+            )
+    return issues
+
+
 def markdown_files(root: Path) -> list[Path]:
-    return sorted(path for path in root.rglob("*.md") if ".git" not in path.parts)
+    return sorted(
+        path
+        for path in root.rglob("*.md")
+        if ".git" not in path.parts and is_regular_file_without_symlink_components(root, path)
+    )
+
+
+def is_entry_map(path: Path) -> bool:
+    return bool(ENTRY_MAP_RE.match(path.name))
+
+
+def is_support_note(path: Path) -> bool:
+    normalized_stem = re.sub(r"[\s-]+", "_", path.stem.casefold())
+    without_collision_suffix = re.sub(r"_\d+$", "", normalized_stem)
+    return without_collision_suffix in SUPPORT_NOTE_STEMS
+
+
+def has_substantive_markdown_body(path: Path) -> bool:
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    in_frontmatter = bool(lines and lines[0].strip() == "---")
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if in_frontmatter:
+            if index > 0 and stripped == "---":
+                in_frontmatter = False
+            continue
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped in {"---", "***", "___"}:
+            continue
+        if stripped.startswith("<!--") and stripped.endswith("-->"):
+            continue
+        return True
+    return False
+
+
+def is_detail_note(path: Path) -> bool:
+    return not is_entry_map(path) and not is_support_note(path) and has_substantive_markdown_body(path)
 
 
 def note_files(root: Path) -> list[Path]:
@@ -168,17 +265,47 @@ def inaccessible_resource(row: ManifestRow) -> bool:
 
 
 def validate_web_notes(root: Path, sources: list[str], *, per_link_notes: bool = False) -> list[WebNoteIssue]:
-    issues: list[WebNoteIssue] = []
+    issues = symlink_issues(root)
     manifest = root / "source_manifest.md"
-    if not manifest.exists():
-        return [WebNoteIssue("missing_manifest", Path("source_manifest.md"), "source_manifest.md is required")]
+    if not manifest.exists() and not manifest.is_symlink():
+        issues.append(WebNoteIssue("missing_manifest", Path("source_manifest.md"), "source_manifest.md is required"))
+        return issues
+    if not is_regular_file_without_symlink_components(root, manifest):
+        issues.append(
+            WebNoteIssue(
+                "invalid_manifest",
+                Path("source_manifest.md"),
+                "source_manifest.md must be a regular in-root file reached without symlinks",
+            )
+        )
+        return issues
 
     rows = load_manifest_rows(manifest)
     for source in sources:
         if not manifest_covers_source(rows, source):
             issues.append(WebNoteIssue("missing_user_source", manifest.relative_to(root), f"manifest does not cover user source: {source}"))
 
-    for path in note_files(root):
+    notes = note_files(root)
+    entry_maps = [path for path in notes if is_entry_map(path)]
+    details = [path for path in notes if is_detail_note(path)]
+    if not entry_maps:
+        issues.append(
+            WebNoteIssue(
+                "missing_entry_map",
+                Path("."),
+                "finalized collection requires an in-root 00_ learning map or course overview",
+            )
+        )
+    if not details:
+        issues.append(
+            WebNoteIssue(
+                "missing_detail_note",
+                Path("."),
+                "finalized collection requires at least one in-root detailed note",
+            )
+        )
+
+    for path in notes:
         text = path.read_text(encoding="utf-8", errors="replace")
         for line_number, line in enumerate(text.splitlines(), start=1):
             if RESIDUE_RE.search(line):
@@ -192,7 +319,6 @@ def validate_web_notes(root: Path, sources: list[str], *, per_link_notes: bool =
 
     require_per_link = per_link_notes or manifest_requires_per_link_notes(rows)
     if require_per_link:
-        notes = note_files(root)
         for row in rows:
             if row.section != "Learning Resources":
                 continue
@@ -201,7 +327,7 @@ def validate_web_notes(root: Path, sources: list[str], *, per_link_notes: bool =
                 continue
             if inaccessible_resource(row):
                 continue
-            if any(file_mentions_url(path, url) or explicit_skipped_or_inaccessible(path, url) for path in notes):
+            if any(file_mentions_url(path, url) or explicit_skipped_or_inaccessible(path, url) for path in details):
                 continue
             issues.append(
                 WebNoteIssue(

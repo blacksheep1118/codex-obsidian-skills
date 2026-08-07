@@ -9,6 +9,7 @@ from datetime import date
 import os
 from pathlib import Path
 import re
+import stat
 import sys
 
 
@@ -151,17 +152,79 @@ def is_excluded(path: Path, excluded: set[Path]) -> bool:
     return False
 
 
+def write_text_without_following_symlink(path: Path, text: str) -> None:
+    """Write a regular output file without following its final path component."""
+
+    path = path.expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        mode = None
+    if mode is not None:
+        if stat.S_ISLNK(mode):
+            raise ValueError(f"output path is a symlink: {path}")
+        if not stat.S_ISREG(mode):
+            raise ValueError(f"output path is not a regular file: {path}")
+
+    flags = os.O_WRONLY | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags, 0o666)
+    except OSError as exc:
+        if path.is_symlink():
+            raise ValueError(f"output path is a symlink: {path}") from exc
+        raise
+    try:
+        opened = os.fstat(descriptor)
+        current = path.lstat()
+        if stat.S_ISLNK(current.st_mode) or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
+            raise ValueError(f"output path changed while opening: {path}")
+        os.ftruncate(descriptor, 0)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = -1
+            handle.write(text)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def is_regular_file_without_symlink_components(root: Path, path: Path) -> bool:
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return False
+    current = root
+    try:
+        for index, component in enumerate(relative.parts):
+            current = current / component
+            mode = current.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                return False
+            if index < len(relative.parts) - 1 and not stat.S_ISDIR(mode):
+                return False
+        return stat.S_ISREG(mode)
+    except OSError:
+        return False
+
+
 def markdown_files(inputs: list[Path], exclude_paths: set[Path] | None = None) -> list[Path]:
     excluded = normalized_exclude_paths(exclude_paths)
     files: list[Path] = []
     for input_path in inputs:
         path = input_path.expanduser()
-        if path.is_dir():
+        if path.is_symlink():
+            if path.is_file() and path.suffix.lower() == ".md" and not is_excluded(path, excluded):
+                files.append(path)
+        elif path.is_dir():
             files.extend(
                 sorted(
                     candidate
                     for candidate in path.rglob("*.md")
-                    if not is_hidden(candidate.relative_to(path)) and not is_excluded(candidate, excluded)
+                    if not is_hidden(candidate.relative_to(path))
+                    and is_regular_file_without_symlink_components(path, candidate)
+                    and not is_excluded(candidate, excluded)
                 )
             )
         elif path.is_file() and path.suffix.lower() == ".md" and not is_excluded(path, excluded):
@@ -792,8 +855,11 @@ def main() -> int:
         return 1
 
     if args.out:
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(brief, encoding="utf-8")
+        try:
+            write_text_without_following_symlink(args.out, brief)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
         print(f"wrote_deck_brief {args.out}")
     else:
         print(brief)

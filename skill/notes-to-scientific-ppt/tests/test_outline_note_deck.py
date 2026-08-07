@@ -28,6 +28,18 @@ def run_script(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def run_script_unchecked(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "scripts/outline_note_deck.py", *args],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+
+
 def run_build_script(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "scripts/build_scientific_deck.py", *args],
@@ -229,7 +241,7 @@ def test_outline_note_deck_excludes_existing_hardlink_output_alias(tmp_path: Pat
     assert original_out.read_bytes() == first
 
 
-def test_outline_note_deck_excludes_existing_symlink_output_alias(tmp_path: Path):
+def test_outline_note_deck_rejects_existing_symlink_output_alias(tmp_path: Path):
     notes = tmp_path / "notes"
     notes.mkdir()
     (notes / "method.md").write_text("# Method\n\n## Evidence\n\nSource-grounded result.\n", encoding="utf-8")
@@ -243,11 +255,47 @@ def test_outline_note_deck_excludes_existing_symlink_output_alias(tmp_path: Path
         pytest.skip(f"symbolic links unavailable: {exc}")
 
     first = original_out.read_bytes()
-    run_script(str(notes), "--out", str(alias_out), "--title", "Stable Brief", "--language", "en")
-    assert original_out.read_bytes() == first
-    run_script(str(notes), "--out", str(alias_out), "--title", "Stable Brief", "--language", "en")
+    result = run_script_unchecked(
+        str(notes),
+        "--out",
+        str(alias_out),
+        "--title",
+        "Stable Brief",
+        "--language",
+        "en",
+    )
 
+    assert result.returncode == 1
+    assert "symlink" in result.stderr.lower()
     assert original_out.read_bytes() == first
+
+
+def test_outline_note_deck_rejects_dangling_symlink_output(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text("# Note\n\nReal evidence.\n", encoding="utf-8")
+    missing_target = tmp_path / "missing.md"
+    out = tmp_path / "brief.md"
+    out.symlink_to(missing_target)
+
+    result = run_script_unchecked(str(note), "--out", str(out), "--language", "en")
+
+    assert result.returncode == 1
+    assert "symlink" in result.stderr.lower()
+    assert out.is_symlink()
+    assert not missing_target.exists()
+
+
+def test_outline_note_deck_writes_regular_output_file(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text("# Note\n\nReal evidence.\n", encoding="utf-8")
+    out = tmp_path / "brief.md"
+
+    result = run_script(str(note), "--out", str(out), "--language", "en")
+
+    assert result.returncode == 0
+    assert out.is_file()
+    assert not out.is_symlink()
+    assert "## Source Inventory" in out.read_text(encoding="utf-8")
 
 
 def test_outline_note_deck_follow_links_excludes_linked_output_and_is_byte_stable(tmp_path: Path):
@@ -455,3 +503,53 @@ def test_build_scientific_deck_follow_links_adds_linked_notes_to_brief(tmp_path:
 
     assert "slides 7" in result.stdout
     assert len(Presentation(str(deck)).slides) == 7
+
+
+def test_outline_folder_scan_skips_external_file_and_directory_symlinks(tmp_path: Path) -> None:
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "safe.md").write_text("# Safe Note\n\nIn-root evidence.\n", encoding="utf-8")
+    outside_file = tmp_path / "outside.md"
+    outside_file.write_text("# OUTSIDE_SECRET_FILE\n", encoding="utf-8")
+    (notes / "linked.md").symlink_to(outside_file)
+    outside_dir = tmp_path / "outside-dir"
+    outside_dir.mkdir()
+    (outside_dir / "secret.md").write_text("# OUTSIDE_SECRET_DIR\n", encoding="utf-8")
+    (notes / "linked-dir").symlink_to(outside_dir, target_is_directory=True)
+
+    result = run_script(str(notes), "--language", "en")
+
+    assert "Safe Note" in result.stdout
+    assert "OUTSIDE_SECRET_FILE" not in result.stdout
+    assert "OUTSIDE_SECRET_DIR" not in result.stdout
+
+
+def test_outline_explicit_markdown_file_symlink_remains_supported(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.md"
+    outside.write_text("# Explicit Linked Note\n\nUser-selected evidence.\n", encoding="utf-8")
+    link = tmp_path / "selected.md"
+    link.symlink_to(outside)
+
+    result = run_script(str(link), "--language", "en")
+
+    assert "Explicit Linked Note" in result.stdout
+
+
+def test_build_scientific_deck_folder_input_propagates_safe_scan(tmp_path: Path) -> None:
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "safe.md").write_text("# Safe Note\n\nIn-root evidence.\n", encoding="utf-8")
+    outside = tmp_path / "outside.md"
+    outside.write_text("# OUTSIDE_SECRET_BUILD\n", encoding="utf-8")
+    (notes / "linked.md").symlink_to(outside)
+
+    brief, _ = load_or_create_brief(
+        notes,
+        title="Safe Build",
+        audience="research seminar",
+        max_slides=6,
+        language="en",
+    )
+
+    assert "Safe Note" in brief
+    assert "OUTSIDE_SECRET_BUILD" not in brief

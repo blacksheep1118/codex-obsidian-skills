@@ -7,7 +7,17 @@ import argparse
 from pathlib import Path
 import sys
 
-from install_skill import copy_skill, default_destination, discover_skills, selected_skills, self_check_selected
+from install_skill import (
+    UnsafeDestinationError,
+    copy_skill,
+    default_destination,
+    discover_skills,
+    ensure_safe_destination_root,
+    ensure_safe_destination_tree,
+    selected_skills,
+    self_check_selected,
+    self_check_sources,
+)
 
 
 def main() -> int:
@@ -32,16 +42,33 @@ def main() -> int:
     all_skills = discover_skills()
     skills = selected_skills(all_skills, args.skill, args.all)
 
+    if args.self_check and self_check_sources(skills):
+        return 1
+
+    try:
+        ensure_safe_destination_root(destination_root)
+        for name in skills:
+            ensure_safe_destination_tree(destination_root / name)
+    except UnsafeDestinationError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
     missing = [name for name in skills if not (destination_root / name).exists()]
     if missing and not args.dry_run:
         print(f"ERROR: cannot update missing installed skills: {', '.join(missing)}", file=sys.stderr)
         print("Run scripts/install_skill.py first, or pass --dry-run to inspect actions.", file=sys.stderr)
         return 1
+    if missing and args.self_check:
+        return self_check_selected(destination_root, skills)
 
-    for name, source in skills.items():
-        copy_skill(source, destination_root / name, dry_run=args.dry_run, prune=args.prune)
+    try:
+        for name, source in skills.items():
+            copy_skill(source, destination_root / name, dry_run=args.dry_run, prune=args.prune)
+    except UnsafeDestinationError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
-    if args.self_check and not args.dry_run:
+    if args.self_check:
         return self_check_selected(destination_root, skills)
 
     print(f"updated_skills {len(skills)} destination={destination_root}")

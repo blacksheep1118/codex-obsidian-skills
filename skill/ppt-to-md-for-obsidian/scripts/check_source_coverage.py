@@ -7,6 +7,7 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import stat
 import sys
 import unicodedata
 from typing import Optional
@@ -58,6 +59,7 @@ DEFAULT_IGNORED_DIR_NAMES = frozenset(
     }
 )
 DEFAULT_IGNORED_FILE_NAMES = frozenset({"AGENT.md"})
+FIXED_NOTES_ARTIFACT_NAMES = frozenset({"source_manifest.md", "99_内容覆盖审查.md"})
 STANDALONE_NOTES_DIR_NAMES = frozenset({"概念索引", "模板", "游戏数值策划", "科研方法论"})
 STANDALONE_NOTE_TYPES = frozenset({"concept_index", "standalone", "template", "methodology"})
 CHINESE_NUMBERS = {
@@ -252,6 +254,61 @@ def is_within_root(root: Path, path: Path) -> bool:
     return True
 
 
+def is_regular_file_without_symlink_components(root: Path, path: Path) -> bool:
+    try:
+        root_mode = root.lstat().st_mode
+    except OSError:
+        return False
+    if stat.S_ISLNK(root_mode) or not stat.S_ISDIR(root_mode):
+        return False
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return False
+    current = root
+    try:
+        for index, component in enumerate(relative.parts):
+            current = current / component
+            mode = current.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                return False
+            if index < len(relative.parts) - 1 and not stat.S_ISDIR(mode):
+                return False
+        return stat.S_ISREG(mode)
+    except OSError:
+        return False
+
+
+def notes_artifact_boundary_issues(
+    notes_root: Path,
+    include_ignored: bool = False,
+) -> list[CoverageIssue]:
+    """Reject fixed manifest/audit artifacts reached through symlinks."""
+
+    issues: list[CoverageIssue] = []
+    if not notes_root.is_dir():
+        return issues
+    for path in sorted(notes_root.rglob("*")):
+        if _path_is_ignored(path, notes_root, include_ignored):
+            continue
+        if path.name not in FIXED_NOTES_ARTIFACT_NAMES:
+            continue
+        try:
+            if not stat.S_ISLNK(path.lstat().st_mode):
+                continue
+        except OSError:
+            continue
+        try:
+            path.resolve().relative_to(notes_root.resolve())
+            kind = "notes_artifact_symlink"
+            message = "fixed notes artifact must be a regular file, not a symlink"
+        except ValueError:
+            kind = "notes_artifact_symlink_outside_root"
+            message = f"fixed notes artifact symlink resolves outside notes root: {path.resolve()}"
+        issues.append(CoverageIssue(kind, path, message))
+    return issues
+
+
 def markdown_files(root: Path, include_ignored: bool = False) -> list[Path]:
     return sorted(
         path
@@ -346,7 +403,7 @@ def course_text(notes_dir: Path) -> str:
     pieces: list[str] = []
     for name in ("source_manifest.md", "99_内容覆盖审查.md"):
         path = notes_dir / name
-        if path.exists():
+        if is_regular_file_without_symlink_components(notes_dir, path):
             pieces.append(path.read_text(encoding="utf-8", errors="replace"))
     return "\n".join(pieces)
 
@@ -437,7 +494,7 @@ def is_standalone_notes_dir(notes_dir: Path) -> bool:
         return True
     for artifact_name in ("source_manifest.md", "99_内容覆盖审查.md"):
         artifact = notes_dir / artifact_name
-        if not artifact.exists():
+        if not is_regular_file_without_symlink_components(notes_dir, artifact):
             continue
         note_type = frontmatter_note_type(artifact)
         if note_type in STANDALONE_NOTE_TYPES:
@@ -622,11 +679,13 @@ def check_four_way_source_coverage(
             continue
         manifest_path = notes_dir / "source_manifest.md"
         audit_path = notes_dir / "99_内容覆盖审查.md"
-        manifest_text = manifest_path.read_text(encoding="utf-8", errors="replace") if manifest_path.exists() else ""
-        audit_text = audit_path.read_text(encoding="utf-8", errors="replace") if audit_path.exists() else ""
-        if not manifest_path.exists():
+        manifest_safe = is_regular_file_without_symlink_components(notes_dir, manifest_path)
+        audit_safe = is_regular_file_without_symlink_components(notes_dir, audit_path)
+        manifest_text = manifest_path.read_text(encoding="utf-8", errors="replace") if manifest_safe else ""
+        audit_text = audit_path.read_text(encoding="utf-8", errors="replace") if audit_safe else ""
+        if not manifest_path.exists() and not manifest_path.is_symlink():
             issues.append(CoverageIssue("missing_source_manifest", notes_dir, "mapped notes directory has no source_manifest.md"))
-        if not audit_path.exists():
+        if not audit_path.exists() and not audit_path.is_symlink():
             issues.append(CoverageIssue("missing_coverage_audit", notes_dir, "mapped notes directory has no 99_内容覆盖审查.md"))
 
         note_paths = [
@@ -635,7 +694,7 @@ def check_four_way_source_coverage(
             if path.name not in {"source_manifest.md", "99_内容覆盖审查.md"}
         ]
         for entry in local_entries:
-            if manifest_path.exists() and not source_entry_mentioned_exact(manifest_text, entry):
+            if manifest_safe and not source_entry_mentioned_exact(manifest_text, entry):
                 issues.append(
                     CoverageIssue(
                         "missing_source_manifest_mapping",
@@ -643,7 +702,7 @@ def check_four_way_source_coverage(
                         f"canonical source {entry.root_relative!r} is absent from source_manifest.md",
                     )
                 )
-            if audit_path.exists() and not source_entry_mentioned_exact(audit_text, entry):
+            if audit_safe and not source_entry_mentioned_exact(audit_text, entry):
                 issues.append(
                     CoverageIssue(
                         "missing_coverage_audit_mapping",
@@ -732,7 +791,10 @@ def check_source_dir_reconciliation(
             continue
         if is_standalone_notes_dir(notes_dir):
             continue
-        if not any((notes_dir / name).exists() for name in ("source_manifest.md", "99_内容覆盖审查.md")):
+        if not any(
+            is_regular_file_without_symlink_components(notes_dir, notes_dir / name)
+            for name in FIXED_NOTES_ARTIFACT_NAMES
+        ):
             continue
         if str(notes_dir.resolve()) not in mapped_note_dirs:
             issues.append(
@@ -975,7 +1037,7 @@ def check_audit_source_tables(
     for notes_dir in sorted({path.resolve() for path in notes_dirs}):
         for audit_name in audit_names:
             path = notes_dir / audit_name
-            if not path.exists():
+            if not is_regular_file_without_symlink_components(notes_dir, path):
                 continue
             for line_number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
                 refs = SOURCE_REF_RE.findall(line)
@@ -1198,6 +1260,10 @@ def main() -> int:
             include_ignored=args.include_ignored,
         )
     boundary_issues = source_boundary_issues(source_root, include_ignored=args.include_ignored)
+    boundary_issues += notes_artifact_boundary_issues(
+        notes_root,
+        include_ignored=args.include_ignored,
+    )
     mapping_issues = mapping_path_issues + mapping_check_issues + boundary_issues
     issues = (
         mapping_issues

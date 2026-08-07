@@ -11,7 +11,7 @@ Convert slide-based course material into an Obsidian note system, not a raw slid
 
 When writing into an existing project or vault, first load project-local guidance such as `AGENT.md`, `agent.md`, and files under `agent/`. Treat project-local guidance and scripts as the source of truth when they are stricter or more current than this skill. Keep source files read-only unless the user explicitly asks to rename, move, or delete them. For vault-only organization work, use `$obsidian-vault-organizer`.
 
-When updating this skill itself, update both the source skill repository and the installed Codex skill copy when both exist. Validate the skill repository, then compare `SKILL.md` and `agents/openai.yaml` between source and installed copies before reporting completion.
+When updating this skill itself, edit only the source skill repository. From the skills repository root, run `python3 scripts/validate_all.py --skill ppt-to-md-for-obsidian`, then inspect source and installed state with `python3 scripts/update_installed_skills.py --skill ppt-to-md-for-obsidian --dry-run --self-check`. Deploy only when the user explicitly authorizes it, from the same repository root with `python3 scripts/update_installed_skills.py --skill ppt-to-md-for-obsidian --self-check`; never edit the installed copy directly.
 
 When a target vault follows solvenotes-style conventions, read `references/solvenotes-profile.md` before validation or generated-audit work.
 

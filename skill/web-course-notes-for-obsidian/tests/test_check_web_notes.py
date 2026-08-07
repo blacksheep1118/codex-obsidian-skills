@@ -4,6 +4,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check_web_notes.py"
@@ -23,6 +25,10 @@ def run_checker(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
 def write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def write_entry_map(collection: Path) -> None:
+    write(collection / "00_Learning_Map.md", "# Learning Map\n\n[[01_Course]]\n")
 
 
 def manifest(
@@ -55,6 +61,7 @@ def test_check_web_notes_fails_on_scaffold_residue_and_missing_user_source(tmp_p
     collection = tmp_path / "collection"
     source = "https://example.com/course"
     write(collection / "source_manifest.md", manifest(source))
+    write_entry_map(collection)
     write(
         collection / "01_Course.md",
         "---\nstatus: scaffold\n---\n\n# Course\n\n- 待补充: source details.\n",
@@ -72,6 +79,7 @@ def test_check_web_notes_passes_finalized_note_and_per_link_resource(tmp_path: P
     source = "https://example.com/course"
     resource = "https://example.com/paper.pdf"
     write(collection / "source_manifest.md", manifest(source, resource))
+    write_entry_map(collection)
     write(
         collection / "01_Course.md",
         (
@@ -88,10 +96,115 @@ def test_check_web_notes_passes_finalized_note_and_per_link_resource(tmp_path: P
     assert "web_note_issues 0" in result.stdout
 
 
-def test_check_web_notes_direct_pdf_manifest_passes_source_coverage(tmp_path: Path):
+def test_check_web_notes_direct_pdf_requires_finalized_map_and_detail_note(tmp_path: Path):
     collection = tmp_path / "collection"
     source = "https://example.com/papers/paper.pdf"
     write(collection / "source_manifest.md", manifest(source, page_kind="pdf", resources=[(source, "recorded", "recorded", "")]))
+
+    incomplete = run_checker(collection, "--source", source)
+    assert incomplete.returncode == 1
+    assert "MISSING_ENTRY_MAP" in incomplete.stdout
+    assert "MISSING_DETAIL_NOTE" in incomplete.stdout
+
+    write_entry_map(collection)
+    write(collection / "01_Course.md", f"# Course\n\nSource: {source}\n\nFinal source-specific explanation.\n")
+    result = run_checker(collection, "--source", source)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "web_note_issues 0" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "support_name",
+    [
+        "99_内容覆盖审查.md",
+        "source_manifest_2.md",
+        "source_coverage_audit.md",
+        "validation_report.md",
+    ],
+)
+def test_check_web_notes_support_artifact_does_not_satisfy_detail_contract(
+    tmp_path: Path,
+    support_name: str,
+) -> None:
+    collection = tmp_path / support_name.removesuffix(".md")
+    source = "https://example.com/course"
+    write(collection / "source_manifest.md", manifest(source))
+    write_entry_map(collection)
+    write(
+        collection / support_name,
+        f"# Validation support\n\n| source | status |\n|---|---|\n| {source} | covered |\n",
+    )
+
+    result = run_checker(collection, "--source", source)
+
+    assert result.returncode == 1
+    assert "MISSING_DETAIL_NOTE" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("name", "text"),
+    [
+        ("README.md", "# Collection README\n"),
+        ("AGENT.md", "# Agent Instructions\n\nRun the validator.\n"),
+        ("01_Empty.md", "# Empty Topic\n\n## Notes\n"),
+    ],
+)
+def test_check_web_notes_shell_markdown_does_not_satisfy_detail_contract(
+    tmp_path: Path,
+    name: str,
+    text: str,
+) -> None:
+    collection = tmp_path / name.removesuffix(".md")
+    source = "https://example.com/course"
+    write(collection / "source_manifest.md", manifest(source))
+    write_entry_map(collection)
+    write(collection / name, text)
+
+    result = run_checker(collection, "--source", source)
+
+    assert result.returncode == 1
+    assert "MISSING_DETAIL_NOTE" in result.stdout
+
+
+def test_check_web_notes_accepts_short_genuine_detail_note(tmp_path: Path) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/course"
+    write(collection / "source_manifest.md", manifest(source))
+    write_entry_map(collection)
+    write(collection / "01_Topic.md", "# Topic\n\nUseful insight.\n")
+
+    result = run_checker(collection, "--source", source)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "web_note_issues 0" in result.stdout
+
+
+def test_check_web_notes_per_link_requires_genuine_detail_note(tmp_path: Path) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/course"
+    resource = "https://example.com/paper.pdf"
+    write(collection / "source_manifest.md", manifest(source, resource))
+    write_entry_map(collection)
+    write(collection / "README.md", f"# README\n\nResource: {resource}\n")
+
+    result = run_checker(collection, "--source", source, "--per-link-notes")
+
+    assert result.returncode == 1
+    assert "MISSING_DETAIL_NOTE" in result.stdout
+    assert "MISSING_PER_LINK_NOTE" in result.stdout
+
+
+@pytest.mark.parametrize("entry_name", ["00_Course_Overview.md", "00 Course Overview.md"])
+def test_check_web_notes_accepts_english_course_overview_entry_map(
+    tmp_path: Path,
+    entry_name: str,
+) -> None:
+    collection = tmp_path / entry_name.removesuffix(".md")
+    source = "https://example.com/course"
+    write(collection / "source_manifest.md", manifest(source))
+    write(collection / entry_name, "# Course Overview\n\n[[01_Topic]]\n")
+    write(collection / "01_Topic.md", "# Topic\n\nUseful insight.\n")
 
     result = run_checker(collection, "--source", source)
 
@@ -112,6 +225,7 @@ def test_check_web_notes_fails_when_reading_list_resource_has_no_note(tmp_path: 
             resources=[(chapter_1, "listed", "listed", ""), (chapter_2, "listed", "listed", "")],
         ),
     )
+    write_entry_map(collection)
     write(collection / "01_Chapter_1.md", f"# Chapter 1\n\nSource: {chapter_1}\n\nFinished source-specific note.\n")
 
     result = run_checker(collection, "--source", source, "--per-link-notes")
@@ -137,9 +251,45 @@ def test_check_web_notes_skipped_or_inaccessible_resource_does_not_require_note(
             ],
         ),
     )
+    write_entry_map(collection)
     write(collection / "01_Chapter_1.md", f"# Chapter 1\n\nSource: {chapter_1}\n\nFinished source-specific note.\n")
 
     result = run_checker(collection, "--source", source, "--per-link-notes")
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "web_note_issues 0" in result.stdout
+
+
+def test_check_web_notes_rejects_external_manifest_symlink(tmp_path: Path) -> None:
+    collection = tmp_path / "collection"
+    collection.mkdir()
+    source = "https://example.com/course"
+    outside_manifest = tmp_path / "outside_manifest.md"
+    write(outside_manifest, manifest(source))
+    (collection / "source_manifest.md").symlink_to(outside_manifest)
+    write_entry_map(collection)
+    write(collection / "01_Course.md", f"# Course\n\nSource: {source}\n\nFinished note.\n")
+
+    result = run_checker(collection, "--source", source)
+
+    assert result.returncode == 1
+    assert "UNSAFE_SYMLINK" in result.stdout
+    assert "INVALID_MANIFEST" in result.stdout
+
+
+def test_check_web_notes_rejects_external_per_link_note_symlink(tmp_path: Path) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/course"
+    resource = "https://example.com/paper.pdf"
+    write(collection / "source_manifest.md", manifest(source, resource))
+    write_entry_map(collection)
+    write(collection / "01_Course.md", f"# Course\n\nSource: {source}\n\nFinished note.\n")
+    outside_note = tmp_path / "outside_note.md"
+    write(outside_note, f"# External\n\nResource: {resource}\n")
+    (collection / "02_External.md").symlink_to(outside_note)
+
+    result = run_checker(collection, "--source", source, "--per-link-notes")
+
+    assert result.returncode == 1
+    assert "UNSAFE_SYMLINK" in result.stdout
+    assert "MISSING_PER_LINK_NOTE" in result.stdout

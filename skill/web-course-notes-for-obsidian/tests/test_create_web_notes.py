@@ -28,6 +28,26 @@ def run_script(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def run_script_unchecked(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "scripts/create_web_notes.py", *args],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"},
+    )
+
+
+def write_local_course(path: Path, title: str = "Audit Course") -> None:
+    path.write_text(
+        f"<html><head><title>{title}</title></head><body><h1>{title}</h1></body></html>",
+        encoding="utf-8",
+    )
+
+
 def test_create_web_notes_defaults_to_english_for_english_source(tmp_path: Path):
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir()
@@ -143,6 +163,24 @@ def test_create_web_notes_explicit_root_and_map_names_override_language_defaults
     assert "[[00_学习地图]]" not in note_text
 
 
+def test_create_web_notes_dry_run_allows_missing_notes_root_without_creating_it(tmp_path: Path) -> None:
+    notes_dir = tmp_path / "missing-notes"
+
+    result = run_script(
+        "https://example.com/readings/chapter-03",
+        "--notes-dir",
+        str(notes_dir),
+        "--title",
+        "Dry Run Course",
+        "--language",
+        "en",
+        "--dry-run",
+    )
+
+    assert "would_create_web_notes" in result.stdout
+    assert not notes_dir.exists()
+
+
 def test_choose_category_dir_rejects_paths_outside_notes_dir(tmp_path: Path):
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir()
@@ -152,3 +190,110 @@ def test_choose_category_dir_rejects_paths_outside_notes_dir(tmp_path: Path):
 
     with pytest.raises(ValueError, match="inside --notes-dir"):
         choose_category_dir(notes_dir, "context", str(tmp_path / "absolute-escape"))
+
+
+@pytest.mark.parametrize(
+    ("category_name", "title"),
+    [
+        ("计算机视觉", "Computer Vision Course"),
+        ("Vision Notes", "Vision Notes Course"),
+    ],
+)
+def test_create_web_notes_does_not_follow_automatic_category_symlinks(
+    tmp_path: Path,
+    category_name: str,
+    title: str,
+) -> None:
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (notes_dir / category_name).symlink_to(outside, target_is_directory=True)
+    source = tmp_path / "course.html"
+    write_local_course(source, title)
+
+    result = run_script_unchecked(
+        str(source),
+        "--notes-dir",
+        str(notes_dir),
+        "--title",
+        title,
+        "--language",
+        "en",
+    )
+
+    assert result.returncode in {0, 1}, result.stdout + result.stderr
+    assert list(outside.iterdir()) == []
+
+
+def test_create_web_notes_rejects_symlinked_fallback_and_collection_directories(tmp_path: Path) -> None:
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    source = tmp_path / "course.html"
+    write_local_course(source)
+
+    (notes_dir / "Web Resources").symlink_to(outside, target_is_directory=True)
+    fallback = run_script_unchecked(str(source), "--notes-dir", str(notes_dir), "--language", "en")
+    assert fallback.returncode == 1
+    assert "symlink" in fallback.stderr.lower()
+    assert list(outside.iterdir()) == []
+
+    (notes_dir / "Web Resources").unlink()
+    category = notes_dir / "Safe"
+    category.mkdir()
+    (category / "AuditCollection").symlink_to(outside, target_is_directory=True)
+    collection = run_script_unchecked(
+        str(source),
+        "--notes-dir",
+        str(notes_dir),
+        "--category",
+        "Safe",
+        "--folder",
+        "AuditCollection",
+        "--language",
+        "en",
+    )
+    assert collection.returncode == 1
+    assert "symlink" in collection.stderr.lower()
+    assert list(outside.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "output_name",
+    ["00_Learning_Map.md", "source_manifest.md", "01_Audit Course.md"],
+)
+@pytest.mark.parametrize("dangling", [False, True])
+def test_create_web_notes_rejects_existing_and_dangling_output_symlinks(
+    tmp_path: Path,
+    output_name: str,
+    dangling: bool,
+) -> None:
+    notes_dir = tmp_path / "notes"
+    collection = notes_dir / "Safe" / "AuditCollection"
+    collection.mkdir(parents=True)
+    source = tmp_path / "course.html"
+    write_local_course(source)
+    outside = tmp_path / f"outside-{output_name}"
+    if not dangling:
+        outside.write_text("external content", encoding="utf-8")
+    (collection / output_name).symlink_to(outside)
+
+    result = run_script_unchecked(
+        str(source),
+        "--notes-dir",
+        str(notes_dir),
+        "--category",
+        "Safe",
+        "--folder",
+        "AuditCollection",
+        "--title",
+        "Audit Course",
+        "--language",
+        "en",
+    )
+
+    assert result.returncode == 1
+    assert "symlink" in result.stderr.lower()
+    assert not outside.exists() if dangling else outside.read_text(encoding="utf-8") == "external content"

@@ -18,6 +18,38 @@ SKILL_ROOT = REPO_ROOT / "skill"
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.S)
 
 
+class UnsafeDestinationError(ValueError):
+    """Raised when an install target could escape through a symlink."""
+
+
+def ensure_safe_destination_root(destination_root: Path) -> None:
+    """Reject a destination root that is itself a symlink or non-directory."""
+
+    if destination_root.is_symlink():
+        raise UnsafeDestinationError(f"unsafe destination symlink: {destination_root}")
+    if destination_root.exists() and not destination_root.is_dir():
+        raise UnsafeDestinationError(f"destination root is not a directory: {destination_root}")
+
+
+def ensure_safe_destination_tree(destination: Path) -> None:
+    """Reject existing or dangling symlinks anywhere in a destination skill tree."""
+
+    ensure_safe_destination_root(destination.parent)
+    if destination.is_symlink():
+        raise UnsafeDestinationError(f"unsafe destination symlink: {destination}")
+    if not destination.exists():
+        return
+    if not destination.is_dir():
+        raise UnsafeDestinationError(f"destination skill is not a directory: {destination}")
+
+    for current_root, directory_names, file_names in os.walk(destination, followlinks=False):
+        current = Path(current_root)
+        for name in (*directory_names, *file_names):
+            candidate = current / name
+            if candidate.is_symlink():
+                raise UnsafeDestinationError(f"unsafe destination symlink: {candidate}")
+
+
 def default_destination(codex_home: Path | None = None) -> Path:
     if codex_home is None:
         env_home = os.environ.get("CODEX_HOME")
@@ -94,6 +126,7 @@ def compare_skill(source: Path, destination: Path) -> dict[str, list[str]]:
 
 
 def copy_skill(source: Path, destination: Path, dry_run: bool, prune: bool = False) -> None:
+    ensure_safe_destination_tree(destination)
     if dry_run:
         diff = compare_skill(source, destination)
         print(
@@ -155,23 +188,45 @@ def self_check_skill(skill_dir: Path) -> list[str]:
     return issues
 
 
+def report_self_check(label: str, issues: list[str], skill_count: int) -> int:
+    if issues:
+        print(f"{label} failed", file=sys.stderr)
+        for issue in issues:
+            print(f"ERROR: {issue}", file=sys.stderr)
+        return 1
+
+    print(f"{label} ok skills={skill_count}")
+    return 0
+
+
+def self_check_sources(skills: dict[str, Path]) -> int:
+    issues: list[str] = []
+    for source in skills.values():
+        issues.extend(self_check_skill(source))
+    return report_self_check("source_self_check", issues, len(skills))
+
+
 def self_check_selected(destination_root: Path, skills: dict[str, Path]) -> int:
     issues: list[str] = []
+    try:
+        ensure_safe_destination_root(destination_root)
+    except UnsafeDestinationError as exc:
+        issues.append(str(exc))
+        return report_self_check("install_self_check", issues, len(skills))
+
     for name in skills:
         installed_dir = destination_root / name
+        try:
+            ensure_safe_destination_tree(installed_dir)
+        except UnsafeDestinationError as exc:
+            issues.append(str(exc))
+            continue
         if not installed_dir.exists():
             issues.append(f"{installed_dir}: not installed")
             continue
         issues.extend(self_check_skill(installed_dir))
 
-    if issues:
-        print("install_self_check failed", file=sys.stderr)
-        for issue in issues:
-            print(f"ERROR: {issue}", file=sys.stderr)
-        return 1
-
-    print(f"install_self_check ok skills={len(skills)}")
-    return 0
+    return report_self_check("install_self_check", issues, len(skills))
 
 
 def main() -> int:
@@ -199,20 +254,17 @@ def main() -> int:
     if args.self_check_only:
         return self_check_selected(destination_root, skills)
 
-    for name, source in skills.items():
-        copy_skill(source, destination_root / name, dry_run=args.dry_run)
+    try:
+        ensure_safe_destination_root(destination_root)
+        for name, source in skills.items():
+            copy_skill(source, destination_root / name, dry_run=args.dry_run)
+    except UnsafeDestinationError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
     if args.self_check:
         if args.dry_run:
-            issues = []
-            for source in skills.values():
-                issues.extend(self_check_skill(source))
-            if issues:
-                for issue in issues:
-                    print(f"ERROR: {issue}", file=sys.stderr)
-                return 1
-            print(f"source_self_check ok skills={len(skills)}")
-            return 0
+            return self_check_sources(skills)
         return self_check_selected(destination_root, skills)
 
     print(f"installed_skills {len(skills)} destination={destination_root}")

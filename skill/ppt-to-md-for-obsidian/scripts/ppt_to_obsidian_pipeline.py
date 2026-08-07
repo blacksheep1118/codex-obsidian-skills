@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+import stat
 
 try:
     from .clean_latex_from_ppt import clean_text
@@ -68,6 +70,86 @@ class ProcessedSource:
     empty_pages: int | None = None
     char_count: int | None = None
     page_count: int | None = None
+
+
+def safe_relative_config_path(value: str, label: str) -> Path:
+    """Return a root-relative configured child path without traversal."""
+
+    try:
+        path = Path(value)
+        windows_path = PureWindowsPath(value)
+    except TypeError as exc:
+        raise ValueError(f"{label} must be a relative path string") from exc
+    if path.is_absolute() or windows_path.is_absolute():
+        raise ValueError(f"{label} must be root-relative, not absolute: {value!r}")
+    if not path.parts or path == Path(".") or ".." in path.parts or ".." in windows_path.parts:
+        raise ValueError(f"{label} must not be empty or contain '..': {value!r}")
+    return path
+
+
+def relative_beneath(root: Path, path: Path) -> Path:
+    root = root.resolve()
+    candidate = path if path.is_absolute() else root / path
+    candidate = Path(os.path.abspath(candidate))
+    try:
+        return candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"output path escapes output_dir: {path}") from exc
+
+
+def ensure_safe_directory(root: Path, path: Path, *, create: bool) -> Path:
+    """Validate or create a directory without traversing symlink components."""
+
+    root = root.resolve()
+    relative = relative_beneath(root, path)
+    current = root
+    for component in relative.parts:
+        current = current / component
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            if not create:
+                break
+            current.mkdir()
+            mode = current.lstat().st_mode
+        if stat.S_ISLNK(mode):
+            raise ValueError(f"output directory contains symlink component: {current}")
+        if not stat.S_ISDIR(mode):
+            raise ValueError(f"output directory component is not a directory: {current}")
+    return root / relative
+
+
+def ensure_safe_output_path(root: Path, path: Path, *, create_parent: bool = True) -> Path:
+    root = root.resolve()
+    relative = relative_beneath(root, path)
+    candidate = root / relative
+    ensure_safe_directory(root, candidate.parent, create=create_parent)
+    try:
+        mode = candidate.lstat().st_mode
+    except FileNotFoundError:
+        return candidate
+    if stat.S_ISLNK(mode):
+        raise ValueError(f"output path is a symlink: {candidate}")
+    if not stat.S_ISREG(mode):
+        raise ValueError(f"output path is not a regular file: {candidate}")
+    return candidate
+
+
+def write_text_no_follow(root: Path, path: Path, content: str) -> None:
+    candidate = ensure_safe_output_path(root, path)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(candidate, flags, 0o666)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError(f"output path is not a regular file: {candidate}")
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
+            descriptor = -1
+            stream.write(content)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
 def load_yaml_config(path: Path) -> dict:
@@ -240,54 +322,102 @@ def write_manifest(config: PipelineConfig, processed: list[ProcessedSource]) -> 
         "Output stems keep the source basename when unique and add a stable path hash on collisions; no source may overwrite another artifact.",
         "Use the cleaned extraction files as raw material. Rewrite them into primary notes; do not treat them as final notes.",
     ]
-    manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_text_no_follow(config.output_dir, manifest, "\n".join(lines) + "\n")
 
 
 def write_placeholders(config: PipelineConfig) -> None:
     if not config.create_review_placeholders:
         return
-    notes_dir = config.output_dir / "notes_skeleton"
-    notes_dir.mkdir(parents=True, exist_ok=True)
-    overview = notes_dir / config.overview_name
+    notes_dir = ensure_safe_directory(
+        config.output_dir,
+        config.output_dir / "notes_skeleton",
+        create=True,
+    )
+    overview = ensure_safe_output_path(
+        config.output_dir,
+        notes_dir / safe_relative_config_path(config.overview_name, "overview_name"),
+    )
     if not overview.exists():
-        overview.write_text(
+        write_text_no_follow(
+            config.output_dir,
+            overview,
             f"# {config.course_name} 总览\n\n"
             "## 顺序导航\n\n"
             "待根据 cleaned extraction 添加章节笔记。\n\n"
             "## 总复习\n\n"
             "- [[知识点精简复习版_含公式|知识点精简复习版（含公式）]]\n"
             "- [[知识点详细版_含公式|知识点详细版（含公式）]]\n",
-            encoding="utf-8",
         )
     for name, title in [
         ("知识点详细版_含公式.md", "知识点详细版（含公式）"),
         ("知识点精简复习版_含公式.md", "知识点精简复习版（含公式）"),
     ]:
-        path = notes_dir / name
+        path = ensure_safe_output_path(config.output_dir, notes_dir / name)
         if not path.exists():
-            path.write_text(f"# {config.course_name}{title}\n\n待根据 cleaned extraction 重写。\n", encoding="utf-8")
+            write_text_no_follow(
+                config.output_dir,
+                path,
+                f"# {config.course_name}{title}\n\n待根据 cleaned extraction 重写。\n",
+            )
 
 
 def run(config: PipelineConfig) -> list[ProcessedSource]:
+    converted_relative = safe_relative_config_path(config.converted_dir, "converted_dir")
+    safe_relative_config_path(config.overview_name, "overview_name")
+    output_root = config.output_dir.expanduser().resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    if not output_root.is_dir():
+        raise ValueError(f"output_dir is not a directory: {output_root}")
+    config.output_dir = output_root
     sources = iter_sources(config.source)
     if not sources:
         raise SystemExit(f"no supported source files found in {config.source}")
 
-    raw_dir = config.output_dir / "raw_extracted"
-    cleaned_dir = config.output_dir / "cleaned"
-    converted_dir = config.output_dir / config.converted_dir
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    cleaned_dir.mkdir(parents=True, exist_ok=True)
+    raw_dir = ensure_safe_directory(
+        config.output_dir,
+        config.output_dir / "raw_extracted",
+        create=True,
+    )
+    cleaned_dir = ensure_safe_directory(
+        config.output_dir,
+        config.output_dir / "cleaned",
+        create=True,
+    )
+    converted_dir = ensure_safe_directory(
+        config.output_dir,
+        config.output_dir / converted_relative,
+        create=False,
+    )
+    ensure_safe_directory(
+        config.output_dir,
+        config.output_dir / "notes_skeleton",
+        create=False,
+    )
+    ensure_safe_output_path(
+        config.output_dir,
+        config.output_dir / "pipeline_manifest.md",
+        create_parent=False,
+    )
 
     processed: list[ProcessedSource] = []
     used_output_stems: dict[str, str] = {}
     for source in sources:
+        if source.suffix.lower() == ".ppt":
+            converted_dir = ensure_safe_directory(
+                config.output_dir,
+                converted_dir,
+                create=True,
+            )
         extraction = extract_source(source, config, converted_dir)
         output_stem = disambiguated_stem(extraction.actual_source, source, used_output_stems)
         raw_path = raw_dir / f"{output_stem}.md"
         cleaned_path = cleaned_dir / f"{output_stem}.md"
-        raw_path.write_text(extraction.text, encoding="utf-8")
-        cleaned_path.write_text(clean_text(extraction.text, unicode_math=config.unicode_math), encoding="utf-8")
+        write_text_no_follow(config.output_dir, raw_path, extraction.text)
+        write_text_no_follow(
+            config.output_dir,
+            cleaned_path,
+            clean_text(extraction.text, unicode_math=config.unicode_math),
+        )
         processed.append(
             ProcessedSource(
                 source=source,

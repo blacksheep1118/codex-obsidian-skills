@@ -4,6 +4,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_course_notes.py"
 
@@ -174,3 +176,39 @@ def test_check_course_notes_skip_dir_ignores_non_course_index_dirs(tmp_path: Pat
     with_skip = run_checker(course, "--skip-dir", "概念索引", "--skip-dir", "生成审查")
     assert with_skip.returncode == 0, with_skip.stdout + with_skip.stderr
     assert "course_note_issues 0" in with_skip.stdout
+
+
+@pytest.mark.parametrize(
+    "required_name",
+    ["00_课程总览.md", "知识点详细版_含公式.md", "知识点精简复习版_含公式.md"],
+)
+def test_check_course_notes_rejects_external_required_file_symlink(
+    tmp_path: Path,
+    required_name: str,
+) -> None:
+    course = tmp_path / "课程"
+    write_minimal_course(course, "正文。")
+    required = course / required_name
+    content = required.read_text(encoding="utf-8")
+    required.unlink()
+    outside = tmp_path / required_name
+    write(outside, content)
+    required.symlink_to(outside)
+
+    result = run_checker(course)
+
+    assert result.returncode == 1
+    assert "UNSAFE_SYMLINK" in result.stdout
+
+
+def test_check_course_notes_rejects_external_directory_symlink(tmp_path: Path) -> None:
+    course = tmp_path / "课程"
+    write_minimal_course(course, "正文。")
+    outside = tmp_path / "outside"
+    write(outside / "external.md", "# External\n")
+    (course / "linked").symlink_to(outside, target_is_directory=True)
+
+    result = run_checker(course)
+
+    assert result.returncode == 1
+    assert "UNSAFE_SYMLINK" in result.stdout
