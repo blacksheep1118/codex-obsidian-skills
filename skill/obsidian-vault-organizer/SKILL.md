@@ -11,7 +11,7 @@ Organize an existing Obsidian vault or Markdown note collection into a coherent 
 
 Use this skill for vault-first work. If the main task is extracting or converting PPT/PPTX/PDF courseware, use `$ppt-to-md-for-obsidian` instead.
 
-When a target vault follows solvenotes-style conventions, read `references/solvenotes-profile.md` before strict cleanup or project-specific validation. In Solvenotes, keep `source_manifest.md` as the only formal source-evidence page, keep temporary audit ledgers outside the vault, and never create or update `99_内容覆盖审查.md` or a `coverage_audit` note.
+When a target vault follows solvenotes-style conventions, read `references/solvenotes-profile.md` before strict cleanup or project-specific validation. In Solvenotes, follow its manifest-only source-evidence contract, keep temporary audit ledgers outside the vault, and never create or update legacy audit notes.
 
 ## Handoff Boundaries
 
@@ -23,7 +23,7 @@ When the user asks for a dry run, audit and report planned edits only. Include b
 
 Keep backup copies, backup directories, audit notes, coverage notes, and report Markdown files outside the vault by default. Create an in-vault artifact only when the user explicitly requests one or local guidance requires it. Use the chat response, git diffs, and validation output for ordinary audits. When deleting a previously generated report, remove stale links to it.
 
-The Solvenotes profile is stricter: its legacy audit/report pages stay forbidden even if the generic `--allow-formal-coverage-audits` compatibility flag is supplied. Record durable source limitations in the applicable self-contained `source_manifest.md` instead.
+The Solvenotes profile is stricter: its legacy audit/report pages stay forbidden even if the generic `--allow-formal-coverage-audits` compatibility flag is supplied. Record durable source limitations only through the profile's named manifest contract.
 
 For dry-run audits and broad cleanup, run `scripts/link_inventory.py` before editing when the vault is local. Keep the baseline outside the vault unless the user explicitly asks for a file artifact inside it. After cleanup, rerun the inventory and compare total link count, per-directory link counts, and the files with the largest link-count drops before claiming link coverage was preserved.
 
