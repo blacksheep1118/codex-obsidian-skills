@@ -5,6 +5,7 @@ import pytest
 from scripts.check_obsidian_links import check_links
 from scripts.extract_pdf_text import LOW_COVERAGE_WARNING, PdfExtractionResult
 from scripts.extract_legacy_ppt_text import LegacyPptTextResult
+from scripts.extract_pptx_text import PptxExtractionResult
 from scripts.ppt_to_obsidian_pipeline import PipelineConfig, run
 import scripts.ppt_to_obsidian_pipeline as pipeline
 
@@ -30,6 +31,33 @@ def test_pipeline_extracts_cleans_and_writes_manifest(tmp_path: Path):
     assert checked == 2
     assert broken == []
     assert self_links == []
+
+
+def test_pipeline_manifest_records_pptx_fallback_stats_and_review_guidance(monkeypatch, tmp_path: Path):
+    source = tmp_path / "media-heavy.pptx"
+    source.write_bytes(b"placeholder")
+
+    def fake_extract(path: Path) -> PptxExtractionResult:
+        return PptxExtractionResult(
+            markdown="# Extracted PPTX Text\n",
+            backend="zip-xml-fallback",
+            partial=True,
+            slide_count=4,
+            blank_slides=2,
+            media_objects=3,
+        )
+
+    monkeypatch.setattr(pipeline, "extract_pptx_result", fake_extract)
+    config = PipelineConfig(source=source, output_dir=tmp_path / "out")
+
+    processed = run(config)
+    manifest = (config.output_dir / "pipeline_manifest.md").read_text(encoding="utf-8")
+
+    assert processed[0].backend == "pptx:zip-xml-fallback"
+    assert processed[0].partial is True
+    assert "PPTX slides: 4; slides without visible text: 2; media objects: 3" in manifest
+    assert "OCR or manual slide inspection" in manifest
+    assert "Coverage: partial/fallback extraction" in manifest
 
 
 def test_pipeline_uses_legacy_ppt_fallback_when_libreoffice_conversion_fails(monkeypatch, tmp_path: Path):
@@ -223,3 +251,39 @@ def test_pipeline_supports_safe_nested_configured_child_paths(tmp_path: Path) ->
 
     assert len(processed) == 1
     assert (config.output_dir / "notes_skeleton" / "navigation" / "00_课程总览.md").is_file()
+
+
+@pytest.mark.parametrize("dangling", [False, True])
+def test_pipeline_rejects_symlinked_source_file_in_directory(tmp_path: Path, dangling: bool) -> None:
+    source_root = tmp_path / "sources"
+    source_root.mkdir()
+    target = tmp_path / "missing.pdf"
+    if not dangling:
+        target.write_bytes(b"%PDF-1.4\n")
+    (source_root / "external.pdf").symlink_to(target)
+    config = PipelineConfig(source=source_root, output_dir=tmp_path / "out")
+
+    with pytest.raises(ValueError, match="source tree contains symlink"):
+        run(config)
+
+    assert not (config.output_dir / "raw_extracted").exists()
+
+
+def test_pipeline_rejects_explicit_source_symlink(tmp_path: Path) -> None:
+    target = tmp_path / "source.pdf"
+    target.write_bytes(b"%PDF-1.4\n")
+    source = tmp_path / "selected.pdf"
+    source.symlink_to(target)
+    config = PipelineConfig(source=source, output_dir=tmp_path / "out")
+
+    with pytest.raises(ValueError, match="source path is a symlink"):
+        run(config)
+
+
+def test_pipeline_rejects_explicit_unsupported_regular_file(tmp_path: Path) -> None:
+    source = tmp_path / "notes.md"
+    source.write_text("# Notes\n", encoding="utf-8")
+    config = PipelineConfig(source=source, output_dir=tmp_path / "out")
+
+    with pytest.raises(ValueError, match="unsupported explicit source type"):
+        run(config)

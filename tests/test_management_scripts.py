@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import stat
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,6 +16,7 @@ if str(SCRIPTS) not in sys.path:
 
 from install_skill import copy_skill  # noqa: E402
 from install_ignore import should_ignore_relative  # noqa: E402
+import install_skill  # noqa: E402
 import validate_all  # noqa: E402
 
 
@@ -138,7 +141,7 @@ def test_update_dry_run_self_check_rejects_broken_installed_metadata(tmp_path: P
 
     assert result.returncode != 0
     assert "source_self_check ok skills=1" in result.stdout
-    assert "missing default_prompt:" in result.stderr
+    assert "interface.default_prompt must be a non-empty string" in result.stderr
 
 
 def test_update_dry_run_self_check_validates_source_and_installed_copy(tmp_path: Path):
@@ -211,6 +214,138 @@ def test_install_rejects_symlink_destination_root(tmp_path: Path):
     assert list(outside.iterdir()) == []
 
 
+@pytest.mark.parametrize("dangling", [False, True])
+def test_install_rejects_destination_ancestor_symlink(tmp_path: Path, dangling: bool):
+    outside = tmp_path / "missing-outside" if dangling else tmp_path / "outside"
+    if not dangling:
+        outside.mkdir()
+    ancestor = tmp_path / "linked-ancestor"
+    ancestor.symlink_to(outside, target_is_directory=True)
+    destination = ancestor / "nested" / "skills"
+
+    result = run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        "ppt-to-md-for-obsidian",
+        "--destination",
+        str(destination),
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "symlink" in result.stderr.lower()
+    assert ancestor.is_symlink()
+    if dangling:
+        assert not outside.exists()
+    else:
+        assert list(outside.iterdir()) == []
+
+
+@pytest.mark.parametrize("link_location", ["root", "file", "directory"])
+def test_copy_skill_rejects_source_symlinks(tmp_path: Path, link_location: str):
+    real_source = tmp_path / "real-source"
+    write_file(real_source / "SKILL.md", "---\nname: fake-skill\ndescription: Use when testing.\n---\n")
+    destination = tmp_path / "destination"
+    if link_location == "root":
+        source = tmp_path / "source-link"
+        source.symlink_to(real_source, target_is_directory=True)
+    else:
+        source = real_source
+        outside = tmp_path / "outside"
+        if link_location == "file":
+            write_file(outside / "secret.txt", "outside\n")
+            (source / "secret.txt").symlink_to(outside / "secret.txt")
+        else:
+            outside.mkdir()
+            write_file(outside / "secret.txt", "outside\n")
+            (source / "linked-dir").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="source symlink"):
+        copy_skill(source, destination, dry_run=False)
+
+    assert not destination.exists()
+
+
+def test_copy_skill_does_not_follow_source_file_swapped_after_scan(monkeypatch, tmp_path: Path):
+    if not install_skill._supports_dir_fd():
+        pytest.skip("directory-relative file operations are unavailable")
+    source = tmp_path / "source" / "fake-skill"
+    destination = tmp_path / "destination" / "fake-skill"
+    write_file(source / "SKILL.md", "---\nname: fake-skill\ndescription: Use when testing.\n---\n")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("OUTSIDE_SECRET\n", encoding="utf-8")
+    original_copy = install_skill._copy_regular_file_at
+    swapped = False
+
+    def swap_then_copy(source_root_fd: int, destination_root_fd: int, relative: Path) -> None:
+        nonlocal swapped
+        if not swapped:
+            attacked = source / relative
+            attacked.unlink()
+            attacked.symlink_to(outside)
+            swapped = True
+        original_copy(source_root_fd, destination_root_fd, relative)
+
+    monkeypatch.setattr(install_skill, "_copy_regular_file_at", swap_then_copy)
+
+    with pytest.raises(ValueError, match="source symlink"):
+        copy_skill(source, destination, dry_run=False)
+
+    copied_regular_text = "\n".join(
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in destination.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    )
+    assert "OUTSIDE_SECRET" not in copied_regular_text
+
+
+def test_copy_skill_does_not_write_through_destination_ancestor_swapped_after_open(
+    monkeypatch,
+    tmp_path: Path,
+):
+    if not install_skill._supports_dir_fd():
+        pytest.skip("directory-relative file operations are unavailable")
+    source = tmp_path / "source" / "fake-skill"
+    write_file(source / "SKILL.md", "---\nname: fake-skill\ndescription: Use when testing.\n---\n")
+    ancestor = tmp_path / "destination-ancestor"
+    ancestor.mkdir()
+    destination = ancestor / "nested" / "fake-skill"
+    detached = tmp_path / "detached-destination"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    original_copy = install_skill._copy_regular_file_at
+    swapped = False
+
+    def swap_then_copy(source_root_fd: int, destination_root_fd: int, relative: Path) -> None:
+        nonlocal swapped
+        if not swapped:
+            ancestor.rename(detached)
+            ancestor.symlink_to(outside, target_is_directory=True)
+            swapped = True
+        original_copy(source_root_fd, destination_root_fd, relative)
+
+    monkeypatch.setattr(install_skill, "_copy_regular_file_at", swap_then_copy)
+
+    with pytest.raises(ValueError, match="destination root or ancestor changed"):
+        copy_skill(source, destination, dry_run=False)
+
+    assert list(outside.rglob("*")) == []
+
+
+def test_installer_rejects_non_whitelisted_top_level_symlink(monkeypatch):
+    original_lstat = Path.lstat
+
+    def fake_lstat(path: Path):
+        if path == Path("/untrusted"):
+            return SimpleNamespace(st_mode=stat.S_IFLNK)
+        return original_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", fake_lstat)
+
+    with pytest.raises(ValueError, match="untrusted top-level"):
+        install_skill._absolute_with_platform_alias(Path("/untrusted/skills"))
+
+
 def test_update_prune_rejects_internal_symlink_before_copying(tmp_path: Path):
     destination = tmp_path / "skills"
     skill_name = "ppt-to-md-for-obsidian"
@@ -268,10 +403,10 @@ def test_validate_all_lists_stable_step_ids():
         assert step_id in steps
 
 
-def test_validate_all_pytest_steps_disable_external_plugin_autoload(monkeypatch):
+def test_validate_all_pytest_steps_disable_external_plugin_autoload(monkeypatch, tmp_path: Path):
     monkeypatch.delenv(validate_all.PYTEST_PLUGIN_AUTOLOAD_OVERRIDE, raising=False)
 
-    steps = validate_all.build_steps(sys.executable)
+    steps = validate_all.build_steps(sys.executable, tmp_path)
     pytest_commands = [
         command
         for step in steps
@@ -287,10 +422,10 @@ def test_validate_all_pytest_steps_disable_external_plugin_autoload(monkeypatch)
     )
 
 
-def test_validate_all_pytest_plugin_autoload_override(monkeypatch):
+def test_validate_all_pytest_plugin_autoload_override(monkeypatch, tmp_path: Path):
     monkeypatch.setenv(validate_all.PYTEST_PLUGIN_AUTOLOAD_OVERRIDE, "1")
 
-    steps = validate_all.build_steps(sys.executable)
+    steps = validate_all.build_steps(sys.executable, tmp_path)
     pytest_commands = [
         command
         for step in steps
@@ -302,15 +437,15 @@ def test_validate_all_pytest_plugin_autoload_override(monkeypatch):
     assert all(command.env == {"PYTHONDONTWRITEBYTECODE": "1"} for command in pytest_commands)
 
 
-def test_validate_all_quick_runs_root_tests_before_metadata_sync():
-    steps = validate_all.selected_steps(validate_all.build_steps(sys.executable), quick=True, skill=None)
+def test_validate_all_quick_runs_root_tests_before_metadata_sync(tmp_path: Path):
+    steps = validate_all.selected_steps(validate_all.build_steps(sys.executable, tmp_path), quick=True, skill=None)
     step_ids = [step.step_id for step in steps]
 
     assert step_ids[:5] == ["root.compile", "root.ruff", "root.repo_hygiene", "root.tests", "metadata.sync"]
 
 
-def test_validate_all_ruff_step_uses_root_config():
-    steps = validate_all.build_steps(sys.executable)
+def test_validate_all_ruff_step_uses_root_config(tmp_path: Path):
+    steps = validate_all.build_steps(sys.executable, tmp_path)
     ruff_step = next(step for step in steps if step.step_id == "root.ruff")
 
     assert len(ruff_step.commands) == 1
@@ -347,8 +482,8 @@ def test_validate_all_timeout_reports_context(monkeypatch, capsys):
     assert "timeout: after 7s" in captured.err
 
 
-def test_validate_all_skill_alias_selects_same_steps_as_full_name():
-    steps = validate_all.build_steps(sys.executable)
+def test_validate_all_skill_alias_selects_same_steps_as_full_name(tmp_path: Path):
+    steps = validate_all.build_steps(sys.executable, tmp_path)
 
     alias_steps = [step.step_id for step in validate_all.selected_steps(steps, quick=False, skill="notes")]
     full_name_steps = [
@@ -428,3 +563,67 @@ def test_install_copy_ignores_and_prunes_repository_junk(tmp_path: Path):
     assert (destination / "scripts" / "tool.py").exists()
     assert not (destination / "stale.txt").exists()
     assert_no_install_junk(destination)
+
+
+def test_non_pruning_copy_retains_local_ignored_artifacts_and_dry_run_matches(
+    tmp_path: Path,
+    capsys,
+):
+    source = tmp_path / "source" / "fake-skill"
+    destination = tmp_path / "dest" / "fake-skill"
+    write_file(source / "SKILL.md", "---\nname: fake-skill\ndescription: Use when testing.\n---\n")
+    copy_skill(source, destination, dry_run=False)
+    ignored = destination / "local.log"
+    write_file(ignored, "local artifact\n")
+
+    copy_skill(source, destination, dry_run=True)
+    dry_run = capsys.readouterr().out
+    copy_skill(source, destination, dry_run=False)
+
+    assert "stale=0" in dry_run
+    assert "prune not requested" in dry_run
+    assert ignored.read_text(encoding="utf-8") == "local artifact\n"
+
+
+def test_prune_dry_run_reports_ignored_artifact_removed_by_real_prune(tmp_path: Path, capsys):
+    source = tmp_path / "source" / "fake-skill"
+    destination = tmp_path / "dest" / "fake-skill"
+    write_file(source / "SKILL.md", "---\nname: fake-skill\ndescription: Use when testing.\n---\n")
+    copy_skill(source, destination, dry_run=False)
+    ignored = destination / "local.log"
+    write_file(ignored, "local artifact\n")
+
+    copy_skill(source, destination, dry_run=True, prune=True)
+    dry_run = capsys.readouterr().out
+
+    assert "stale=0" in dry_run
+    assert "DRY-RUN prune stale files" in dry_run
+    assert "DRY-RUN remove local.log" in dry_run
+    assert ignored.exists()
+
+    copy_skill(source, destination, dry_run=False, prune=True)
+    assert not ignored.exists()
+
+
+def test_validate_all_uses_and_cleans_per_run_temporary_directory(monkeypatch, tmp_path: Path):
+    temporary = tmp_path / "validation-run"
+    events: list[str] = []
+
+    class TrackedTemporaryDirectory:
+        def __init__(self, prefix: str):
+            assert prefix == "codex-obsidian-skills-validate-"
+
+        def __enter__(self) -> str:
+            temporary.mkdir()
+            events.append("enter")
+            return str(temporary)
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            events.append("exit")
+            temporary.rmdir()
+
+    monkeypatch.setattr(validate_all.tempfile, "TemporaryDirectory", TrackedTemporaryDirectory)
+
+    assert validate_all.main(["--list-steps"]) == 0
+    assert events == ["enter", "exit"]
+    assert not temporary.exists()

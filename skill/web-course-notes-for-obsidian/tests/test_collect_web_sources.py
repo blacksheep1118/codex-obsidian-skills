@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 from urllib.error import HTTPError
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from scripts import collect_web_sources  # noqa: E402
 from scripts.collect_web_sources import (  # noqa: E402
+    SourceTooLargeError,
     build_manifest,
     classify_url,
     collect_page,
@@ -110,7 +114,7 @@ def test_collect_page_records_final_url_and_login_required_state(monkeypatch):
     monkeypatch.setattr(
         collect_web_sources,
         "read_source_with_metadata",
-        lambda source_url, timeout=15.0: (
+        lambda source_url, timeout=15.0, **kwargs: (
             "<title>Login</title><form><input type='password'></form>",
             "https://example.com/final-login",
             200,
@@ -127,7 +131,7 @@ def test_collect_page_records_final_url_and_login_required_state(monkeypatch):
 
 
 def test_collect_source_classifies_http_errors_without_collapsing_to_inaccessible(monkeypatch):
-    def raise_404(source_url: str, timeout: float = 15.0):
+    def raise_404(source_url: str, timeout: float = 15.0, **kwargs):
         raise HTTPError(source_url, 404, "Not Found", hdrs=None, fp=None)
 
     monkeypatch.setattr(collect_web_sources, "collect_page", raise_404)
@@ -142,3 +146,92 @@ def test_collect_source_classifies_http_errors_without_collapsing_to_inaccessibl
 
 def test_normalize_url_preserves_windows_file_drive_colon():
     assert normalize_url("file:///C:/Users/Test/course index.html") == "file:///C:/Users/Test/course%20index.html"
+
+
+def test_normalize_url_preserves_percent_encoded_reserved_octets():
+    value = "HTTPS://EXAMPLE.COM/a%2fb?next=a%26b%3dc&plain=x=y"
+
+    assert normalize_url(value) == "https://example.com/a%2Fb?next=a%26b%3Dc&plain=x=y"
+
+
+class FakeResponse:
+    def __init__(self, chunks: list[bytes], headers: dict[str, str] | None = None) -> None:
+        self.chunks = list(chunks)
+        self.headers = headers or {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def read(self, size: int) -> bytes:
+        return self.chunks.pop(0) if self.chunks else b""
+
+    def geturl(self) -> str:
+        return "https://example.com/final"
+
+    def getcode(self) -> int:
+        return 200
+
+
+def test_read_source_rejects_oversized_content_length_before_body_read(monkeypatch):
+    response = FakeResponse([b"should not be read"], {"content-length": "11"})
+    monkeypatch.setattr(collect_web_sources, "urlopen", lambda request, timeout: response)
+
+    with pytest.raises(SourceTooLargeError, match="Content-Length"):
+        collect_web_sources.read_source_with_metadata("https://example.com/course", max_bytes=10)
+
+    assert response.chunks == [b"should not be read"]
+
+
+def test_collect_source_records_chunked_response_byte_limit(monkeypatch):
+    response = FakeResponse([b"123456", b"789012"])
+    monkeypatch.setattr(collect_web_sources, "urlopen", lambda request, timeout: response)
+
+    page = collect_web_sources.collect_source("https://example.com/course", max_bytes=10)
+
+    assert page.access_status == "too_large"
+    assert page.access_class == "size_limit"
+    assert "byte limit" in page.error
+
+
+def test_collect_source_records_total_read_timeout(monkeypatch):
+    response = FakeResponse([b"<title>slow</title>"])
+    ticks = iter([0.0, 0.0, 2.0])
+    monkeypatch.setattr(collect_web_sources, "urlopen", lambda request, timeout: response)
+    monkeypatch.setattr(collect_web_sources.time, "monotonic", lambda: next(ticks))
+
+    page = collect_web_sources.collect_source("https://example.com/course", total_timeout=1.0)
+
+    assert page.access_status == "timeout"
+    assert page.access_class == "timeout"
+    assert "total time budget" in page.error
+
+
+def test_open_timeout_is_tightened_to_total_budget(monkeypatch):
+    seen_timeouts: list[float] = []
+
+    def fake_open(request, timeout: float):
+        seen_timeouts.append(timeout)
+        return FakeResponse([b"<title>bounded</title>"])
+
+    monkeypatch.setattr(collect_web_sources, "urlopen", fake_open)
+
+    collect_web_sources.read_source_with_metadata(
+        "https://example.com/course",
+        timeout=15.0,
+        total_timeout=1.0,
+    )
+
+    assert seen_timeouts == [1.0]
+
+
+def test_stream_timeout_reaches_urllib_nested_socket():
+    seen: list[float] = []
+    socket_like = SimpleNamespace(settimeout=seen.append)
+    response_like = SimpleNamespace(fp=SimpleNamespace(raw=SimpleNamespace(_sock=socket_like)))
+
+    collect_web_sources._set_stream_timeout(response_like, 0.75)
+
+    assert seen == [0.75]

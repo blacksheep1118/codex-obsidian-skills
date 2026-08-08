@@ -29,21 +29,21 @@ On Windows, replace `py` with `python` if the Python launcher is not installed.
 Install runtime dependencies when generating PPTX decks locally:
 
 ```bash
-python3 -m pip install -r requirements.txt
+python3 -m pip install -r skill/notes-to-scientific-ppt/requirements.txt
 ```
 
 ```powershell
-py -m pip install -r requirements.txt
+py -m pip install -r skill\notes-to-scientific-ppt\requirements.txt
 ```
 
 Install development dependencies only when running tests:
 
 ```bash
-python3 -m pip install -r requirements-dev.txt
+python3 -m pip install -r skill/notes-to-scientific-ppt/requirements-dev.txt
 ```
 
 ```powershell
-py -m pip install -r requirements-dev.txt
+py -m pip install -r skill\notes-to-scientific-ppt\requirements-dev.txt
 ```
 
 ## What It Produces
@@ -96,6 +96,8 @@ python3 scripts/build_scientific_deck.py examples/sample-notes --out "${TMPDIR:-
 ```
 
 `build_scientific_deck.py` accepts `--audience`, `--max-slides`, `--mode`, `--language`, `--follow-links`, `--vault-root`, and `--max-depth` when building from notes. Use `--follow-links --vault-root <vault> --max-depth <n>` to include linked Obsidian notes in the generated brief before the skeleton is built.
+
+`--max-slides` always means the maximum total deck size, including the title slide, in both the brief and direct-build commands. Building an existing brief without repeating the flag inherits the brief's recorded total; values below 2 are rejected.
 
 The script creates an editable PPTX skeleton from the Suggested Scientific Deck Spine and Draft Slide Backlog. Before delivery, apply the skeleton and visual gates in `references/deck-qa.md`.
 

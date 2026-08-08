@@ -10,6 +10,11 @@ import re
 import struct
 import sys
 
+try:
+    from .safe_io import safe_write_text
+except ImportError:
+    from safe_io import safe_write_text
+
 
 END_OF_CHAIN = -2
 FREE_SECTOR = -1
@@ -261,7 +266,11 @@ def main() -> int:
         return 1
 
     if args.out:
-        args.out.write_text(result.markdown, encoding="utf-8")
+        try:
+            safe_write_text(args.out, result.markdown)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
     else:
         print(result.markdown, end="")
     return 0

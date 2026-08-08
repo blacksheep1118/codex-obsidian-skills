@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -12,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from create_web_notes import choose_category_dir  # noqa: E402
+from create_web_notes import choose_category_dir, safe_path_name  # noqa: E402
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -297,3 +298,108 @@ def test_create_web_notes_rejects_existing_and_dangling_output_symlinks(
     assert result.returncode == 1
     assert "symlink" in result.stderr.lower()
     assert not outside.exists() if dangling else outside.read_text(encoding="utf-8") == "external content"
+
+
+def test_choose_category_short_ai_keyword_requires_token_boundary(tmp_path: Path) -> None:
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    ai_category = notes_dir / "人工智能"
+    ai_category.mkdir()
+
+    assert choose_category_dir(notes_dir, "retail email chair catalog") == notes_dir / "网络资源"
+    assert choose_category_dir(notes_dir, "A practical AI course") == ai_category
+
+
+@pytest.mark.parametrize("value", ["CON", "con.md", "PRN", "AUX.txt", "NUL", "COM1", "lpt9.md"])
+def test_safe_path_name_avoids_windows_reserved_device_names(value: str) -> None:
+    assert safe_path_name(value).startswith("_")
+
+
+def test_create_web_notes_rerun_reuses_canonical_files_without_suffixes(tmp_path: Path) -> None:
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    source = tmp_path / "course.html"
+    write_local_course(source)
+    args = (
+        str(source),
+        "--notes-dir",
+        str(notes_dir),
+        "--title",
+        "Audit Course",
+        "--language",
+        "en",
+    )
+
+    run_script(*args)
+    collection = notes_dir / "Web Resources" / "Audit Course"
+    for path in (collection / "00_Learning_Map.md", collection / "01_Audit Course.md"):
+        text = path.read_text(encoding="utf-8")
+        path.write_text(re.sub(r"\d{4}-\d{2}-\d{2}", "2000-01-01", text), encoding="utf-8")
+    run_script(*args)
+
+    assert sorted(path.name for path in collection.iterdir()) == [
+        "00_Learning_Map.md",
+        "01_Audit Course.md",
+        "source_manifest.md",
+    ]
+    assert "Created: 2000-01-01" in (collection / "00_Learning_Map.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("canonical_name", ["00_Learning_Map.md", "source_manifest.md"])
+def test_create_web_notes_fails_closed_on_canonical_content_conflict(
+    tmp_path: Path,
+    canonical_name: str,
+) -> None:
+    notes_dir = tmp_path / "notes"
+    collection = notes_dir / "Safe" / "AuditCollection"
+    collection.mkdir(parents=True)
+    (collection / canonical_name).write_text("pre-existing canonical content\n", encoding="utf-8")
+    source = tmp_path / "course.html"
+    write_local_course(source)
+
+    result = run_script_unchecked(
+        str(source),
+        "--notes-dir",
+        str(notes_dir),
+        "--category",
+        "Safe",
+        "--folder",
+        "AuditCollection",
+        "--title",
+        "Audit Course",
+        "--language",
+        "en",
+    )
+
+    assert result.returncode == 1
+    assert "canonical output conflicts" in result.stderr
+    assert not (collection / f"{Path(canonical_name).stem}_2.md").exists()
+    assert (collection / canonical_name).read_text(encoding="utf-8") == "pre-existing canonical content\n"
+
+
+def test_detail_collision_uses_actual_suffixed_stem_in_canonical_map(tmp_path: Path) -> None:
+    notes_dir = tmp_path / "notes"
+    collection = notes_dir / "Safe" / "AuditCollection"
+    collection.mkdir(parents=True)
+    (collection / "01_Audit Course.md").write_text("unrelated note\n", encoding="utf-8")
+    source = tmp_path / "course.html"
+    write_local_course(source)
+
+    run_script(
+        str(source),
+        "--notes-dir",
+        str(notes_dir),
+        "--category",
+        "Safe",
+        "--folder",
+        "AuditCollection",
+        "--title",
+        "Audit Course",
+        "--language",
+        "en",
+    )
+
+    map_text = (collection / "00_Learning_Map.md").read_text(encoding="utf-8")
+    detail_text = (collection / "01_Audit Course_2.md").read_text(encoding="utf-8")
+    assert "[[01_Audit Course_2]]" in map_text
+    assert "[[00_Learning_Map]]" in detail_text

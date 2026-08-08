@@ -29,6 +29,7 @@ SOURCE_MANIFEST_NOTE_TYPE_RE = re.compile(
 )
 BRIDGE_NOTE_RE = re.compile(r"本页保留旧路径，正文请读 \[\[[^\]]+\]\]。")
 WIKI_LINK_RE = re.compile(r"\[\[[^\]]+\]\]")
+FENCE_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})(?P<rest>.*)$")
 DEFAULT_EXCLUDED_DIRS = frozenset({".git", ".obsidian", ".pytest_cache", ".ruff_cache", "__pycache__", "scripts", "skills", "build", "output"})
 DEFAULT_EXCLUDED_FILES = frozenset({"AGENT.md"})
 
@@ -165,6 +166,27 @@ def is_conflict_marker(line: str, has_conflict_edges: bool) -> bool:
     return stripped.startswith("<<<<<<<") or stripped.startswith(">>>>>>>") or (has_conflict_edges and stripped == "=======")
 
 
+def fenced_code_lines(lines: list[str]) -> tuple[set[int], bool]:
+    """Return one-based fenced-code line numbers and whether a fence is unclosed."""
+
+    masked: set[int] = set()
+    active: tuple[str, int] | None = None
+    for line_number, line in enumerate(lines, start=1):
+        match = FENCE_RE.match(line)
+        if active is None:
+            if match:
+                token = match.group("fence")
+                active = (token[0], len(token))
+                masked.add(line_number)
+            continue
+        masked.add(line_number)
+        if match:
+            token = match.group("fence")
+            if token[0] == active[0] and len(token) >= active[1] and not match.group("rest").strip():
+                active = None
+    return masked, active is not None
+
+
 def is_bridge_note(text: str) -> bool:
     stripped = text.strip()
     if len(stripped) > 260:
@@ -272,6 +294,7 @@ def find_vault_issues(
             stems.setdefault(path.stem, []).append(path)
         has_conflict_edges = "<<<<<<<" in text and ">>>>>>>" in text
         lines = text.splitlines()
+        fenced_lines, unbalanced_fence = fenced_code_lines(lines)
 
         if (
             forbid_report_notes
@@ -291,6 +314,8 @@ def find_vault_issues(
         for line_number, line in enumerate(lines, start=1):
             if is_conflict_marker(line, has_conflict_edges):
                 issues.append(relative_issue(root, path, "conflict_marker", f"line {line_number} contains merge conflict marker"))
+            if line_number in fenced_lines:
+                continue
             if TEMPLATE_RE.search(line):
                 issues.append(relative_issue(root, path, "template_residue", f"line {line_number} contains leftover template text"))
             for residue_pattern in residue_patterns:
@@ -310,9 +335,8 @@ def find_vault_issues(
                 if previous.startswith("#") or previous.startswith("相关笔记") or previous.startswith("关联阅读"):
                     issues.append(relative_issue(root, path, "poor_link_context", f"line {line_number} is not attached to a concrete concept paragraph"))
 
-        fence_count = sum(1 for line in lines if line.strip().startswith("```"))
-        if fence_count % 2:
-            issues.append(relative_issue(root, path, "unbalanced_fence", "odd number of fenced code block delimiters"))
+        if unbalanced_fence:
+            issues.append(relative_issue(root, path, "unbalanced_fence", "fenced code block is not closed"))
 
         if text.count("$$") % 2:
             issues.append(relative_issue(root, path, "unbalanced_math", "odd number of block math delimiters"))

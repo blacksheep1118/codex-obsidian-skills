@@ -12,6 +12,11 @@ import re
 import stat
 import sys
 
+try:
+    from .safe_io import safe_write_text
+except ImportError:
+    from safe_io import safe_write_text
+
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
 MD_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
@@ -153,41 +158,9 @@ def is_excluded(path: Path, excluded: set[Path]) -> bool:
 
 
 def write_text_without_following_symlink(path: Path, text: str) -> None:
-    """Write a regular output file without following its final path component."""
+    """Write a regular output atomically without following symlink components."""
 
-    path = path.expanduser()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        mode = path.lstat().st_mode
-    except FileNotFoundError:
-        mode = None
-    if mode is not None:
-        if stat.S_ISLNK(mode):
-            raise ValueError(f"output path is a symlink: {path}")
-        if not stat.S_ISREG(mode):
-            raise ValueError(f"output path is not a regular file: {path}")
-
-    flags = os.O_WRONLY | os.O_CREAT
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    try:
-        descriptor = os.open(path, flags, 0o666)
-    except OSError as exc:
-        if path.is_symlink():
-            raise ValueError(f"output path is a symlink: {path}") from exc
-        raise
-    try:
-        opened = os.fstat(descriptor)
-        current = path.lstat()
-        if stat.S_ISLNK(current.st_mode) or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
-            raise ValueError(f"output path changed while opening: {path}")
-        os.ftruncate(descriptor, 0)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            descriptor = -1
-            handle.write(text)
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
+    safe_write_text(path, text)
 
 
 def is_regular_file_without_symlink_components(root: Path, path: Path) -> bool:
@@ -462,6 +435,8 @@ def detect_mode(summaries: list[NoteSummary], requested_mode: str) -> str:
 
 
 def suggested_spine(max_slides: int, mode: str) -> list[str]:
+    if max_slides < 2:
+        raise ValueError("max_slides must be at least 2 (title plus one content slide)")
     spines = {
         "paper-reading": [
             "Title and research question",
@@ -534,9 +509,8 @@ def suggested_spine(max_slides: int, mode: str) -> list[str]:
         ],
     }
     base = spines[mode]
-    if max_slides < len(base):
-        return base[: max(1, max_slides)]
-    return base[:max_slides]
+    content_slide_budget = max_slides - 1
+    return base[:content_slide_budget]
 
 
 def evidence_labels(summary: NoteSummary) -> list[str]:
@@ -694,7 +668,7 @@ def deck_spine(title: str, audience: str, max_slides: int, mode: str) -> list[st
         f"- Title: {title}",
         f"- Audience: {audience}",
         f"- Deck Mode: {mode} ({MODE_LABELS[mode]})",
-        f"- Target main-slide count: {max_slides}",
+        f"- Maximum total slide count: {max_slides} (including the title slide)",
         "- Style: 科研严谨风; claim-led, evidence-backed, visually inspectable.",
         "",
     ]
@@ -749,7 +723,7 @@ def localize_brief(text: str, language: str) -> str:
         "## Missing Inputs To Check": "## 待确认输入",
         "Deck Mode:": "演示模式:",
         "Audience:": "听众:",
-        "Target main-slide count:": "目标主幻灯片数量:",
+        "Maximum total slide count:": "最大总幻灯片数量:",
         "Style:": "风格:",
         "Use this as a source-grounded backlog for a": "将此作为有来源依据的",
         "deck. Convert each item into a claim-title slide or appendix item; do not paste note paragraphs directly.": "演示待办。把每项改写成 claim-title 幻灯片或 appendix 项，不要直接粘贴笔记段落。",
@@ -791,6 +765,8 @@ def build_brief(
     max_depth: int = 1,
     exclude_paths: set[Path] | None = None,
 ) -> str:
+    if max_slides < 2:
+        raise ValueError("max_slides must be at least 2 (title plus one content slide)")
     files = gather_files(
         inputs,
         follow_links=follow_links,
@@ -829,13 +805,16 @@ def main() -> int:
     parser.add_argument("--out", type=Path, help="Output deck brief Markdown path")
     parser.add_argument("--title", help="Deck title")
     parser.add_argument("--audience", default="research seminar", help="Target audience or talk context")
-    parser.add_argument("--max-slides", type=int, default=18, help="Target main-slide count")
+    parser.add_argument("--max-slides", type=int, default=18, help="Maximum total slide count, including title")
     parser.add_argument("--mode", choices=MODE_CHOICES, default="auto", help="Deck mode; default auto-detects from notes")
     parser.add_argument("--language", choices=LANGUAGE_CHOICES, default="auto", help="Brief language; auto uses Chinese when notes contain Chinese")
     parser.add_argument("--follow-links", action="store_true", help="follow local Obsidian wiki links from input notes")
     parser.add_argument("--vault-root", type=Path, help="Vault root for resolving local wiki links")
     parser.add_argument("--max-depth", type=int, default=1, help="Maximum wiki-link depth when --follow-links is used")
     args = parser.parse_args()
+
+    if args.max_slides < 2:
+        parser.error("--max-slides must be at least 2 (title plus one content slide)")
 
     try:
         brief = build_brief(

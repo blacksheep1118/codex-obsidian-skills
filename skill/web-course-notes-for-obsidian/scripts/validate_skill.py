@@ -7,9 +7,21 @@ from pathlib import Path
 import re
 import sys
 
+try:
+    from .skill_metadata import (
+        MetadataValidationError,
+        load_skill_frontmatter,
+        validate_openai_yaml as validate_openai_metadata,
+    )
+except ImportError:
+    from skill_metadata import (
+        MetadataValidationError,
+        load_skill_frontmatter,
+        validate_openai_yaml as validate_openai_metadata,
+    )
+
 
 ROOT = Path(__file__).resolve().parents[1]
-FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.S)
 MD_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
 REQUIRED_FILES = ['README.md',
  'LICENSE',
@@ -17,6 +29,9 @@ REQUIRED_FILES = ['README.md',
  'scripts/collect_web_sources.py',
  'scripts/check_web_notes.py',
  'scripts/create_web_notes.py',
+ 'scripts/safe_io.py',
+ 'scripts/url_identity.py',
+ 'scripts/skill_metadata.py',
  'scripts/validate_skill.py',
  'references/source-policy.md',
  'references/note-output.md']
@@ -40,30 +55,20 @@ def load_skill_metadata() -> dict:
     path = ROOT / "SKILL.md"
     if not path.exists():
         fail("SKILL.md is missing")
-    text = path.read_text(encoding="utf-8")
-    match = FRONTMATTER_RE.match(text)
-    if not match:
-        fail("SKILL.md must start with YAML frontmatter")
-    data = load_yaml(match.group(1))
-    for key in ("name", "description"):
-        if not data.get(key):
-            fail(f"SKILL.md frontmatter missing {key}")
-    if ROOT.name != data["name"]:
-        fail(f"skill directory name must match SKILL.md frontmatter name: {ROOT.name!r} != {data['name']!r}")
-    return data
+    try:
+        return load_skill_frontmatter(path, expected_name=ROOT.name)
+    except (OSError, MetadataValidationError) as exc:
+        fail(str(exc))
 
 
 def validate_openai_yaml(skill_name: str) -> None:
     path = ROOT / "agents" / "openai.yaml"
     if not path.exists():
         fail("agents/openai.yaml is missing")
-    data = load_yaml(path.read_text(encoding="utf-8"))
-    interface = data.get("interface", {})
-    for key in ("display_name", "short_description", "default_prompt"):
-        if not interface.get(key):
-            fail(f"agents/openai.yaml missing interface.{key}")
-    if f"${skill_name}" not in interface["default_prompt"]:
-        fail("interface.default_prompt must mention the skill name with $skill-name")
+    try:
+        validate_openai_metadata(path, skill_name)
+    except (OSError, MetadataValidationError) as exc:
+        fail(str(exc))
 
 
 def validate_yaml_files() -> None:

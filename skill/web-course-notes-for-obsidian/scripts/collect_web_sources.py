@@ -10,10 +10,18 @@ from pathlib import Path
 import re
 import socket
 import sys
+import time
 from typing import Iterable
-from urllib.parse import quote, unquote, urljoin, urlparse, urlsplit, urlunsplit
+from urllib.parse import unquote, urljoin, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, url2pathname, urlopen
+
+try:
+    from .safe_io import safe_write_text
+    from .url_identity import normalize_url
+except ImportError:
+    from safe_io import safe_write_text
+    from url_identity import normalize_url
 
 
 VIDEO_HOST_RE = re.compile(r"(youtube|youtu\.be|bilibili|vimeo|coursera|edx|khanacademy|ocw|mit\.edu)", re.I)
@@ -29,6 +37,17 @@ LOGIN_PAGE_RE = re.compile(
     r"(?:<input[^>]+type=[\"']password|\b(sign\s*in|log\s*in|login|required\s+login)\b|登录|登入)",
     re.I,
 )
+DEFAULT_MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+DEFAULT_TOTAL_TIMEOUT_SECONDS = 30.0
+READ_CHUNK_BYTES = 64 * 1024
+
+
+class SourceTooLargeError(ValueError):
+    """Raised when a source exceeds the configured byte budget."""
+
+
+class SourceTotalTimeoutError(TimeoutError):
+    """Raised when reading a source exceeds the total wall-clock budget."""
 
 
 @dataclass(frozen=True)
@@ -135,31 +154,94 @@ def title_from_url(url: str) -> str:
     return normalize_space(re.sub(r"[_-]+", " ", stem)) or path_name
 
 
-def normalize_url(url: str) -> str:
-    parts = urlsplit(url)
-    if not parts.scheme:
-        return url
-    path = quote(unquote(parts.path), safe="/:@")
-    query = quote(unquote(parts.query), safe="=&?/:@+,%")
-    fragment = quote(unquote(parts.fragment), safe="=&?/:@+,%")
-    return urlunsplit((parts.scheme, parts.netloc, path, query, fragment))
+def _read_limited(stream: object, *, max_bytes: int, deadline: float) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        now = time.monotonic()
+        if now >= deadline:
+            raise SourceTotalTimeoutError("source read exceeded the total time budget")
+        _set_stream_timeout(stream, deadline - now)
+        chunk = stream.read(min(READ_CHUNK_BYTES, max_bytes - total + 1))
+        if time.monotonic() >= deadline:
+            raise SourceTotalTimeoutError("source read exceeded the total time budget")
+        if not chunk:
+            return b"".join(chunks)
+        total += len(chunk)
+        if total > max_bytes:
+            raise SourceTooLargeError(f"source exceeds byte limit ({max_bytes} bytes)")
+        chunks.append(chunk)
 
 
-def read_source_with_metadata(source_url: str, timeout: float = 15.0) -> tuple[str, str, int | None]:
+def _set_stream_timeout(stream: object, remaining: float) -> None:
+    """Best-effort socket deadline tightening for urllib response streams."""
+
+    current = stream
+    for attribute in ("fp", "raw", "_sock"):
+        setter = getattr(current, "settimeout", None)
+        if callable(setter):
+            setter(remaining)
+            return
+        current = getattr(current, attribute, None)
+        if current is None:
+            return
+    setter = getattr(current, "settimeout", None)
+    if callable(setter):
+        setter(remaining)
+
+
+def read_source_with_metadata(
+    source_url: str,
+    timeout: float = 15.0,
+    *,
+    max_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+    total_timeout: float = DEFAULT_TOTAL_TIMEOUT_SECONDS,
+) -> tuple[str, str, int | None]:
+    if timeout <= 0 or total_timeout <= 0:
+        raise ValueError("timeout budgets must be positive")
+    if max_bytes <= 0:
+        raise ValueError("max_bytes must be positive")
     parsed = urlparse(source_url)
     if parsed.scheme == "file":
-        return Path(url2pathname(parsed.path)).read_text(encoding="utf-8", errors="replace"), source_url, 200
+        source_path = Path(url2pathname(parsed.path))
+        if source_path.stat().st_size > max_bytes:
+            raise SourceTooLargeError(f"source exceeds byte limit ({max_bytes} bytes)")
+        deadline = time.monotonic() + total_timeout
+        with source_path.open("rb") as stream:
+            payload = _read_limited(stream, max_bytes=max_bytes, deadline=deadline)
+        return payload.decode("utf-8", errors="replace"), source_url, 200
     request = Request(source_url, headers={"User-Agent": "codex-obsidian-skills/1.0"})
-    with urlopen(request, timeout=timeout) as response:
+    deadline = time.monotonic() + total_timeout
+    with urlopen(request, timeout=min(timeout, total_timeout)) as response:
+        content_length = response.headers.get("content-length")
+        if content_length:
+            try:
+                declared_length = int(content_length)
+            except ValueError:
+                declared_length = None
+            if declared_length is not None and declared_length > max_bytes:
+                raise SourceTooLargeError(f"source Content-Length exceeds byte limit ({max_bytes} bytes)")
         content_type = response.headers.get("content-type", "")
         charset_match = re.search(r"charset=([^;\s]+)", content_type)
         encoding = charset_match.group(1) if charset_match else "utf-8"
         final_url = normalize_url(response.geturl() or source_url)
-        return response.read().decode(encoding, errors="replace"), final_url, response.getcode()
+        payload = _read_limited(response, max_bytes=max_bytes, deadline=deadline)
+        return payload.decode(encoding, errors="replace"), final_url, response.getcode()
 
 
-def read_source(source_url: str, timeout: float = 15.0) -> str:
-    return read_source_with_metadata(source_url, timeout=timeout)[0]
+def read_source(
+    source_url: str,
+    timeout: float = 15.0,
+    *,
+    max_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+    total_timeout: float = DEFAULT_TOTAL_TIMEOUT_SECONDS,
+) -> str:
+    return read_source_with_metadata(
+        source_url,
+        timeout=timeout,
+        max_bytes=max_bytes,
+        total_timeout=total_timeout,
+    )[0]
 
 
 def error_summary(exc: BaseException) -> str:
@@ -193,7 +275,13 @@ def classify_url(url: str, label: str = "") -> str:
     return "web_page"
 
 
-def collect_page(source: str, timeout: float = 15.0) -> PageRecord:
+def collect_page(
+    source: str,
+    timeout: float = 15.0,
+    *,
+    max_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+    total_timeout: float = DEFAULT_TOTAL_TIMEOUT_SECONDS,
+) -> PageRecord:
     source_url = source_to_url(source)
     source_kind = classify_url(source_url)
     if source_kind in DIRECT_RESOURCE_KINDS:
@@ -210,7 +298,12 @@ def collect_page(source: str, timeout: float = 15.0) -> PageRecord:
             access_class="recorded",
         )
 
-    text, final_url, http_status = read_source_with_metadata(source_url, timeout=timeout)
+    text, final_url, http_status = read_source_with_metadata(
+        source_url,
+        timeout=timeout,
+        max_bytes=max_bytes,
+        total_timeout=total_timeout,
+    )
     parser = LearningHTMLParser()
     parser.feed(text)
 
@@ -243,9 +336,15 @@ def collect_page(source: str, timeout: float = 15.0) -> PageRecord:
     )
 
 
-def collect_source(source: str, timeout: float = 15.0) -> PageRecord:
+def collect_source(
+    source: str,
+    timeout: float = 15.0,
+    *,
+    max_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+    total_timeout: float = DEFAULT_TOTAL_TIMEOUT_SECONDS,
+) -> PageRecord:
     try:
-        return collect_page(source, timeout=timeout)
+        return collect_page(source, timeout=timeout, max_bytes=max_bytes, total_timeout=total_timeout)
     except Exception as exc:
         try:
             source_url = source_to_url(source)
@@ -258,6 +357,12 @@ def collect_source(source: str, timeout: float = 15.0) -> PageRecord:
             access_class = "http_error"
             description = f"HTTP request returned status {http_status}; kept for manifest coverage."
             final_url = normalize_url(exc.geturl() or source_url)
+        elif isinstance(exc, SourceTooLargeError):
+            http_status = None
+            access_status = "too_large"
+            access_class = "size_limit"
+            description = "Source exceeded the configured byte budget; kept for manifest coverage."
+            final_url = source_url
         elif isinstance(exc, (TimeoutError, socket.timeout)):
             http_status = None
             access_status = "timeout"
@@ -309,8 +414,17 @@ def dedupe_links(links: Iterable[LinkRecord]) -> list[LinkRecord]:
     return result
 
 
-def collect_sources(sources: list[str], timeout: float = 15.0) -> list[PageRecord]:
-    return [collect_source(source, timeout=timeout) for source in sources]
+def collect_sources(
+    sources: list[str],
+    timeout: float = 15.0,
+    *,
+    max_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+    total_timeout: float = DEFAULT_TOTAL_TIMEOUT_SECONDS,
+) -> list[PageRecord]:
+    return [
+        collect_source(source, timeout=timeout, max_bytes=max_bytes, total_timeout=total_timeout)
+        for source in sources
+    ]
 
 
 def markdown_escape_cell(value: str) -> str:
@@ -391,12 +505,33 @@ def main() -> int:
     parser.add_argument("sources", nargs="+", help="URL or local HTML file")
     parser.add_argument("--out", type=Path, help="Output Markdown path. Defaults to stdout.")
     parser.add_argument("--timeout", type=float, default=15.0, help="HTTP timeout in seconds")
+    parser.add_argument(
+        "--max-bytes",
+        type=int,
+        default=DEFAULT_MAX_RESPONSE_BYTES,
+        help=f"Maximum bytes per source (default: {DEFAULT_MAX_RESPONSE_BYTES})",
+    )
+    parser.add_argument(
+        "--total-timeout",
+        type=float,
+        default=DEFAULT_TOTAL_TIMEOUT_SECONDS,
+        help=f"Total read budget per source in seconds (default: {DEFAULT_TOTAL_TIMEOUT_SECONDS:g})",
+    )
     args = parser.parse_args()
 
-    pages = collect_sources(args.sources, timeout=args.timeout)
+    pages = collect_sources(
+        args.sources,
+        timeout=args.timeout,
+        max_bytes=args.max_bytes,
+        total_timeout=args.total_timeout,
+    )
     manifest = build_manifest(pages)
     if args.out:
-        args.out.write_text(manifest, encoding="utf-8")
+        try:
+            safe_write_text(args.out, manifest)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
         print(args.out)
     else:
         print(manifest, end="")

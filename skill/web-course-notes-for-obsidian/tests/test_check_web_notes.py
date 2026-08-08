@@ -293,3 +293,54 @@ def test_check_web_notes_rejects_external_per_link_note_symlink(tmp_path: Path) 
     assert result.returncode == 1
     assert "UNSAFE_SYMLINK" in result.stdout
     assert "MISSING_PER_LINK_NOTE" in result.stdout
+
+
+def test_per_link_coverage_requires_exact_extracted_url_token(tmp_path: Path) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/readings"
+    resource = "https://example.com/paper.pdf"
+    write(collection / "source_manifest.md", manifest(source, resource))
+    write_entry_map(collection)
+    write(
+        collection / "01_Course.md",
+        f"# Course\n\nSource: {source}\n\nWrong resource: {resource}.backup\n",
+    )
+
+    result = run_checker(collection, "--source", source, "--per-link-notes")
+
+    assert result.returncode == 1
+    assert "MISSING_PER_LINK_NOTE" in result.stdout
+
+
+def test_per_link_url_identity_preserves_reserved_percent_octets(tmp_path: Path) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/readings"
+    resource = "https://example.com/a%2Fb?next=a%26b%3Dc"
+    write(collection / "source_manifest.md", manifest(source, resource))
+    write_entry_map(collection)
+    note = collection / "01_Course.md"
+    write(note, f"# Course\n\nSource: {source}\n\nDecoded lookalike: https://example.com/a/b?next=a&b=c\n")
+
+    mismatch = run_checker(collection, "--source", source, "--per-link-notes")
+    assert mismatch.returncode == 1
+    assert "MISSING_PER_LINK_NOTE" in mismatch.stdout
+
+    write(note, f"# Course\n\nSource: {source}\n\nExact resource: https://example.com/a%2fb?next=a%26b%3dc\n")
+    match = run_checker(collection, "--source", source, "--per-link-notes")
+    assert match.returncode == 0, match.stdout + match.stderr
+
+
+def test_per_link_url_extraction_trims_markdown_code_and_table_delimiters(tmp_path: Path) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/readings"
+    resource = "https://example.com/paper.pdf"
+    write(collection / "source_manifest.md", manifest(source, resource))
+    write_entry_map(collection)
+    write(
+        collection / "01_Course.md",
+        f"# Course\n\nSource: {source}\n\n| resource |\n| --- |\n| `{resource}`|\n",
+    )
+
+    result = run_checker(collection, "--source", source, "--per-link-notes")
+
+    assert result.returncode == 0, result.stdout + result.stderr

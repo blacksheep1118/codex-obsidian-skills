@@ -13,8 +13,14 @@ from pathlib import Path
 import subprocess
 import sys
 
+try:
+    from .safe_io import safe_write_text
+except ImportError:
+    from safe_io import safe_write_text
+
 
 MIN_TEXT_CHARS_PER_PAGE = 20
+MIN_NONEMPTY_PAGE_RATIO = 0.5
 LOW_COVERAGE_WARNING = "Warning: low text coverage; source may be scanned/image-only and needs OCR or manual inspection."
 
 
@@ -104,6 +110,8 @@ def low_text_coverage(result: PdfBackendResult) -> bool:
     if not result.pages:
         return True
     if result.text_char_count == 0:
+        return True
+    if result.nonempty_page_count / result.page_count < MIN_NONEMPTY_PAGE_RATIO:
         return True
     return result.text_char_count < result.page_count * MIN_TEXT_CHARS_PER_PAGE
 
@@ -204,7 +212,11 @@ def main() -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     if args.out:
-        args.out.write_text(md, encoding="utf-8")
+        try:
+            safe_write_text(args.out, md)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
     else:
         print(md, end="")
     return 0

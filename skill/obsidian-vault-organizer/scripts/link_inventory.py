@@ -11,6 +11,11 @@ import re
 import sys
 from urllib.parse import unquote
 
+try:
+    from .safe_io import safe_write_text
+except ImportError:
+    from safe_io import safe_write_text
+
 
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
 WIKI_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
@@ -292,7 +297,11 @@ def main() -> int:
         output = render_markdown(inventory)
 
     if args.out:
-        args.out.write_text(output, encoding="utf-8")
+        try:
+            safe_write_text(args.out, output)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
         print(args.out)
     else:
         print(output, end="")

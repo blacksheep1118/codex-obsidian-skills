@@ -20,9 +20,6 @@ PPT_SKILL = ROOT / "skill" / "ppt-to-md-for-obsidian"
 VAULT_SKILL = ROOT / "skill" / "obsidian-vault-organizer"
 WEB_SKILL = ROOT / "skill" / "web-course-notes-for-obsidian"
 NOTES_PPT_SKILL = ROOT / "skill" / "notes-to-scientific-ppt"
-TMP = Path(tempfile.gettempdir())
-INSTALL_TMP = TMP / "codex-obsidian-skills-validate-install"
-PIPELINE_TMP = TMP / "codex-obsidian-skills-pipeline-out"
 DEFAULT_TIMEOUT_SECONDS = int(os.environ.get("VALIDATE_ALL_TIMEOUT_SECONDS", "180"))
 PYTEST_PLUGIN_AUTOLOAD_OVERRIDE = "VALIDATE_ALL_ENABLE_PYTEST_PLUGIN_AUTOLOAD"
 TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -85,11 +82,11 @@ def report_failure(step_id: str, command: list[str], cwd: Path, returncode: int 
         print(f"timeout: after {timeout}s", file=sys.stderr, flush=True)
 
 
-def subprocess_env(extra: Mapping[str, str] | None) -> dict[str, str] | None:
-    if not extra:
-        return None
+def subprocess_env(extra: Mapping[str, str] | None) -> dict[str, str]:
     env = os.environ.copy()
-    env.update(extra)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    if extra:
+        env.update(extra)
     return env
 
 
@@ -106,11 +103,11 @@ def pytest_command(py: str, *args: str, cwd: Path = ROOT) -> CommandSpec:
     return CommandSpec([py, "-m", "pytest", *args, "-p", "no:cacheprovider"], cwd=cwd, env=pytest_env())
 
 
-def compile_command(py: str, cwd: Path = ROOT) -> CommandSpec:
+def compile_command(py: str, temp_root: Path, cwd: Path = ROOT) -> CommandSpec:
     return CommandSpec(
         [py, "-m", "compileall", "scripts"],
         cwd=cwd,
-        env={"PYTHONPYCACHEPREFIX": str(TMP / "codex-obsidian-skills-pycache")},
+        env={"PYTHONPYCACHEPREFIX": str(temp_root / "pycache")},
     )
 
 
@@ -135,9 +132,11 @@ def run_command(
     print(f"{step_id} ok", flush=True)
 
 
-def build_steps(py: str) -> list[Step]:
+def build_steps(py: str, temp_root: Path) -> list[Step]:
+    install_temp = temp_root / "install"
+    pipeline_temp = temp_root / "pipeline-out"
     return [
-        Step("root.compile", (compile_command(py),)),
+        Step("root.compile", (compile_command(py, temp_root),)),
         Step(
             "root.ruff",
             (
@@ -158,28 +157,28 @@ def build_steps(py: str) -> list[Step]:
         Step(
             "metadata.install",
             (
-                CommandSpec([py, "scripts/install_skill.py", "--all", "--destination", str(INSTALL_TMP), "--self-check"]),
-                CommandSpec([py, "scripts/update_installed_skills.py", "--all", "--destination", str(INSTALL_TMP), "--self-check"]),
-                CommandSpec([py, "scripts/update_installed_skills.py", "--all", "--destination", str(INSTALL_TMP), "--dry-run"]),
+                CommandSpec([py, "scripts/install_skill.py", "--all", "--destination", str(install_temp), "--self-check"]),
+                CommandSpec([py, "scripts/update_installed_skills.py", "--all", "--destination", str(install_temp), "--self-check"]),
+                CommandSpec([py, "scripts/update_installed_skills.py", "--all", "--destination", str(install_temp), "--dry-run"]),
             ),
             quick=False,
         ),
-        Step("ppt.compile", (compile_command(py, cwd=PPT_SKILL),), skill="ppt"),
+        Step("ppt.compile", (compile_command(py, temp_root, cwd=PPT_SKILL),), skill="ppt"),
         Step("ppt.tests", (pytest_command(py, "-q", "tests", cwd=PPT_SKILL),), skill="ppt", quick=False),
         Step("ppt.validator", (CommandSpec([py, "scripts/validate_skill_repo.py"], cwd=PPT_SKILL),), skill="ppt"),
         Step(
             "ppt.pipeline",
             (
-                CommandSpec([py, "scripts/extract_pptx_text.py", "examples/sample-course/raw/sample_course.pptx", "--out", str(TMP / "sample_course_extracted.md")], cwd=PPT_SKILL),
-                CommandSpec([py, "scripts/clean_latex_from_ppt.py", "examples/sample-course/extracted/sample_course_extracted.md", "--unicode-math", "--out", str(TMP / "sample_course_cleaned.md")], cwd=PPT_SKILL),
-                CommandSpec([py, "scripts/ppt_to_obsidian_pipeline.py", "--config", "skill-config.example.yaml", "--output-dir", str(PIPELINE_TMP)], cwd=PPT_SKILL),
+                CommandSpec([py, "scripts/extract_pptx_text.py", "examples/sample-course/raw/sample_course.pptx", "--out", str(temp_root / "sample_course_extracted.md")], cwd=PPT_SKILL),
+                CommandSpec([py, "scripts/clean_latex_from_ppt.py", "examples/sample-course/extracted/sample_course_extracted.md", "--unicode-math", "--out", str(temp_root / "sample_course_cleaned.md")], cwd=PPT_SKILL),
+                CommandSpec([py, "scripts/ppt_to_obsidian_pipeline.py", "--config", "skill-config.example.yaml", "--output-dir", str(pipeline_temp)], cwd=PPT_SKILL),
                 CommandSpec([py, "scripts/check_obsidian_links.py", "examples/sample-course/notes"], cwd=PPT_SKILL),
                 CommandSpec([py, "scripts/check_course_notes.py", "examples/sample-course/notes"], cwd=PPT_SKILL),
             ),
             skill="ppt",
             quick=False,
         ),
-        Step("vault.compile", (compile_command(py, cwd=VAULT_SKILL),), skill="vault"),
+        Step("vault.compile", (compile_command(py, temp_root, cwd=VAULT_SKILL),), skill="vault"),
         Step("vault.tests", (pytest_command(py, "-q", "tests", cwd=VAULT_SKILL),), skill="vault", quick=False),
         Step("vault.validator", (CommandSpec([py, "scripts/validate_skill.py"], cwd=VAULT_SKILL),), skill="vault"),
         Step(
@@ -191,19 +190,19 @@ def build_steps(py: str) -> list[Step]:
             skill="vault",
             quick=False,
         ),
-        Step("web.compile", (compile_command(py, cwd=WEB_SKILL),), skill="web"),
+        Step("web.compile", (compile_command(py, temp_root, cwd=WEB_SKILL),), skill="web"),
         Step("web.tests", (pytest_command(py, "-q", "tests", cwd=WEB_SKILL),), skill="web", quick=False),
         Step("web.validator", (CommandSpec([py, "scripts/validate_skill.py"], cwd=WEB_SKILL),), skill="web"),
         Step(
             "web.pipeline",
             (
-                CommandSpec([py, "scripts/collect_web_sources.py", "examples/sample-web-course/index.html", "--out", str(TMP / "web_course_source_manifest.md")], cwd=WEB_SKILL),
-                CommandSpec([py, "scripts/create_web_notes.py", "https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf", "--notes-dir", str(TMP / "codex-obsidian-skills-web-notes"), "--dry-run"], cwd=WEB_SKILL),
+                CommandSpec([py, "scripts/collect_web_sources.py", "examples/sample-web-course/index.html", "--out", str(temp_root / "web_course_source_manifest.md")], cwd=WEB_SKILL),
+                CommandSpec([py, "scripts/create_web_notes.py", "https://example.com/papers/Zhu_From_Noise_Modeling_CVPR_2016_paper.pdf", "--notes-dir", str(temp_root / "web-notes"), "--dry-run"], cwd=WEB_SKILL),
             ),
             skill="web",
             quick=False,
         ),
-        Step("notes.compile", (compile_command(py, cwd=NOTES_PPT_SKILL),), skill="notes"),
+        Step("notes.compile", (compile_command(py, temp_root, cwd=NOTES_PPT_SKILL),), skill="notes"),
         Step("notes.tests", (pytest_command(py, "-q", "tests", cwd=NOTES_PPT_SKILL),), skill="notes", quick=False),
         Step("notes.validator", (CommandSpec([py, "scripts/validate_skill.py"], cwd=NOTES_PPT_SKILL),), skill="notes"),
         Step(
@@ -215,7 +214,7 @@ def build_steps(py: str) -> list[Step]:
                         "scripts/outline_note_deck.py",
                         "examples/sample-notes",
                         "--out",
-                        str(TMP / "scientific_deck_brief.md"),
+                        str(temp_root / "scientific_deck_brief.md"),
                         "--title",
                         "Blind Image Denoising",
                         "--mode",
@@ -227,9 +226,9 @@ def build_steps(py: str) -> list[Step]:
                     [
                         py,
                         "scripts/build_scientific_deck.py",
-                        str(TMP / "scientific_deck_brief.md"),
+                        str(temp_root / "scientific_deck_brief.md"),
                         "--out",
-                        str(TMP / "scientific_deck.pptx"),
+                        str(temp_root / "scientific_deck.pptx"),
                     ],
                     cwd=NOTES_PPT_SKILL,
                 ),
@@ -237,7 +236,7 @@ def build_steps(py: str) -> list[Step]:
                     [
                         py,
                         "scripts/verify_pptx.py",
-                        str(TMP / "scientific_deck.pptx"),
+                        str(temp_root / "scientific_deck.pptx"),
                         "--expected-slides",
                         "15",
                         "--expected-title",
@@ -284,16 +283,17 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(exc))
 
     py = sys.executable
-    steps = build_steps(py)
+    with tempfile.TemporaryDirectory(prefix="codex-obsidian-skills-validate-") as temporary:
+        steps = build_steps(py, Path(temporary))
 
-    if args.list_steps:
-        for step in steps:
-            print(step.step_id)
-        return 0
+        if args.list_steps:
+            for step in steps:
+                print(step.step_id)
+            return 0
 
-    for step in selected_steps(steps, quick=args.quick, skill=skill):
-        for command in step.commands:
-            run_command(step.step_id, command.command, command.cwd, env=command.env)
+        for step in selected_steps(steps, quick=args.quick, skill=skill):
+            for command in step.commands:
+                run_command(step.step_id, command.command, command.cwd, env=command.env)
 
     suffix = " quick" if args.quick else ""
     skill_text = f" skill={skill}" if skill else ""

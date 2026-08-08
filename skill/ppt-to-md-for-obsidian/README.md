@@ -31,11 +31,11 @@ On Windows, replace `py` with `python` if the Python launcher is not installed.
 Install runtime dependencies when you want to run the bundled extraction scripts locally:
 
 ```bash
-python3 -m pip install -r ~/.codex/skills/ppt-to-md-for-obsidian/requirements.txt
+python3 -m pip install -r skill/ppt-to-md-for-obsidian/requirements.txt
 ```
 
 ```powershell
-py -m pip install -r "$env:USERPROFILE\.codex\skills\ppt-to-md-for-obsidian\requirements.txt"
+py -m pip install -r skill\ppt-to-md-for-obsidian\requirements.txt
 ```
 
 ## What It Produces
@@ -88,11 +88,11 @@ Install or copy this repository as a Codex skill, then ask Codex to convert cour
 Install development/test dependencies:
 
 ```bash
-python3 -m pip install -r requirements-dev.txt
+python3 -m pip install -r skill/ppt-to-md-for-obsidian/requirements-dev.txt
 ```
 
 ```powershell
-py -m pip install -r requirements-dev.txt
+py -m pip install -r skill\ppt-to-md-for-obsidian\requirements-dev.txt
 ```
 
 Example prompts:

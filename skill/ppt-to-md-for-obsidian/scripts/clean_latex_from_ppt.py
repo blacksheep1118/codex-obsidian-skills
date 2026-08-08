@@ -6,7 +6,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import re
+import sys
 import unicodedata
+
+try:
+    from .safe_io import safe_write_text
+except ImportError:
+    from safe_io import safe_write_text
 
 
 ZERO_WIDTH_RE = re.compile("[\u200b\u200c\u200d\ufeff]")
@@ -100,7 +106,11 @@ def main() -> int:
     text = args.input.read_text(encoding="utf-8", errors="replace")
     cleaned = clean_text(text, unicode_math=args.unicode_math)
     if args.out:
-        args.out.write_text(cleaned, encoding="utf-8")
+        try:
+            safe_write_text(args.out, cleaned)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
     else:
         print(cleaned, end="")
     return 0

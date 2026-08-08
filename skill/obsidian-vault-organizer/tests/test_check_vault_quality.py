@@ -39,6 +39,30 @@ def test_vault_quality_reports_generic_issues_and_duplicate_stems(tmp_path: Path
     assert {"duplicate_stem", "empty_file", "conflict_marker", "template_residue"}.issubset(issue_kinds(issues))
 
 
+def test_vault_quality_ignores_todo_inside_balanced_fenced_code(tmp_path: Path):
+    vault = tmp_path / "vault"
+    write(vault / "example.md", "# Example\n\n```python\n# TODO: demonstrate placeholder syntax\n```\n")
+
+    issues = find_vault_issues(vault)
+
+    assert "template_residue" not in issue_kinds(issues)
+    assert "unbalanced_fence" not in issue_kinds(issues)
+
+
+def test_vault_quality_keeps_conflict_and_unbalanced_fence_checks_inside_code(tmp_path: Path):
+    vault = tmp_path / "vault"
+    write(
+        vault / "broken.md",
+        "# Broken\n\n```text\n<<<<<<< HEAD\nold\n=======\nnew\n>>>>>>> branch\n",
+    )
+
+    issues = find_vault_issues(vault)
+
+    assert "conflict_marker" in issue_kinds(issues)
+    assert "unbalanced_fence" in issue_kinds(issues)
+    assert "template_residue" not in issue_kinds(issues)
+
+
 def test_bridge_notes_do_not_create_duplicate_stem_issues(tmp_path: Path):
     vault = tmp_path / "vault"
     write(vault / "current" / "legacy.md", "# Legacy\n\nCurrent content.\n")

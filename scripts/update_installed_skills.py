@@ -9,6 +9,7 @@ import sys
 
 from install_skill import (
     UnsafeDestinationError,
+    UnsafeSourceError,
     copy_skill,
     default_destination,
     discover_skills,
@@ -39,8 +40,12 @@ def main() -> int:
         parser.error("--destination and --codex-home are mutually exclusive")
 
     destination_root = args.destination.expanduser() if args.destination else default_destination(args.codex_home)
-    all_skills = discover_skills()
-    skills = selected_skills(all_skills, args.skill, args.all)
+    try:
+        all_skills = discover_skills()
+        skills = selected_skills(all_skills, args.skill, args.all)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
     if args.self_check and self_check_sources(skills):
         return 1
@@ -49,7 +54,7 @@ def main() -> int:
         ensure_safe_destination_root(destination_root)
         for name in skills:
             ensure_safe_destination_tree(destination_root / name)
-    except UnsafeDestinationError as exc:
+    except (UnsafeDestinationError, UnsafeSourceError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
@@ -64,7 +69,7 @@ def main() -> int:
     try:
         for name, source in skills.items():
             copy_skill(source, destination_root / name, dry_run=args.dry_run, prune=args.prune)
-    except UnsafeDestinationError as exc:
+    except (UnsafeDestinationError, UnsafeSourceError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 

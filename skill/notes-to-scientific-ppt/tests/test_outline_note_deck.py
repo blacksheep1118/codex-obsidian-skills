@@ -52,6 +52,18 @@ def run_build_script(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def run_build_script_unchecked(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "scripts/build_scientific_deck.py", *args],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+
+
 def slide_title(slide) -> str:
     for shape in slide.shapes:
         if getattr(shape, "has_text_frame", False) and shape.text.strip():
@@ -148,7 +160,49 @@ def test_outline_note_deck_respects_max_slides(tmp_path: Path):
     spine = result.stdout.split("## Suggested Scientific Deck Spine", 1)[1].split("## Draft Slide Backlog", 1)[0]
     numbered = [line for line in spine.splitlines() if line.strip() and line.lstrip()[0].isdigit()]
 
-    assert len(numbered) == 4
+    assert len(numbered) == 3
+    assert "Maximum total slide count: 4 (including the title slide)" in result.stdout
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_outline_and_build_reject_nonpositive_max_slides(tmp_path: Path, value: str):
+    note = tmp_path / "note.md"
+    note.write_text("# Note\n\nEvidence.\n", encoding="utf-8")
+
+    outline = run_script_unchecked(str(note), "--max-slides", value)
+    build = run_build_script_unchecked(
+        str(note),
+        "--out",
+        str(tmp_path / "deck.pptx"),
+        "--max-slides",
+        value,
+    )
+
+    assert outline.returncode != 0
+    assert build.returncode != 0
+    assert "at least 2" in outline.stderr
+    assert "at least 2" in build.stderr
+
+
+def test_programmatic_build_rejects_invalid_total_slide_budget(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text("# Note\n\nEvidence.\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="at least 2"):
+        build_deck(note, tmp_path / "deck.pptx", max_slides=0)
+
+
+def test_build_from_brief_inherits_total_slide_budget_when_flag_is_omitted(tmp_path: Path):
+    note = tmp_path / "note.md"
+    brief = tmp_path / "brief.md"
+    deck = tmp_path / "deck.pptx"
+    note.write_text("# Note\n\n## Method\n\nGrounded evidence.\n", encoding="utf-8")
+    run_script(str(note), "--out", str(brief), "--max-slides", "4", "--language", "en")
+
+    result = run_build_script(str(brief), "--out", str(deck))
+
+    assert "slides 4" in result.stdout
+    assert len(Presentation(str(deck)).slides) == 4
 
 
 def test_outline_note_deck_can_follow_local_wiki_links(tmp_path: Path):
@@ -478,7 +532,7 @@ def test_build_scientific_deck_follow_links_adds_linked_notes_to_brief(tmp_path:
     )
 
     assert "Audience: committee review" in brief
-    assert "Target main-slide count: 7" in brief
+    assert "Maximum total slide count: 7 (including the title slide)" in brief
     assert "`main.md`" in brief
     assert "`Linked Evidence.md`" in brief
     assert "result/comparison table" in brief
@@ -553,3 +607,65 @@ def test_build_scientific_deck_folder_input_propagates_safe_scan(tmp_path: Path)
 
     assert "Safe Note" in brief
     assert "OUTSIDE_SECRET_BUILD" not in brief
+
+
+def unsafe_output_path(tmp_path: Path, suffix: str, kind: str) -> tuple[Path, Path]:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if kind == "final":
+        target = outside / f"sentinel{suffix}"
+        target.write_bytes(b"outside sentinel\n")
+        output = tmp_path / f"output{suffix}"
+        output.symlink_to(target)
+        return output, target
+    if kind == "parent":
+        parent = tmp_path / "linked-parent"
+        parent.symlink_to(outside, target_is_directory=True)
+        return parent / f"output{suffix}", outside / f"output{suffix}"
+    ancestor = tmp_path / "linked-ancestor"
+    ancestor.symlink_to(outside, target_is_directory=True)
+    return ancestor / "nested" / f"output{suffix}", outside / "nested" / f"output{suffix}"
+
+
+@pytest.mark.parametrize("kind", ["final", "parent", "ancestor"])
+def test_outline_note_deck_rejects_output_symlink_components(tmp_path: Path, kind: str) -> None:
+    note = tmp_path / "note.md"
+    note.write_text("# Evidence\n\nMeasured result.\n", encoding="utf-8")
+    output, outside_target = unsafe_output_path(tmp_path, ".md", kind)
+    original = outside_target.read_bytes() if outside_target.exists() else None
+
+    result = run_script_unchecked(str(note), "--out", str(output), "--language", "en")
+
+    assert result.returncode == 1
+    assert "symlink" in result.stderr.lower()
+    if original is None:
+        assert not outside_target.exists()
+    else:
+        assert outside_target.read_bytes() == original
+
+
+@pytest.mark.parametrize("kind", ["final", "parent", "ancestor"])
+def test_build_scientific_deck_rejects_output_symlink_components(tmp_path: Path, kind: str) -> None:
+    note = tmp_path / "note.md"
+    note.write_text("# Evidence\n\nMeasured result.\n", encoding="utf-8")
+    output, outside_target = unsafe_output_path(tmp_path, ".pptx", kind)
+    original = outside_target.read_bytes() if outside_target.exists() else None
+
+    result = run_build_script_unchecked(
+        str(note),
+        "--out",
+        str(output),
+        "--title",
+        "Safe Deck",
+        "--max-slides",
+        "4",
+        "--language",
+        "en",
+    )
+
+    assert result.returncode == 1
+    assert "symlink" in result.stderr.lower()
+    if original is None:
+        assert not outside_target.exists()
+    else:
+        assert outside_target.read_bytes() == original

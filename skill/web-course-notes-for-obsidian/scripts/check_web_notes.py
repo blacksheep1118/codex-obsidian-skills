@@ -9,12 +9,15 @@ from pathlib import Path
 import re
 import stat
 import sys
-from urllib.parse import unquote
+
+try:
+    from .url_identity import extract_url_identities, normalize_url
+except ImportError:
+    from url_identity import extract_url_identities, normalize_url
 
 
 RESIDUE_RE = re.compile(r"(status:\s*scaffold|待补充|TODO|To complete)", re.I)
 SKIPPED_RE = re.compile(r"\b(skipped|inaccessible)\b|不可访问|跳过")
-URL_RE = re.compile(r"https?://[^\s)>\]]+|file://[^\s)>\]]+")
 DIRECT_RESOURCE_KINDS = {"book", "book_pdf", "pdf", "slides", "transcript"}
 READING_LIST_KINDS = {"book_or_chapter", "book", "book_pdf", "pdf"}
 ENTRY_MAP_RE = re.compile(
@@ -89,10 +92,6 @@ def split_table_row(line: str) -> list[str]:
 
 def is_separator_row(line: str) -> bool:
     return bool(re.match(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$", line))
-
-
-def normalize_url(value: str) -> str:
-    return unquote(value.strip().rstrip("/"))
 
 
 def load_manifest_rows(manifest: Path) -> list[ManifestRow]:
@@ -208,7 +207,6 @@ def manifest_covers_source(rows: list[ManifestRow], source: str) -> bool:
         candidates = [
             row.values.get("Original Source", ""),
             row.values.get("URL", ""),
-            row.values.get("Title", ""),
         ]
         if any(normalize_url(candidate) == expected for candidate in candidates):
             return True
@@ -217,12 +215,12 @@ def manifest_covers_source(rows: list[ManifestRow], source: str) -> bool:
 
 def file_mentions_url(path: Path, url: str) -> bool:
     text = path.read_text(encoding="utf-8", errors="replace")
-    return normalize_url(url) in normalize_url(text)
+    return normalize_url(url) in extract_url_identities(text)
 
 
 def explicit_skipped_or_inaccessible(path: Path, url: str) -> bool:
     text = path.read_text(encoding="utf-8", errors="replace")
-    return normalize_url(url) in normalize_url(text) and bool(SKIPPED_RE.search(text))
+    return normalize_url(url) in extract_url_identities(text) and bool(SKIPPED_RE.search(text))
 
 
 def manifest_requires_per_link_notes(rows: list[ManifestRow]) -> bool:

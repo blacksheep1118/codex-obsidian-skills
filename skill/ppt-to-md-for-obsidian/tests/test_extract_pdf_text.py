@@ -121,3 +121,13 @@ def test_extract_pdf_warns_when_all_backends_are_low_coverage(monkeypatch, tmp_p
     assert result.char_count == 4
     assert LOW_COVERAGE_WARNING in result.markdown
     assert "- Low coverage: true" in result.markdown
+
+
+def test_low_coverage_accounts_for_page_distribution_not_only_total_characters():
+    result = extract_pdf_text.PdfBackendResult(
+        name="test",
+        pages=["dense text " * 200, "", "", "", "", "", "", "", "", ""],
+    )
+
+    assert result.text_char_count > result.page_count * extract_pdf_text.MIN_TEXT_CHARS_PER_PAGE
+    assert extract_pdf_text.low_text_coverage(result) is True

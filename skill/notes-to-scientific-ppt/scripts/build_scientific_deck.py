@@ -8,13 +8,16 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 import sys
+from typing import BinaryIO
 from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
 
 try:
     from .outline_note_deck import build_brief
+    from .safe_io import atomic_binary_writer
 except ImportError:
     from outline_note_deck import build_brief
+    from safe_io import atomic_binary_writer
 
 
 SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.M)
@@ -22,6 +25,10 @@ SPINE_HEADINGS = {"Suggested Scientific Deck Spine", "建议科学演示主线"}
 BACKLOG_HEADINGS = {"Draft Slide Backlog", "草稿幻灯片待办"}
 NUMBERED_RE = re.compile(r"^\s*\d+\.\s+(.+?)\s*$")
 BACKLOG_RE = re.compile(r"^-\s+\[([^\]]+)\].*?`([^`]+)`.*?Proof object:\s*(.+?)\.?\s*$")
+TOTAL_SLIDE_COUNT_RE = re.compile(
+    r"^-\s+(?:Maximum total slide count|最大总幻灯片数量):\s*(-?\d+)\b",
+    re.M,
+)
 MAX_TITLE_CHARS = 180
 
 
@@ -41,6 +48,16 @@ def configure_output_encoding() -> None:
 
 def is_brief(text: str) -> bool:
     return any(f"## {heading}" in text for heading in SPINE_HEADINGS | BACKLOG_HEADINGS)
+
+
+def brief_total_slide_count(text: str) -> int | None:
+    match = TOTAL_SLIDE_COUNT_RE.search(text)
+    if not match:
+        return None
+    value = int(match.group(1))
+    if value < 2:
+        raise ValueError("brief maximum total slide count must be at least 2")
+    return value
 
 
 def section_text(text: str, names: set[str]) -> str:
@@ -114,7 +131,7 @@ def load_or_create_brief(
     *,
     title: str | None = None,
     audience: str = "research seminar",
-    max_slides: int = 18,
+    max_slides: int | None = None,
     language: str = "auto",
     mode: str = "auto",
     follow_links: bool = False,
@@ -234,7 +251,7 @@ def slide_blocks(spec: SlideSpec, slide_number: int) -> list[str]:
     ]
 
 
-def build_with_python_pptx(title: str, specs: list[SlideSpec], out: Path) -> None:
+def build_with_python_pptx(title: str, specs: list[SlideSpec], out: BinaryIO) -> None:
     from pptx import Presentation
     from pptx.dml.color import RGBColor
     from pptx.enum.text import PP_ALIGN
@@ -313,7 +330,7 @@ def slide_xml(title: str, lines: list[str]) -> str:
 </p:sld>"""
 
 
-def build_minimal_pptx(title: str, specs: list[SlideSpec], out: Path) -> None:
+def build_minimal_pptx(title: str, specs: list[SlideSpec], out: BinaryIO) -> None:
     slides = [(title, ["Editable scientific deck skeleton", "Generated from deck brief; replace placeholders with proof objects."])]
     slides.extend((spec.title, slide_blocks(spec, index)) for index, spec in enumerate(specs, start=1))
 
@@ -373,11 +390,14 @@ def build_deck(
     vault_root: Path | None = None,
     max_depth: int = 1,
 ) -> int:
+    if max_slides is not None and max_slides < 2:
+        raise ValueError("max_slides must be at least 2 (title plus one content slide)")
+    brief_generation_budget = max_slides if max_slides is not None else 18
     brief, fallback_title = load_or_create_brief(
         input_path,
         title=title,
         audience=audience,
-        max_slides=max_slides,
+        max_slides=brief_generation_budget,
         language=language,
         mode=mode,
         follow_links=follow_links,
@@ -388,14 +408,15 @@ def build_deck(
     specs = parse_spine(brief)
     if not specs:
         specs = parse_backlog(brief)
-    specs = ensure_required_specs(specs, max_specs=max_slides - 1)
+    effective_max_slides = max_slides if max_slides is not None else (brief_total_slide_count(brief) or 18)
+    specs = ensure_required_specs(specs, max_specs=effective_max_slides - 1)
     validate_deck_text(deck_title, specs)
 
-    out.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        build_with_python_pptx(deck_title, specs, out)
-    except ModuleNotFoundError:
-        build_minimal_pptx(deck_title, specs, out)
+    with atomic_binary_writer(out) as output_stream:
+        try:
+            build_with_python_pptx(deck_title, specs, output_stream)
+        except ModuleNotFoundError:
+            build_minimal_pptx(deck_title, specs, output_stream)
     return len(specs) + 1
 
 
@@ -406,7 +427,11 @@ def main() -> int:
     parser.add_argument("--out", required=True, type=Path, help="Output .pptx path")
     parser.add_argument("--title", help="Deck title override when building directly from notes")
     parser.add_argument("--audience", default="research seminar", help="Target audience or talk context when building from notes")
-    parser.add_argument("--max-slides", type=int, default=18, help="Maximum total slide count for the generated skeleton")
+    parser.add_argument(
+        "--max-slides",
+        type=int,
+        help="Maximum total slide count; defaults to the brief value or 18 for direct note input",
+    )
     parser.add_argument("--language", choices=["zh", "en", "auto"], default="auto")
     parser.add_argument("--mode", choices=["auto", "paper-reading", "proposal", "progress-report", "teaching", "defense"], default="auto")
     parser.add_argument("--follow-links", action="store_true", help="follow local Obsidian wiki links when building directly from notes")
@@ -416,8 +441,8 @@ def main() -> int:
 
     if args.out.suffix.lower() != ".pptx":
         parser.error("--out must end with .pptx")
-    if args.max_slides < 2:
-        parser.error("--max-slides must be at least 2")
+    if args.max_slides is not None and args.max_slides < 2:
+        parser.error("--max-slides must be at least 2 (title plus one content slide)")
     try:
         slide_count = build_deck(
             args.input,

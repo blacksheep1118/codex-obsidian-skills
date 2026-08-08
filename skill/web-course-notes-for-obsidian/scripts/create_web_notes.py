@@ -12,7 +12,14 @@ import re
 import stat
 import sys
 
-from collect_web_sources import PageRecord, build_manifest, collect_sources, title_from_url
+from collect_web_sources import (
+    DEFAULT_MAX_RESPONSE_BYTES,
+    DEFAULT_TOTAL_TIMEOUT_SECONDS,
+    PageRecord,
+    build_manifest,
+    collect_sources,
+    title_from_url,
+)
 
 
 CATEGORY_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -45,6 +52,9 @@ TOKEN_RE = re.compile(r"[a-z0-9]+", re.I)
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 DEFAULT_ROOT_FOLDERS = {"zh": "网络资源", "en": "Web Resources"}
 DEFAULT_MAP_NOTE_NAMES = {"zh": "00_学习地图.md", "en": "00_Learning_Map.md"}
+WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", *(f"COM{index}" for index in range(1, 10)), *(f"LPT{index}" for index in range(1, 10))}
+)
 
 
 @dataclass(frozen=True)
@@ -64,7 +74,10 @@ def safe_path_name(value: str, fallback: str = "untitled", max_length: int = 80)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
     if not cleaned:
         cleaned = fallback
-    return cleaned[:max_length].rstrip(" .") or fallback
+    cleaned = cleaned[:max_length].rstrip(" .") or fallback
+    if cleaned.split(".", 1)[0].rstrip(" .").upper() in WINDOWS_RESERVED_NAMES:
+        cleaned = f"_{cleaned}"
+    return cleaned
 
 
 def yaml_string(value: str) -> str:
@@ -97,6 +110,13 @@ def collection_title(pages: list[PageRecord], explicit_title: str | None = None)
 
 def token_set(text: str) -> set[str]:
     return {token.lower() for token in TOKEN_RE.findall(text)}
+
+
+def keyword_matches(context_lower: str, context_tokens: set[str], keyword: str) -> bool:
+    normalized = keyword.lower()
+    if normalized.isascii() and normalized.isalnum() and len(normalized) <= 3:
+        return normalized in context_tokens
+    return normalized in context_lower
 
 
 def existing_dirs(root: Path) -> list[Path]:
@@ -212,17 +232,17 @@ def choose_category_dir(
         return candidate
 
     context_lower = context.lower()
+    context_tokens = token_set(context)
     children = existing_dirs(notes_dir)
     child_by_name = {child.name.lower(): child for child in children}
 
     for category_name, keywords in CATEGORY_HINTS:
-        if not any(keyword in context_lower for keyword in keywords):
+        if not any(keyword_matches(context_lower, context_tokens, keyword) for keyword in keywords):
             continue
         direct = child_by_name.get(category_name.lower())
         if direct:
             return direct
 
-    context_tokens = token_set(context)
     best_child: Path | None = None
     best_score = 0
     for child in children:
@@ -262,6 +282,31 @@ def available_file(root: Path, path: Path, content: str) -> Path:
         if candidate.read_text(encoding="utf-8") == content:
             return candidate
     raise RuntimeError(f"could not find an available path near {path}")
+
+
+def canonical_file(root: Path, path: Path, content: str) -> Path:
+    """Reserve a fixed support-file name, failing on conflicting content."""
+
+    path = ensure_safe_output_path(root, path)
+    if path.exists() and path.read_text(encoding="utf-8") != content:
+        raise FileExistsError(f"canonical output conflicts with existing content: {path}")
+    return path
+
+
+def existing_collection_date(root: Path, map_path: Path, fallback: date) -> date:
+    """Reuse a canonical map's creation date so reruns remain deterministic."""
+
+    map_path = ensure_safe_output_path(root, map_path)
+    if not map_path.exists():
+        return fallback
+    text = map_path.read_text(encoding="utf-8", errors="replace")
+    match = re.search(r"^(?:Created|创建日期):\s*(\d{4}-\d{2}-\d{2})\s*$", text, re.M)
+    if not match:
+        return fallback
+    try:
+        return date.fromisoformat(match.group(1))
+    except ValueError:
+        return fallback
 
 
 def page_note_content_zh(
@@ -662,6 +707,8 @@ def create_notes(
     folder: str | None = None,
     title: str | None = None,
     timeout: float = 15.0,
+    max_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+    total_timeout: float = DEFAULT_TOTAL_TIMEOUT_SECONDS,
     language: str = "auto",
     root_folder_name: str | None = None,
     map_note_name: str | None = None,
@@ -672,9 +719,13 @@ def create_notes(
         raise ValueError(f"--notes-dir must be an existing directory: {notes_dir}")
     if not notes_root.exists() and not dry_run:
         raise ValueError(f"--notes-dir must be an existing directory: {notes_dir}")
-    pages = collect_sources(sources, timeout=timeout)
+    pages = collect_sources(
+        sources,
+        timeout=timeout,
+        max_bytes=max_bytes,
+        total_timeout=total_timeout,
+    )
     resolved_language = resolve_language(language, pages, sources)
-    today = date.today()
     chosen_title = collection_title(pages, title)
     fallback_root_folder = safe_path_name(root_folder_name or DEFAULT_ROOT_FOLDERS[resolved_language], DEFAULT_ROOT_FOLDERS[resolved_language])
     map_file_name = note_file_name(map_note_name, DEFAULT_MAP_NOTE_NAMES[resolved_language])
@@ -688,6 +739,11 @@ def create_notes(
     folder_name = safe_path_name(folder or chosen_title, "web-resource")
     collection_dir = category_dir / folder_name
     collection_dir = ensure_safe_directory(notes_root, collection_dir, create=False)
+    today = existing_collection_date(
+        notes_root,
+        collection_dir / map_file_name,
+        date.today(),
+    )
 
     manifest = build_manifest(pages)
     note_paths: list[Path] = []
@@ -702,8 +758,8 @@ def create_notes(
         note_names.append(note_path.stem)
 
     map_body = map_content(chosen_title, pages, note_names, today, resolved_language)
-    map_path = available_file(notes_root, collection_dir / map_file_name, map_body)
-    manifest_path = available_file(notes_root, collection_dir / "source_manifest.md", manifest)
+    map_path = canonical_file(notes_root, collection_dir / map_file_name, map_body)
+    manifest_path = canonical_file(notes_root, collection_dir / "source_manifest.md", manifest)
     files = (map_path, manifest_path, *note_paths)
 
     if not dry_run:
@@ -731,6 +787,18 @@ def main() -> int:
     parser.add_argument("--title", help="Collection title used for the entry map note")
     parser.add_argument("--timeout", type=float, default=15.0, help="HTTP timeout in seconds")
     parser.add_argument(
+        "--max-bytes",
+        type=int,
+        default=DEFAULT_MAX_RESPONSE_BYTES,
+        help=f"Maximum bytes per source (default: {DEFAULT_MAX_RESPONSE_BYTES})",
+    )
+    parser.add_argument(
+        "--total-timeout",
+        type=float,
+        default=DEFAULT_TOTAL_TIMEOUT_SECONDS,
+        help=f"Total read budget per source in seconds (default: {DEFAULT_TOTAL_TIMEOUT_SECONDS:g})",
+    )
+    parser.add_argument(
         "--language",
         choices=["zh", "en", "auto"],
         default="auto",
@@ -749,6 +817,8 @@ def main() -> int:
             folder=args.folder,
             title=args.title,
             timeout=args.timeout,
+            max_bytes=args.max_bytes,
+            total_timeout=args.total_timeout,
             language=args.language,
             root_folder_name=args.root_folder_name,
             map_note_name=args.map_note_name,

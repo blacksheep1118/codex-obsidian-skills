@@ -14,17 +14,20 @@ import os
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 import stat
+import sys
 
 try:
     from .clean_latex_from_ppt import clean_text
     from .extract_legacy_ppt_text import LegacyPptTextResult, extract_legacy_ppt_text
-    from .extract_pptx_text import extract_pptx
+    from .extract_pptx_text import extract_pptx_result
     from .extract_pdf_text import LOW_COVERAGE_WARNING, extract_pdf_result
+    from .safe_io import ensure_safe_input_directory, ensure_safe_input_file
 except ImportError:
     from clean_latex_from_ppt import clean_text
     from extract_legacy_ppt_text import LegacyPptTextResult, extract_legacy_ppt_text
-    from extract_pptx_text import extract_pptx
+    from extract_pptx_text import extract_pptx_result
     from extract_pdf_text import LOW_COVERAGE_WARNING, extract_pdf_result
+    from safe_io import ensure_safe_input_directory, ensure_safe_input_file
 
 
 SUPPORTED_SUFFIXES = {".ppt", ".pptx", ".pdf"}
@@ -55,6 +58,9 @@ class ExtractionResult:
     empty_pages: int | None = None
     char_count: int | None = None
     page_count: int | None = None
+    slide_count: int | None = None
+    blank_slides: int | None = None
+    media_objects: int | None = None
 
 
 @dataclass
@@ -70,6 +76,9 @@ class ProcessedSource:
     empty_pages: int | None = None
     char_count: int | None = None
     page_count: int | None = None
+    slide_count: int | None = None
+    blank_slides: int | None = None
+    media_objects: int | None = None
 
 
 def safe_relative_config_path(value: str, label: str) -> Path:
@@ -184,9 +193,44 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
 
 
 def iter_sources(source: Path) -> list[Path]:
-    if source.is_dir():
-        return sorted(path for path in source.rglob("*") if path.suffix.lower() in SUPPORTED_SUFFIXES)
-    return [source]
+    """Enumerate regular source files without following any symlink."""
+
+    source = source.expanduser()
+    try:
+        source_mode = source.lstat().st_mode
+    except FileNotFoundError:
+        raise ValueError(f"source does not exist: {source}") from None
+    if stat.S_ISLNK(source_mode):
+        raise ValueError(f"source path is a symlink: {source}")
+
+    if stat.S_ISREG(source_mode):
+        safe_source = ensure_safe_input_file(source)
+        if safe_source.suffix.lower() not in SUPPORTED_SUFFIXES:
+            supported = ", ".join(sorted(SUPPORTED_SUFFIXES))
+            raise ValueError(f"unsupported explicit source type: {source}; expected one of {supported}")
+        return [safe_source]
+
+    if not stat.S_ISDIR(source_mode):
+        raise ValueError(f"source must be a regular file or directory: {source}")
+
+    root = ensure_safe_input_directory(source)
+    sources: list[Path] = []
+    for current_root, directory_names, file_names in os.walk(root, followlinks=False):
+        current = Path(current_root)
+        for name in (*directory_names, *file_names):
+            candidate = current / name
+            try:
+                mode = candidate.lstat().st_mode
+            except FileNotFoundError as exc:
+                raise ValueError(f"source tree changed while scanning: {candidate}") from exc
+            if stat.S_ISLNK(mode):
+                raise ValueError(f"source tree contains symlink: {candidate}")
+        for name in file_names:
+            candidate = current / name
+            if candidate.suffix.lower() not in SUPPORTED_SUFFIXES:
+                continue
+            sources.append(ensure_safe_input_file(candidate))
+    return sorted(sources)
 
 
 def convert_legacy_ppt(path: Path, converted_dir: Path, soffice: str | None) -> Path:
@@ -233,7 +277,22 @@ def extract_source(path: Path, config: PipelineConfig, converted_dir: Path) -> E
         suffix = ".pptx"
 
     if suffix == ".pptx":
-        return ExtractionResult(actual_source=actual, text=extract_pptx(actual), backend="pptx")
+        pptx_result = extract_pptx_result(actual)
+        notes = []
+        if pptx_result.partial:
+            notes.append("ZIP/XML fallback omits some presentation relationships and speaker-note/media semantics.")
+        if pptx_result.partial or pptx_result.blank_slides or pptx_result.media_objects:
+            notes.append("Use OCR or manual slide inspection for blank-text slides and media before claiming complete coverage.")
+        return ExtractionResult(
+            actual_source=actual,
+            text=pptx_result.markdown,
+            backend=f"pptx:{pptx_result.backend}",
+            partial=pptx_result.partial,
+            notes=notes,
+            slide_count=pptx_result.slide_count,
+            blank_slides=pptx_result.blank_slides,
+            media_objects=pptx_result.media_objects,
+        )
     if suffix == ".pdf":
         pdf_result = extract_pdf_result(actual)
         notes = [
@@ -303,6 +362,11 @@ def write_manifest(config: PipelineConfig, processed: list[ProcessedSource]) -> 
             lines.append(
                 f"  - PDF pages: {item.page_count}; empty text pages: {item.empty_pages}; text characters: {item.char_count}"
             )
+        if item.slide_count is not None:
+            lines.append(
+                f"  - PPTX slides: {item.slide_count}; slides without visible text: {item.blank_slides}; "
+                f"media objects: {item.media_objects}"
+            )
         if item.low_coverage:
             lines.append("  - Coverage: low text coverage; do not claim complete source coverage without OCR/manual inspection.")
         if item.partial:
@@ -364,14 +428,14 @@ def write_placeholders(config: PipelineConfig) -> None:
 def run(config: PipelineConfig) -> list[ProcessedSource]:
     converted_relative = safe_relative_config_path(config.converted_dir, "converted_dir")
     safe_relative_config_path(config.overview_name, "overview_name")
+    sources = iter_sources(config.source)
+    if not sources:
+        raise SystemExit(f"no supported source files found in {config.source}")
     output_root = config.output_dir.expanduser().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     if not output_root.is_dir():
         raise ValueError(f"output_dir is not a directory: {output_root}")
     config.output_dir = output_root
-    sources = iter_sources(config.source)
-    if not sources:
-        raise SystemExit(f"no supported source files found in {config.source}")
 
     raw_dir = ensure_safe_directory(
         config.output_dir,
@@ -431,6 +495,9 @@ def run(config: PipelineConfig) -> list[ProcessedSource]:
                 empty_pages=extraction.empty_pages,
                 char_count=extraction.char_count,
                 page_count=extraction.page_count,
+                slide_count=extraction.slide_count,
+                blank_slides=extraction.blank_slides,
+                media_objects=extraction.media_objects,
             )
         )
 
@@ -450,9 +517,11 @@ def main() -> int:
     args = parser.parse_args()
 
     config = config_from_args(args)
-    if not config.source.exists():
-        parser.error(f"source does not exist: {config.source}")
-    processed = run(config)
+    try:
+        processed = run(config)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
     print(f"processed_sources {len(processed)}")
     print(config.output_dir)
     return 0

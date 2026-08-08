@@ -35,6 +35,33 @@ STATIC_RESOURCES = (
             ROOT / "skill" / "obsidian-vault-organizer" / "scripts" / "check_obsidian_links.py",
         ),
     ),
+    StaticResource(
+        source=SHARED / "safe_io.py",
+        targets=(
+            ROOT / "skill" / "ppt-to-md-for-obsidian" / "scripts" / "safe_io.py",
+            ROOT / "skill" / "obsidian-vault-organizer" / "scripts" / "safe_io.py",
+            ROOT / "skill" / "web-course-notes-for-obsidian" / "scripts" / "safe_io.py",
+            ROOT / "skill" / "notes-to-scientific-ppt" / "scripts" / "safe_io.py",
+        ),
+    ),
+    StaticResource(
+        source=SHARED / "url_identity.py",
+        targets=(
+            ROOT / "skill" / "web-course-notes-for-obsidian" / "scripts" / "url_identity.py",
+        ),
+    ),
+    StaticResource(
+        source=SHARED / "skill_metadata.py",
+        targets=tuple(
+            ROOT / "skill" / skill_name / "scripts" / "skill_metadata.py"
+            for skill_name in (
+                "ppt-to-md-for-obsidian",
+                "obsidian-vault-organizer",
+                "web-course-notes-for-obsidian",
+                "notes-to-scientific-ppt",
+            )
+        ),
+    ),
 )
 
 VALIDATORS = (
@@ -48,6 +75,8 @@ VALIDATORS = (
             "scripts/build_scientific_deck.py",
             "scripts/verify_pptx.py",
             "scripts/outline_note_deck.py",
+            "scripts/safe_io.py",
+            "scripts/skill_metadata.py",
             "scripts/validate_skill.py",
             "references/scientific-deck-style.md",
             "references/deck-modes.md",
@@ -63,6 +92,9 @@ VALIDATORS = (
             "scripts/collect_web_sources.py",
             "scripts/check_web_notes.py",
             "scripts/create_web_notes.py",
+            "scripts/safe_io.py",
+            "scripts/url_identity.py",
+            "scripts/skill_metadata.py",
             "scripts/validate_skill.py",
             "references/source-policy.md",
             "references/note-output.md",
@@ -77,6 +109,8 @@ VALIDATORS = (
             "scripts/check_obsidian_links.py",
             "scripts/check_vault_quality.py",
             "scripts/link_inventory.py",
+            "scripts/safe_io.py",
+            "scripts/skill_metadata.py",
             "scripts/validate_skill.py",
             "references/project-vault-workflow.md",
             "references/obsidian-style.md",
@@ -99,6 +133,8 @@ VALIDATORS = (
             "scripts/extract_pdf_text.py",
             "scripts/extract_pptx_text.py",
             "scripts/ppt_to_obsidian_pipeline.py",
+            "scripts/safe_io.py",
+            "scripts/skill_metadata.py",
             "scripts/validate_skill_repo.py",
             "references/modes.md",
             "references/obsidian-style.md",
