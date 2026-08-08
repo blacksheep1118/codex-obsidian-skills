@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import stat
 import subprocess
@@ -44,6 +45,12 @@ def run_script(
 def write_file(path: Path, text: str = "x\n") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def platform_top_level_component(path: Path) -> Path:
+    absolute = Path(os.path.abspath(path.expanduser()))
+    anchor = Path(absolute.anchor)
+    return anchor / absolute.relative_to(anchor).parts[0]
 
 
 def assert_no_install_junk(root: Path) -> None:
@@ -334,16 +341,18 @@ def test_copy_skill_does_not_write_through_destination_ancestor_swapped_after_op
 
 def test_installer_rejects_non_whitelisted_top_level_symlink(monkeypatch):
     original_lstat = Path.lstat
+    destination = Path("/untrusted/skills")
+    untrusted_top_level = platform_top_level_component(destination)
 
     def fake_lstat(path: Path):
-        if path == Path("/untrusted"):
+        if path == untrusted_top_level:
             return SimpleNamespace(st_mode=stat.S_IFLNK)
         return original_lstat(path)
 
     monkeypatch.setattr(Path, "lstat", fake_lstat)
 
     with pytest.raises(ValueError, match="untrusted top-level"):
-        install_skill._absolute_with_platform_alias(Path("/untrusted/skills"))
+        install_skill._absolute_with_platform_alias(destination)
 
 
 def test_update_prune_rejects_internal_symlink_before_copying(tmp_path: Path):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import stat
 import sys
@@ -18,6 +19,12 @@ if str(SHARED) not in sys.path:
 
 import safe_io  # noqa: E402
 import validate_all  # noqa: E402
+
+
+def platform_top_level_component(path: Path) -> Path:
+    absolute = Path(os.path.abspath(path.expanduser()))
+    anchor = Path(absolute.anchor)
+    return anchor / absolute.relative_to(anchor).parts[0]
 
 
 def test_atomic_writer_aborts_if_parent_identity_changes(monkeypatch, tmp_path: Path) -> None:
@@ -62,16 +69,18 @@ def test_safe_write_text_rejects_symlink_components(tmp_path: Path, kind: str) -
 
 def test_safe_io_rejects_non_whitelisted_top_level_symlink(monkeypatch) -> None:
     original_lstat = Path.lstat
+    output = Path("/untrusted/output.md")
+    untrusted_top_level = platform_top_level_component(output)
 
     def fake_lstat(path: Path):
-        if path == Path("/untrusted"):
+        if path == untrusted_top_level:
             return SimpleNamespace(st_mode=stat.S_IFLNK)
         return original_lstat(path)
 
     monkeypatch.setattr(Path, "lstat", fake_lstat)
 
     with pytest.raises(ValueError, match="untrusted top-level"):
-        safe_io._normalize_top_level_alias(Path("/untrusted/output.md"))
+        safe_io._normalize_top_level_alias(output)
 
 
 def test_subprocess_environment_always_disables_bytecode(monkeypatch) -> None:

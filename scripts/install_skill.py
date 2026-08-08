@@ -36,6 +36,14 @@ class UnsafeSourceError(ValueError):
     """Raised when an install source contains or traverses a symlink."""
 
 
+def configure_output_encoding() -> None:
+    """Use UTF-8 for dry-run/self-check messages on Windows consoles."""
+
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def _absolute_with_platform_alias(path: Path) -> Path:
     """Normalize an absolute path while permitting only a top-level OS alias."""
 
@@ -620,6 +628,8 @@ def self_check_selected(destination_root: Path, skills: dict[str, Path]) -> int:
 
 
 def main() -> int:
+    configure_output_encoding()
+
     parser = argparse.ArgumentParser(description="Install bundled Codex skills.")
     parser.add_argument("--skill", action="append", default=[], help="Skill name to install. May be repeated.")
     parser.add_argument("--all", action="store_true", help="Install every skill under skill/. This is the default.")

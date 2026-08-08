@@ -10,6 +10,7 @@ import sys
 from install_skill import (
     UnsafeDestinationError,
     UnsafeSourceError,
+    configure_output_encoding,
     copy_skill,
     default_destination,
     discover_skills,
@@ -22,6 +23,8 @@ from install_skill import (
 
 
 def main() -> int:
+    configure_output_encoding()
+
     parser = argparse.ArgumentParser(description="Update installed Codex skills from this repository.")
     parser.add_argument("--skill", action="append", default=[], help="Skill name to update. May be repeated.")
     parser.add_argument("--all", action="store_true", help="Update every skill under skill/. This is the default.")
