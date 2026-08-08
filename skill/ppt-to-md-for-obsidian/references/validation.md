@@ -7,7 +7,8 @@ Run checks after creating or updating Obsidian notes.
 - [Basic Shell Checks](#basic-shell-checks)
 - [Scripted Checks](#scripted-checks)
 - [Review Page Coverage](#review-page-coverage)
-- [Source Coverage Audit](#source-coverage-audit)
+- [Solvenotes Manifest-Only Coverage](#solvenotes-manifest-only-coverage)
+- [Generic Source Coverage Audit](#generic-source-coverage-audit)
 - [Link Checks](#link-checks)
 
 ## Basic Shell Checks
@@ -82,11 +83,13 @@ python3 scripts/ppt_to_obsidian_pipeline.py --config skill-config.example.yaml
 py scripts\ppt_to_obsidian_pipeline.py --config skill-config.example.yaml
 ```
 
-Strict course-note check for long courseware, exam review, or user-requested coverage audits:
+For a generic vault whose local contract requires a separate audit page, use:
 
 ```bash
 python3 scripts/check_course_notes.py --strict-depth --require-coverage-audit notes
 ```
+
+Do not use `--require-coverage-audit` for Solvenotes. Its local contract requires a self-contained `source_manifest.md` and forbids the legacy audit page.
 
 Exclude non-course generated index or audit folders by directory name when validating a broader notes tree:
 
@@ -109,6 +112,17 @@ Use stricter thresholds when the source material is large:
 ```bash
 python3 scripts/check_course_notes.py --strict-depth --allow-exam-review --require-coverage-audit --min-chapter-lines 250 --min-exam-review-lines 800 notes
 ```
+
+## Solvenotes Manifest-Only Coverage
+
+Run these project-local commands from the Solvenotes notes repository:
+
+```bash
+python3 scripts/check_source_coverage.py --json
+SOLVENOTES_SOURCE_ROOT=/path/to/solvenotes python3 scripts/check_source_files.py --strict --json
+```
+
+The first command validates the formal manifest schema, mappings, statuses, dates, target links, limitations, and the absence of legacy audit pages. The strict source command checks source existence, unit counts, extractability, and blank/OCR/visual limitations. Keep temporary ledgers outside the vault and report a missing source root as blocked verification.
 
 Strict source ownership check for repositories where sources live beside the notes vault:
 
@@ -164,9 +178,9 @@ When the user explicitly requests a single exam review file, the two-review-page
 
 `概念索引`-style cross-course index directories may be exempt when they are not a course. Use `--skip-dir <name>` for each exempt directory name instead of placing this decision in the pipeline config.
 
-## Source Coverage Audit
+## Generic Source Coverage Audit
 
-For multi-file courseware, produce a source coverage note before final delivery. It should state:
+For a non-Solvenotes vault whose local guidance requires a separate coverage note, produce it before final delivery. It should state:
 
 - which source files were used,
 - which chapter or review note covers each in-scope source file,

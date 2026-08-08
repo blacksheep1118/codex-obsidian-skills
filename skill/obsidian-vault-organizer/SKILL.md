@@ -11,7 +11,7 @@ Organize an existing Obsidian vault or Markdown note collection into a coherent 
 
 Use this skill for vault-first work. If the main task is extracting or converting PPT/PPTX/PDF courseware, use `$ppt-to-md-for-obsidian` instead.
 
-When a target vault follows solvenotes-style conventions, read `references/solvenotes-profile.md` before strict cleanup, generated-audit work, or project-specific validation.
+When a target vault follows solvenotes-style conventions, read `references/solvenotes-profile.md` before strict cleanup or project-specific validation. In Solvenotes, keep `source_manifest.md` as the only formal source-evidence page, keep temporary audit ledgers outside the vault, and never create or update `99_内容覆盖审查.md` or a `coverage_audit` note.
 
 ## Handoff Boundaries
 
@@ -22,6 +22,8 @@ Use this skill when the task is vault-first: cleanup, repair, merge, navigation,
 When the user asks for a dry run, audit and report planned edits only. Include broken links, duplicate note stems, proposed merges, proposed renames, source files that should stay read-only, and validation commands to run. Do not modify files until the user approves the plan.
 
 Keep backup copies, backup directories, audit notes, coverage notes, and report Markdown files outside the vault by default. Create an in-vault artifact only when the user explicitly requests one or local guidance requires it. Use the chat response, git diffs, and validation output for ordinary audits. When deleting a previously generated report, remove stale links to it.
+
+The Solvenotes profile is stricter: its legacy audit/report pages stay forbidden even if the generic `--allow-formal-coverage-audits` compatibility flag is supplied. Record durable source limitations in the applicable self-contained `source_manifest.md` instead.
 
 For dry-run audits and broad cleanup, run `scripts/link_inventory.py` before editing when the vault is local. Keep the baseline outside the vault unless the user explicitly asks for a file artifact inside it. After cleanup, rerun the inventory and compare total link count, per-directory link counts, and the files with the largest link-count drops before claiming link coverage was preserved.
 
@@ -89,6 +91,7 @@ Treat existing notes, local guidance, source files opened in the current task, g
    - The bundled link checker masks fenced and inline code before scanning. Code-like double brackets outside code spans, such as R `x[[1]]` in prose, still need escaping/rephrasing; never claim link validation is clean until the checker and a code-block regression test pass.
    - Run `scripts/check_vault_quality.py` for conflict markers, empty files, unbalanced block math, duplicate note stems, and leftover template text.
    - For strict cleanup, also run `scripts/check_vault_quality.py --strict-study --forbid-report-notes` on the affected note directory. Use `--profile solvenotes` only after reading `references/solvenotes-profile.md`, and use `--pattern-file` for project-specific residue lists.
+   - Under `--profile solvenotes`, `99_内容覆盖审查.md` and `coverage_audit` report pages fail closed. The generic profile may use `--allow-formal-coverage-audits` for a different vault's typed legacy contract.
    - If a checked course contains an independently validated nested topic, pass its exact root-relative path with repeatable `--skip-dir` and validate that topic separately. Read `references/solvenotes-profile.md` for the exact-path and fail-closed rules.
    - Run the targeted residue scan over chapter notes, overviews, and generated review pages together. Review pages often preserve old formula snippets and cross-course links after chapters have been fixed.
    - Classify residue-scan hits before editing. Words such as "report", "audit", "review", or "template" can be legitimate course terms in software engineering, databases, security, CS231n, or project courses; remove them only when they are stale note scaffolding, not when they are part of the taught concept.
@@ -126,7 +129,7 @@ For dry-run work, clearly separate proposed edits from applied edits and do not 
 ## Bundled Resources
 
 - `scripts/check_obsidian_links.py`: check Markdown links and Obsidian wiki links while ignoring fenced and inline code.
-- `scripts/check_vault_quality.py`: check empty files, conflict markers, unbalanced fences/math, duplicate note stems, template residue, generic strict-study link placement, optional solvenotes profile residue, and custom pattern files.
+- `scripts/check_vault_quality.py`: check empty files, conflict markers, unbalanced fences/math, duplicate note stems, template residue, generic strict-study link placement, optional solvenotes profile residue, fail-closed Solvenotes legacy audit pages, and custom pattern files.
 - `scripts/link_inventory.py`: inventory Markdown, wiki, and external links by file and directory for cleanup before/after comparisons.
 - `scripts/extract_presentation_text.py`: extract PPTX and legacy PPT text into temporary files for source-consistency audits.
 - `references/project-vault-workflow.md`: path discovery, local guidance loading, and editing boundaries.

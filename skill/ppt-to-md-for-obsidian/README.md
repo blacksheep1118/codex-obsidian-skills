@@ -231,6 +231,8 @@ python3 scripts/check_source_coverage.py \
 
 The checker verifies source-file references, page-level supplement index fields, source/generated example evidence, canonical root-relative source paths, chapter ownership, hidden control characters, and stale manual-review labels.
 
+For Solvenotes, follow the project-local manifest-only contract instead: maintain one self-contained `source_manifest.md`, run the local source-coverage and strict source-file checkers, and keep temporary ledgers outside the vault. Do not create `99_内容覆盖审查.md` or `coverage_audit` pages, and do not use the generic `--require-coverage-audit` course-note option. See [references/solvenotes-profile.md](references/solvenotes-profile.md).
+
 ## One-command Pipeline
 
 Use the pipeline to convert/extract/clean sources and create a manifest:

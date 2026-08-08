@@ -4,10 +4,10 @@ Use this reference only when the target vault or repository clearly follows solv
 
 ## Quality Checks
 
-- Keep backups and audit artifacts outside the vault by default. Create an in-vault artifact only when explicitly requested or required by local guidance.
-- When source coverage is required, use the existing `source_manifest.md` and `99_内容覆盖审查.md` contracts instead of creating a separate quality-review page.
-- Keep any explicitly requested central pages short and use course/source shards for long tables so Obsidian does not need to open one huge page.
-- Generated review queues, example indexes, concept indexes, and source-coverage reports should follow the project’s existing filenames and validators.
+- Keep backups, temporary audit ledgers, machine-readable audit output, and reviewer reports outside the vault.
+- Treat the applicable self-contained `source_manifest.md` as the only formal learning-side source evidence. Record source paths, extraction method, unit counts, mapping targets, status, example state, dates, and OCR/blank/visual limits there without claiming range mappings prove per-unit semantics.
+- Do not create or update `99_内容覆盖审查.md`, `coverage_audit`, `vault_audit`, or other audit/report notes in Solvenotes. Remove stale navigation to legacy audit pages when cleaning them up.
+- Generated review pages, example indexes, and concept indexes should follow the project’s existing filenames and validators; temporary coverage ledgers remain outside the vault.
 - Do not place page-level coverage dump sections into ordinary study notes.
 
 ## Frontmatter And Local Scripts
@@ -37,8 +37,8 @@ Use this reference only when the target vault or repository clearly follows solv
 
 ## Solvenotes Validation
 
-- For strict cleanup, run `scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes --allow-formal-coverage-audits` separately on each affected course directory, not on the vault root where legitimate course pages reuse filenames.
-  - Apply the formal-coverage exception only under the solvenotes profile. Accept only `99_内容覆盖审查.md` with frontmatter `note_type: coverage_audit` when the same directory contains `source_manifest.md` with frontmatter `note_type: source_manifest`. Treat a missing or wrongly typed manifest as a report-note failure, and keep ordinary audit and report notes forbidden.
+- For strict cleanup, run `scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes` separately on each affected course directory, not on the vault root where legitimate course pages reuse filenames.
+  - Solvenotes rejects legacy `99_内容覆盖审查.md` and audit/report note types even if the generic `--allow-formal-coverage-audits` flag is supplied. A typed sibling manifest does not create an exception.
 - A course may contain a nested topic that local guidance treats as an independent validation root. Pass repeatable `--skip-dir` values for those exact root-relative directories, then validate each nested directory separately.
   - Use the canonical directory-entry spelling for every path component.
   - Reject absolute paths, parent traversal, missing paths, non-directories, internal or external symlink components, and non-canonical letter case or spelling.
@@ -47,9 +47,9 @@ Use this reference only when the target vault or repository clearly follows solv
   For the independently validated `计算机视觉/图像Raw域去噪` topic, run both commands:
 
   ```bash
-  python3 scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes --allow-formal-coverage-audits --skip-dir 图像Raw域去噪 /path/to/notes/计算机视觉
-  python3 scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes --allow-formal-coverage-audits /path/to/notes/计算机视觉/图像Raw域去噪
+  python3 scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes --skip-dir 图像Raw域去噪 /path/to/notes/计算机视觉
+  python3 scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes /path/to/notes/计算机视觉/图像Raw域去噪
   ```
 
-- Prefer local project validators over bundled generic scripts. A typical solvenotes-style subset may include `check_links.py`, `check_frontmatter.py`, `check_headings.py`, `check_markdown_tables.py`, `check_all_notes.py`, generated-artifact `--check` commands, and repository hygiene/package checks.
+- Prefer local project validators over bundled generic scripts. A typical solvenotes-style subset may include `check_links.py`, `check_frontmatter.py`, `check_headings.py`, `check_markdown_tables.py`, `check_all_notes.py`, the project-local manifest-only `check_source_coverage.py`, strict source-file checks, and repository hygiene/package checks.
 - Before upload, run `git status`, stage only intended files, and leave unrelated dirty files untouched.

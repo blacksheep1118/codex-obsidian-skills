@@ -13,7 +13,7 @@ When writing into an existing project or vault, first load project-local guidanc
 
 When updating this skill itself, edit only the source skill repository. From the skills repository root, run `python3 scripts/validate_all.py --skill ppt-to-md-for-obsidian`, then inspect source and installed state with `python3 scripts/update_installed_skills.py --skill ppt-to-md-for-obsidian --dry-run --self-check`. Deploy only when the user explicitly authorizes it, from the same repository root with `python3 scripts/update_installed_skills.py --skill ppt-to-md-for-obsidian --self-check`; never edit the installed copy directly.
 
-When a target vault follows solvenotes-style conventions, read `references/solvenotes-profile.md` before validation or generated-audit work.
+When a target vault follows solvenotes-style conventions, read `references/solvenotes-profile.md` before validation or source-evidence work. Solvenotes maintains one self-contained `source_manifest.md` contract, forbids `99_内容覆盖审查.md` and `coverage_audit` pages, and keeps temporary audit ledgers outside the vault.
 
 ## Handoff Boundaries
 
@@ -58,6 +58,8 @@ Treat formulas, definitions, algorithms, examples, and paper conclusions as clai
 
 Write corrected explanations and traceable source markers into the notes. Keep temporary issue ledgers, machine-readable audit data, intermediate reports, and reviewer-facing prose outside the vault by default. Create or update an in-vault coverage page only when the user explicitly requests it or local guidance or a validator requires the named artifact. Do not recreate a removed quality directory merely to hold audit output.
 
+For Solvenotes, local guidance is definitive: update only the applicable self-contained `source_manifest.md`; never create or update `99_内容覆盖审查.md` or a `coverage_audit` note. Record blank-text, OCR, visual-only, extraction, mapping, and semantic-verification limits honestly in the manifest, without treating aggregate ranges as per-unit semantic proof.
+
 Resolve `TODO`, `待核实`, and other placeholders before delivery. If evidence remains unavailable, state its bounded source status directly in the note. Replace review labels such as `不能泛化`, `这不是对所有任务的保证`, and `证据边界` with the supported dataset, metric, model configuration, market, date, or clinical setting.
 
 ## Default Outputs
@@ -68,8 +70,8 @@ For each course or topic directory, prefer this structure:
 - Numbered chapter notes such as `01_绪论.md`, `02_知识表示.md`.
 - `知识点详细版_含公式.md` as the full review page.
 - `知识点精简复习版_含公式.md` as the fast review page.
-- `source_manifest.md` when multiple source files are involved or extraction order could be disputed.
-- An existing `99_内容覆盖审查.md` only when local guidance or a validator requires it, following Audit Output Placement.
+- A self-contained `source_manifest.md` when multiple source files are involved or extraction order could be disputed.
+- For non-Solvenotes vaults only, an existing `99_内容覆盖审查.md` when local guidance or a validator requires that legacy artifact, following Audit Output Placement.
 
 Keep the detailed review and concise review as two separate files. Do not replace the detailed version with the concise version. When an existing vault uses course-prefixed review pages, preserve that convention, for example `游戏数值策划知识点详细版_含公式.md` and `游戏数值策划知识点精简复习版_含公式.md`.
 If the user explicitly asks for one exam review file instead of two review pages, keep the single file but make the overview link it and validate with `--allow-exam-review`.
@@ -96,11 +98,11 @@ If the user explicitly asks for one exam review file instead of two review pages
    - Every example must include a detailed explanation, not just an answer. Include the tested concept, known conditions, formula or rule choice, substitution or reasoning steps, conclusion, and the common mistake or boundary condition to avoid.
    - Use a stable generated-question format when the source has no standalone example: `题目` states the concrete givens, `解法` shows the rule/formula and steps, `关键陷阱` states what can go wrong, and `来源说明` carries the generated marker.
    - Keep source-derived examples and generated auxiliary questions visibly distinct. Never relabel a generated question as a PPT/PDF example. If examples are graded or reviewed by project scripts, improve low-grade rows by adding analysis, steps, conclusion, and pitfalls while preserving the original source marker.
-   - Resolve `需复核`, `人工确认`, and `open the slides manually` states before delivery. If evidence remains unavailable, use the bounded source-status rule under Audit Output Placement; update `99_内容覆盖审查.md` only when local guidance or a validator requires it.
+   - Resolve `需复核`, `人工确认`, and `open the slides manually` states before delivery. If evidence remains unavailable, use the bounded source-status rule under Audit Output Placement. A non-Solvenotes vault may update a locally required legacy audit artifact; Solvenotes records the boundary only in `source_manifest.md`.
    - If extracted PDF/OCR cells are obvious noise, mark them as extraction noise while preserving file/page mapping. Do not turn garbled strings into invented topics, examples, or formulas.
    - For exam-review requests, treat the exam outline or teacher-provided scope as a first-class source alongside PPT/PDF files. Preserve exact outline terms and common compact/space variants in the coverage map, for example `CPU性能公式` and `CPU 性能公式`.
    - Compare the source map with the requested exam scope. Mark topics as `included`, `out of scope by user`, `source noisy`, or `missing`.
-   - If the material is long or the user asks for strict checking, write or update `source_manifest.md`. Follow Audit Output Placement for coverage pages and temporary audit output.
+   - If the material is long or the user asks for strict checking, write or update a self-contained `source_manifest.md`. Follow Audit Output Placement for temporary audit output; Solvenotes has no separate in-vault coverage page.
    - Keep coverage statuses internally consistent. Distinguish image-only/unreadable visual pages from real content gaps, and do not describe a single unresolved example as the only uncertainty when separate visual pages still need confirmation.
    - Do not claim completion from a short outline. If the notes do not yet explain the mechanisms, formulas, and examples from the source, keep expanding them.
    - If a keyword sweep reports a missing topic, verify whether the miss is caused by wording variation before treating it as absent; then add the source wording near the relevant concept or document why it is out of scope.
@@ -147,7 +149,7 @@ If the user explicitly asks for one exam review file instead of two review pages
    - For strict PPT/PDF coverage audits, run the project-local source coverage checker first. If only the bundled `scripts/check_source_coverage.py` is available, run it with explicit source-to-notes mappings.
    - Treat the selected source and notes roots as trust boundaries: reject absolute paths, `../` escapes, and symlinks outside those roots in mappings and paper-note `source_files`. Provide complete mappings for renamed directories, and keep standalone systems such as `概念索引`, `模板`, `游戏数值策划`, and `科研方法论` outside course reconciliation.
    - The course-note checker accepts either exact review filenames or local course-prefixed review filenames; do not rename working review pages only to satisfy a generic template.
-   - For long courseware or strict review requests, run `scripts/check_course_notes.py --strict-depth --require-coverage-audit`; add `--allow-exam-review` when using one exam review file instead of the two default review pages.
+   - For a generic vault whose local contract requires a separate coverage audit, run `scripts/check_course_notes.py --strict-depth --require-coverage-audit`; add `--allow-exam-review` when using one exam review file instead of the two default review pages. Never pass `--require-coverage-audit` for Solvenotes; use its project-local manifest-only coverage checker and strict source-file checker.
    - If a vault contains non-course generated index or audit folders, run this checker per course directory or pass repeated `--skip-dir <name>` values for directories such as `概念索引`. Report the thresholds and skipped directory names used.
    - Check empty files, conflict markers, leftover template phrases such as `相关知识链接`, and review-page coverage.
    - Run a direct keyword/formula sweep against source-derived terms before the final response. Missing hits should be explained as out of scope, noisy extraction, or corrected before delivery.

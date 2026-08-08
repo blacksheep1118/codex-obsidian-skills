@@ -46,13 +46,19 @@ Report broken links and self-links before making content claims.
 
 ## Strict Solvenotes Report Gate
 
-Run the formal coverage exception only for a solvenotes course directory:
+Reject legacy audit/report pages in each Solvenotes course directory:
 
 ```bash
-python3 scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes --allow-formal-coverage-audits /path/to/course
+python3 scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes /path/to/course
 ```
 
-The exception accepts only `99_内容覆盖审查.md` with frontmatter `note_type: coverage_audit` and a sibling `source_manifest.md` with frontmatter `note_type: source_manifest`. A missing or wrongly typed manifest fails as `REPORT_NOTE`. See `solvenotes-profile.md` for nested-topic skip rules.
+Solvenotes always reports `99_内容覆盖审查.md` and audit/report note types as `REPORT_NOTE`, even when a typed sibling manifest exists or the generic compatibility flag is supplied. Keep the self-contained `source_manifest.md` and place temporary ledgers outside the vault. See `solvenotes-profile.md` for nested-topic skip rules.
+
+For a non-Solvenotes vault that deliberately retains the typed legacy pair, the generic profile can opt in explicitly:
+
+```bash
+python3 scripts/check_vault_quality.py --profile generic --forbid-report-notes --allow-formal-coverage-audits /path/to/course
+```
 
 ## Manual Review
 

@@ -106,7 +106,16 @@ def test_forbid_report_notes_flags_audit_notes(tmp_path: Path):
     assert "report_note" in issue_kinds(issues)
 
 
-def test_formal_coverage_audit_can_be_allowed_while_other_reports_remain_forbidden(tmp_path: Path):
+def test_generic_profile_without_report_gate_keeps_default_behavior(tmp_path: Path):
+    vault = tmp_path / "vault"
+    write(vault / "99_内容覆盖审查.md", "# Legacy Audit\n")
+
+    issues = find_vault_issues(vault, profile="generic")
+
+    assert "report_note" not in issue_kinds(issues)
+
+
+def test_generic_profile_can_allow_formal_coverage_audit_while_forbidding_other_reports(tmp_path: Path):
     vault = tmp_path / "vault"
     write(
         vault / "course" / "source_manifest.md",
@@ -122,14 +131,14 @@ def test_formal_coverage_audit_can_be_allowed_while_other_reports_remain_forbidd
         vault,
         forbid_report_notes=True,
         allow_formal_coverage_audits=True,
-        profile="solvenotes",
+        profile="generic",
     )
 
     report_paths = {issue.path.as_posix() for issue in issues if issue.kind == "report_note"}
     assert report_paths == {"course/质量审查报告.md"}
 
 
-def test_formal_coverage_exception_requires_solvenotes_profile(tmp_path: Path):
+def test_solvenotes_profile_rejects_formal_coverage_audit_even_with_typed_manifest(tmp_path: Path):
     vault = tmp_path / "vault"
     write(
         vault / "source_manifest.md",
@@ -142,12 +151,59 @@ def test_formal_coverage_exception_requires_solvenotes_profile(tmp_path: Path):
 
     issues = find_vault_issues(
         vault,
-        forbid_report_notes=True,
         allow_formal_coverage_audits=True,
-        profile="generic",
+        profile="solvenotes",
     )
 
     assert "report_note" in issue_kinds(issues)
+
+
+def test_solvenotes_profile_alone_rejects_formal_coverage_audit_in_cli(tmp_path: Path):
+    vault = tmp_path / "vault"
+    write(
+        vault / "source_manifest.md",
+        '---\nnote_type: "source_manifest"\n---\n\n# Source Manifest\n',
+    )
+    write(
+        vault / "99_内容覆盖审查.md",
+        '---\nnote_type: "coverage_audit"\n---\n\n# Formal Coverage Audit\n',
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--profile", "solvenotes", str(vault)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "REPORT_NOTE: 99_内容覆盖审查.md" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "note_type",
+    [
+        "coverage_audit",
+        "global_coverage_audit",
+        "vault_audit",
+        "audit_record",
+        "source_manifest_history",
+    ],
+)
+def test_solvenotes_profile_rejects_report_note_type_with_innocuous_filename(
+    tmp_path: Path,
+    note_type: str,
+):
+    vault = tmp_path / "vault"
+    write(
+        vault / "ordinary-name.md",
+        f'---\nnote_type: "{note_type}"\n---\n\n# Ordinary Name\n',
+    )
+
+    issues = find_vault_issues(vault, profile="solvenotes")
+
+    report_paths = {issue.path.as_posix() for issue in issues if issue.kind == "report_note"}
+    assert report_paths == {"ordinary-name.md"}
 
 
 def test_formal_coverage_exception_requires_exact_filename_and_note_type(tmp_path: Path):
@@ -173,7 +229,7 @@ def test_formal_coverage_exception_requires_exact_filename_and_note_type(tmp_pat
         vault,
         forbid_report_notes=True,
         allow_formal_coverage_audits=True,
-        profile="solvenotes",
+        profile="generic",
     )
 
     report_paths = {issue.path.as_posix() for issue in issues if issue.kind == "report_note"}
@@ -208,7 +264,7 @@ def test_formal_coverage_exception_requires_valid_sibling_manifest(
         vault,
         forbid_report_notes=True,
         allow_formal_coverage_audits=True,
-        profile="solvenotes",
+        profile="generic",
     )
 
     report_paths = {issue.path.as_posix() for issue in issues if issue.kind == "report_note"}
@@ -231,7 +287,7 @@ def test_formal_coverage_exception_rejects_manifest_filename_case_alias(tmp_path
         vault,
         forbid_report_notes=True,
         allow_formal_coverage_audits=True,
-        profile="solvenotes",
+        profile="generic",
     )
 
     report_paths = {issue.path.as_posix() for issue in issues if issue.kind == "report_note"}
@@ -252,7 +308,7 @@ def test_formal_coverage_manifest_directory_is_report_note_cli_failure(tmp_path:
             sys.executable,
             str(SCRIPT),
             "--profile",
-            "solvenotes",
+            "generic",
             "--forbid-report-notes",
             "--allow-formal-coverage-audits",
             str(vault),

@@ -27,6 +27,18 @@ SOURCE_MANIFEST_NAME = "source_manifest.md"
 SOURCE_MANIFEST_NOTE_TYPE_RE = re.compile(
     r'''note_type\s*:\s*(?:source_manifest|"source_manifest"|'source_manifest')\s*'''
 )
+NOTE_TYPE_VALUE_RE = re.compile(
+    r'''^note_type\s*:\s*(?:"(?P<double>[a-z_]+)"|'(?P<single>[a-z_]+)'|(?P<bare>[a-z_]+))\s*$'''
+)
+SOLVENOTES_REPORT_NOTE_TYPES = frozenset(
+    {
+        "coverage_audit",
+        "global_coverage_audit",
+        "vault_audit",
+        "audit_record",
+        "source_manifest_history",
+    }
+)
 BRIDGE_NOTE_RE = re.compile(r"本页保留旧路径，正文请读 \[\[[^\]]+\]\]。")
 WIKI_LINK_RE = re.compile(r"\[\[[^\]]+\]\]")
 FENCE_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})(?P<rest>.*)$")
@@ -209,6 +221,24 @@ def has_frontmatter_note_type(text: str, note_type_pattern: re.Pattern[str]) -> 
     return len(note_type_lines) == 1 and note_type_pattern.fullmatch(note_type_lines[0]) is not None
 
 
+def frontmatter_note_types(text: str) -> set[str]:
+    """Return recognized note_type values from the leading YAML frontmatter."""
+
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return set()
+    try:
+        closing_index = next(index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---")
+    except StopIteration:
+        return set()
+    values: set[str] = set()
+    for line in lines[1:closing_index]:
+        match = NOTE_TYPE_VALUE_RE.fullmatch(line.strip())
+        if match:
+            values.add(next(value for value in match.groupdict().values() if value is not None))
+    return values
+
+
 def is_formal_coverage_audit(path: Path, text: str) -> bool:
     """Match a typed coverage audit backed by a typed sibling source manifest."""
 
@@ -295,13 +325,17 @@ def find_vault_issues(
         has_conflict_edges = "<<<<<<<" in text and ">>>>>>>" in text
         lines = text.splitlines()
         fenced_lines, unbalanced_fence = fenced_code_lines(lines)
+        solvenotes_report_type = bool(
+            profile == "solvenotes"
+            and frontmatter_note_types(text) & SOLVENOTES_REPORT_NOTE_TYPES
+        )
 
         if (
-            forbid_report_notes
-            and REPORT_NOTE_NAME_RE.search(path.stem)
+            (forbid_report_notes or profile == "solvenotes")
+            and (REPORT_NOTE_NAME_RE.search(path.stem) or solvenotes_report_type)
             and not (
                 allow_formal_coverage_audits
-                and profile == "solvenotes"
+                and profile == "generic"
                 and is_formal_coverage_audit(path, text)
             )
         ):
@@ -357,7 +391,12 @@ def main() -> int:
     parser.add_argument("root", type=Path, help="Vault or notes directory")
     parser.add_argument("--allow-duplicate-stems", action="store_true")
     parser.add_argument("--strict-study", action="store_true", help="flag generic strict study-note link-placement issues")
-    parser.add_argument("--profile", choices=["generic", "solvenotes"], default="generic", help="quality profile for project-specific residue patterns")
+    parser.add_argument(
+        "--profile",
+        choices=["generic", "solvenotes"],
+        default="generic",
+        help="quality profile for project-specific residue patterns; solvenotes also forbids legacy audit/report notes",
+    )
     parser.add_argument("--pattern-file", action="append", default=[], type=Path, help="custom residue pattern file; plain lines are literal text, regex:/re: lines are regular expressions")
     parser.add_argument(
         "--skip-dir",
@@ -372,9 +411,10 @@ def main() -> int:
         "--allow-formal-coverage-audits",
         action="store_true",
         help=(
-            "with --profile solvenotes and --forbid-report-notes, allow only "
+            "with --profile generic and --forbid-report-notes, allow only "
             "99_内容覆盖审查.md with note_type: coverage_audit backed by sibling "
-            "source_manifest.md with note_type: source_manifest"
+            "source_manifest.md with note_type: source_manifest; the solvenotes "
+            "profile always rejects legacy coverage-audit notes"
         ),
     )
     args = parser.parse_args()

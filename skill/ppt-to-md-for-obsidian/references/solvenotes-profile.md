@@ -5,9 +5,9 @@ Use this reference only when the target vault or repository clearly follows solv
 ## Quality Checks
 
 - Follow the Audit Output Placement rule in `SKILL.md`: keep temporary reports outside the vault and write corrections and source markers into notes.
-- When source coverage must be recorded, update `source_manifest.md` or an existing `99_内容覆盖审查.md` only when local guidance or a validator requires it.
-- Prefer generated scripts over hand-edited coverage bodies when a generator owns the file.
-- Keep any explicitly required central coverage page short and split large tables by course or source group.
+- Treat the applicable self-contained `source_manifest.md` as the only formal learning-side source evidence. Preserve exact source paths and types, unit counts, extraction methods, target links, coverage and example states, dates, and explicit OCR/blank/visual limitations.
+- Do not create or update `99_内容覆盖审查.md`, `coverage_audit`, or a central coverage page. Keep temporary audit ledgers and machine-readable reports outside the vault.
+- Do not infer semantic completion from a source-to-note range or aggregate mapping. Separate extractability, mapping, and semantic verification, and never claim OCR or visual coverage that was not performed.
 
 ## Solvenotes Validation
 
@@ -22,17 +22,16 @@ When project-local validators exist, prefer them over bundled generic checks. A 
 - `check_headings.py`
 - `check_special_dirs.py`
 - `check_source_coverage.py`
+- `check_source_files.py --strict` with `SOLVENOTES_SOURCE_ROOT` set to the source repository root
 - generated-file `--check` commands
 
-Also run local extraction-noise normalization checks when available.
+Do not pass the bundled generic `--require-coverage-audit` option in Solvenotes. The project-local coverage checker validates the manifest-only contract and rejects legacy audit pages.
 
 ## Source Coverage
 
-- For strict PPT/PDF coverage audits, run the project-local source coverage checker first.
-- If only bundled `scripts/check_source_coverage.py` is available, run it with explicit `source=notes` directory mappings.
-- Add `--require-course-prefixed-source-refs` when source files live outside the notes repo, so bare filenames such as `lecture 1.pptx` are rejected in favor of root-relative paths such as `编译原理/lecture 1.pptx`.
-- Do not accept `course_note_issues 0` as sufficient source coverage by itself. Also require `missing_source_mappings 0`, `source_table_issues 0`, `note_source_ownership_issues 0`, and `coverage_evidence_issues 0`.
-- Treat `CHAPTER_MISMATCH_SOURCE_LINK` and `CHAPTER_MISMATCH_NOTE_SOURCE` as blockers.
+- Run the project-local manifest-only `check_source_coverage.py` first; require every formal manifest row to satisfy the current local schema and target-link contract.
+- Set `SOLVENOTES_SOURCE_ROOT` and run the project-local `check_source_files.py --strict` to verify source existence, declared unit counts, extractability, and explicitly recorded blank/OCR/visual limitations.
+- Treat a missing source root as blocked source verification, not as a passing coverage result. Preserve honest no-extractable-text findings when the manifest already records their boundary.
 - After migrating source index lines between notes, rerun source coverage checks and a direct `rg` for moved source filenames in old target notes.
 
 ## Repository Hygiene
