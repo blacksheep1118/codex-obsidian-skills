@@ -9,11 +9,40 @@ from zipfile import ZipFile
 import pytest
 from pptx import Presentation
 
-from scripts.build_scientific_deck import build_deck, load_or_create_brief
-from scripts.outline_note_deck import build_vault_index, collect_linked_markdown_files, is_excluded
+from scripts.build_scientific_deck import build_deck, infer_role, load_or_create_brief
+from scripts.outline_note_deck import (
+    build_vault_index,
+    collect_linked_markdown_files,
+    is_excluded,
+    summarize_note,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("表示学习机制", "method/mechanism"),
+        ("表征学习", "claim"),
+        ("模型代表性", "claim"),
+        ("报表生成方法", "method/mechanism"),
+    ],
+)
+def test_infer_role_does_not_treat_every_chinese_biao_as_a_table(
+    title: str,
+    expected: str,
+) -> None:
+    assert infer_role(title) == expected
+
+
+@pytest.mark.parametrize(
+    "title",
+    ["表1 结果", "结果表", "消融表格", "模型对比表", "Result overview", "Ablation table"],
+)
+def test_infer_role_still_recognizes_explicit_chinese_result_tables(title: str) -> None:
+    assert infer_role(title) == "evidence/results"
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -69,6 +98,27 @@ def slide_title(slide) -> str:
         if getattr(shape, "has_text_frame", False) and shape.text.strip():
             return shape.text.strip().splitlines()[0]
     return ""
+
+
+def test_note_summary_parses_commonmark_links_and_excludes_images(tmp_path: Path) -> None:
+    note = tmp_path / "note.md"
+    note.write_text(
+        "# Note\n\n"
+        '[Nested](foo(and(bar)).md "title")\n'
+        r"[Escaped](escaped\(1\).md)" "\n"
+        "[Spaced](<folder/My Note.md>)\n"
+        "![Image](plot(and(detail)).png)\n",
+        encoding="utf-8",
+    )
+
+    summary = summarize_note(note)
+
+    assert summary.markdown_links == (
+        "escaped(1).md",
+        "folder/My Note.md",
+        "foo(and(bar)).md",
+    )
+    assert summary.image_count == 1
 
 
 def test_outline_note_deck_creates_scientific_brief(tmp_path: Path):
@@ -507,6 +557,43 @@ def test_build_scientific_deck_respects_max_slides_from_notes_folder(tmp_path: P
         "Limitations and open questions",
         "Appendix index",
     ]
+
+
+@pytest.mark.parametrize(
+    ("max_slides", "expected_titles"),
+    [
+        (2, ["Compact Deck", "Title and research question"]),
+        (3, ["Compact Deck", "Title and research question", "Limitations and open questions"]),
+    ],
+)
+def test_build_scientific_deck_keeps_a_core_claim_in_very_short_decks(
+    tmp_path: Path,
+    max_slides: int,
+    expected_titles: list[str],
+) -> None:
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "paper.md").write_text(
+        "# Paper Note\n\n## Problem\n\nCore research claim.\n\n## Method\n\nMechanism.\n",
+        encoding="utf-8",
+    )
+    deck = tmp_path / f"compact-{max_slides}.pptx"
+
+    result = run_build_script(
+        str(notes),
+        "--out",
+        str(deck),
+        "--title",
+        "Compact Deck",
+        "--max-slides",
+        str(max_slides),
+        "--language",
+        "en",
+    )
+
+    assert f"slides {max_slides}" in result.stdout
+    prs = Presentation(str(deck))
+    assert [slide_title(slide) for slide in prs.slides] == expected_titles
 
 
 def test_build_scientific_deck_follow_links_adds_linked_notes_to_brief(tmp_path: Path):

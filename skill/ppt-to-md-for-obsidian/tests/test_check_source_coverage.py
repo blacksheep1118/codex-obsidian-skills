@@ -7,7 +7,15 @@ import sys
 import pytest
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_source_coverage.py"
+SKILL_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = SKILL_ROOT / "scripts" / "check_source_coverage.py"
+sys.path.insert(0, str(SKILL_ROOT))
+
+from scripts.check_source_coverage import (  # noqa: E402
+    exact_regular_source_target,
+    resolve_beneath,
+    resolve_note_target,
+)
 
 
 def run_checker(*args: str) -> subprocess.CompletedProcess[str]:
@@ -361,7 +369,7 @@ def test_strict_mode_excludes_standalone_note_systems_from_reconciliation(tmp_pa
     source_root = tmp_path / "sources"
     notes_root = tmp_path / "notes"
     source_root.mkdir()
-    for name in ("概念索引", "模板", "游戏数值策划", "科研方法论"):
+    for name in ("概念索引", "模板", "游戏数值策划", "科研方法论", "算法岗学习笔记", "学习路径"):
         write(
             notes_root / name / "99_内容覆盖审查.md",
             "---\n"
@@ -381,6 +389,27 @@ def test_strict_mode_excludes_standalone_note_systems_from_reconciliation(tmp_pa
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "source_dir_reconciliation_issues 0" in result.stdout
+
+
+def test_example_content_in_an_earlier_file_applies_to_the_whole_notes_directory(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    (source_root / "course").mkdir(parents=True)
+    write(notes_root / "course" / "01_example.md", "# Example\n\nWorked example with full steps.\n")
+    write(notes_root / "course" / "02_summary.md", "# Summary\n\nConcept summary without exercises.\n")
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "course=course",
+    )
+
+    assert "NO_EXAMPLE_EVIDENCE" not in result.stdout
 
 
 def test_default_scan_ignores_scripts_and_caches_but_can_include_them(tmp_path: Path) -> None:
@@ -516,8 +545,18 @@ def test_paper_source_ownership_rejects_paths_outside_source_root(tmp_path: Path
         "source_files:\n"
         "  - ../outside.pdf\n"
         f"  - {outside}\n"
+        "  - 'C:\\External\\outside.pdf'\n"
+        "  - 'C:External\\outside.pdf'\n"
+        "  - '\\\\server\\share\\outside.pdf'\n"
+        "  - '\\\\?\\C:\\External\\outside.pdf'\n"
+        "  - '\\\\.\\PhysicalDrive0.pdf'\n"
+        "  - 'C:\\External/mixed\\outside.pdf'\n"
         "---\n"
-        "# Paper\n\nSee `../outside.pdf`.\n",
+        "# Paper\n\n"
+        "See `../outside.pdf`, `C:\\External\\outside.pdf`, "
+        "`C:External\\outside.pdf`, `\\\\server\\share\\outside.pdf`, "
+        "`\\\\?\\C:\\External\\outside.pdf`, `\\\\.\\PhysicalDrive0.pdf`, "
+        "and `C:\\External/mixed\\outside.pdf`.\n",
     )
 
     result = run_checker(
@@ -529,7 +568,164 @@ def test_paper_source_ownership_rejects_paths_outside_source_root(tmp_path: Path
     )
 
     assert result.returncode == 1
-    assert "PAPER_SOURCE_OUTSIDE_ROOT" in result.stdout
+    assert result.stdout.count("PAPER_SOURCE_OUTSIDE_ROOT") == 15
+
+
+def test_paper_source_ownership_requires_exact_regular_nonsymlink_files(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    (source_root / "papers" / "directory.pdf").mkdir(parents=True)
+    write(source_root / "papers" / "real.pdf", "fake pdf")
+    (source_root / "papers" / "alias.pdf").symlink_to(
+        source_root / "papers" / "real.pdf"
+    )
+    (source_root / "papers" / "broken.pdf").symlink_to(
+        source_root / "papers" / "missing.pdf"
+    )
+    (source_root / "papers" / "real-dir").mkdir()
+    write(source_root / "papers" / "real-dir" / "nested.pdf", "fake pdf")
+    (source_root / "papers" / "linked-dir").symlink_to(
+        source_root / "papers" / "real-dir",
+        target_is_directory=True,
+    )
+    for name, source in (
+        ("directory", "papers/directory.pdf"),
+        ("alias", "papers/alias.pdf"),
+        ("broken", "papers/broken.pdf"),
+        ("ancestor", "papers/linked-dir/nested.pdf"),
+    ):
+        write(
+            notes_root / "papers" / f"{name}.md",
+            "---\n"
+            "note_type: paper_note\n"
+            "source_files:\n"
+            f"  - \"{source}\"\n"
+            "---\n"
+            f"# {name}\n\n来源：`{source}`。\n",
+        )
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--check-paper-source-ownership",
+    )
+
+    assert result.returncode == 1
+    assert result.stdout.count("PAPER_SOURCE_NOT_REGULAR") == 8
+
+
+def test_exact_regular_source_target_rejects_case_traversal_and_symlinks(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "sources"
+    write(source_root / "Papers" / "Owner.PDF", "fake pdf")
+    (source_root / "Papers" / "directory.pdf").mkdir()
+    (source_root / "Papers" / "leaf.pdf").symlink_to(
+        source_root / "Papers" / "Owner.PDF"
+    )
+    (source_root / "Papers" / "broken.pdf").symlink_to(
+        source_root / "Papers" / "missing.pdf"
+    )
+    (source_root / "linked").symlink_to(
+        source_root / "Papers",
+        target_is_directory=True,
+    )
+
+    assert exact_regular_source_target(source_root, "Papers/Owner.PDF") == (
+        source_root / "Papers" / "Owner.PDF"
+    )
+    for invalid in (
+        "papers/Owner.PDF",
+        "Papers/owner.pdf",
+        "Papers/directory.pdf",
+        "Papers/leaf.pdf",
+        "Papers/broken.pdf",
+        "linked/Owner.PDF",
+        "../outside.pdf",
+        str(source_root / "Papers" / "Owner.PDF"),
+        r"C:\External\Owner.PDF",
+        r"C:External\Owner.PDF",
+        r"\\server\share\Owner.PDF",
+        r"\\?\C:\External\Owner.PDF",
+        r"\\.\PhysicalDrive0.PDF",
+        r"C:\External/mixed\Owner.PDF",
+    ):
+        assert exact_regular_source_target(source_root, invalid) is None
+
+
+@pytest.mark.parametrize(
+    ("actual", "lookalike"),
+    [
+        ("A.pdf", "Ａ.pdf"),
+        ("1.pdf", "１.pdf"),
+    ],
+    ids=("fullwidth-letter", "fullwidth-digit"),
+)
+def test_exact_regular_source_target_does_not_nfkc_fold_compatibility_names(
+    tmp_path: Path,
+    actual: str,
+    lookalike: str,
+) -> None:
+    source_root = tmp_path / "sources"
+    write(source_root / actual, "fake pdf")
+
+    assert exact_regular_source_target(source_root, actual) == source_root / actual
+    assert exact_regular_source_target(source_root, lookalike) is None
+
+
+def test_paper_source_ownership_rejects_nfkc_compatibility_lookalike(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    write(source_root / "papers" / "A.pdf", "fake pdf")
+    write(
+        notes_root / "papers" / "paper.md",
+        "---\n"
+        "note_type: paper_note\n"
+        "source_files:\n"
+        '  - "papers/Ａ.pdf"\n'
+        "---\n"
+        "# Paper\n\n来源：`papers/Ａ.pdf`。\n",
+    )
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--check-paper-source-ownership",
+    )
+
+    assert result.returncode == 1
+    assert result.stdout.count("PAPER_SOURCE_NOT_FOUND") == 2
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    (
+        "/absolute/Owner.PDF",
+        r"C:\External\Owner.PDF",
+        r"C:External\Owner.PDF",
+        r"\\server\share\Owner.PDF",
+        r"\\?\C:\External\Owner.PDF",
+        r"\\.\PhysicalDrive0.PDF",
+        r"C:\External/mixed\Owner.PDF",
+    ),
+)
+def test_source_path_apis_reject_cross_platform_anchors(
+    tmp_path: Path,
+    invalid: str,
+) -> None:
+    source_root = tmp_path / "sources"
+    source_root.mkdir()
+
+    assert resolve_beneath(source_root, invalid) is None
+    assert exact_regular_source_target(source_root, invalid) is None
 
 
 def test_source_coverage_reports_source_symlink_outside_root(tmp_path: Path) -> None:
@@ -768,3 +964,93 @@ def test_fixed_artifact_symlink_in_ignored_directory_requires_include_ignored(
     assert "NOTES_ARTIFACT_SYMLINK" not in default_result.stdout
     assert included_result.returncode == 1
     assert "NOTES_ARTIFACT_SYMLINK_OUTSIDE_ROOT" in included_result.stdout
+
+
+def test_markdown_scan_ignores_md_directories(tmp_path: Path) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    (source_root / "course").mkdir(parents=True)
+    (notes_root / "course" / "directory.md").mkdir(parents=True)
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "course=course",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_manifest_target_md_directory_is_structured_missing_note_not_traceback(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    write(source_root / "course" / "lecture.pdf", "fixture")
+    write(
+        notes_root / "course" / "source_manifest.md",
+        "# Manifest\n\n`course/lecture.pdf` [[owner.md]]\n",
+    )
+    write(
+        notes_root / "course" / "99_内容覆盖审查.md",
+        "# Audit\n\n`course/lecture.pdf`\n",
+    )
+    (notes_root / "course" / "owner.md").mkdir()
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "course=course",
+    )
+
+    assert result.returncode == 1
+    assert "MANIFEST_TARGET_MISSING_NOTE" in result.stdout
+    assert "Traceback" not in result.stderr
+
+
+def test_resolve_note_target_requires_exact_regular_nonsymlink_path(
+    tmp_path: Path,
+) -> None:
+    notes_root = tmp_path / "notes"
+    notes_dir = notes_root / "course"
+    write(notes_dir / "Owner.md", "# Owner\n")
+    (notes_dir / "directory.md").mkdir()
+    (notes_dir / "leaf.md").symlink_to(notes_dir / "Owner.md")
+    (notes_dir / "broken.md").symlink_to(notes_dir / "missing.md")
+    outside_dir = tmp_path / "outside"
+    write(outside_dir / "linked.md", "# Linked\n")
+    (notes_dir / "ancestor").symlink_to(outside_dir, target_is_directory=True)
+
+    assert resolve_note_target(notes_dir, "Owner.md") == notes_dir / "Owner.md"
+    assert resolve_note_target(notes_dir, "owner.md") is None
+    assert resolve_note_target(notes_dir, "directory.md") is None
+    assert resolve_note_target(notes_dir, "leaf.md") is None
+    assert resolve_note_target(notes_dir, "broken.md") is None
+    assert resolve_note_target(notes_dir, "ancestor/linked.md") is None
+    assert resolve_note_target(notes_dir, "../outside/linked.md") is None
+
+    # Literal POSIX directories can otherwise make foreign-platform anchors
+    # look like valid in-root paths after slash normalization.
+    write(notes_root / "C:" / "course" / "Owner.md", "# Drive lookalike\n")
+    for anchored in (
+        "/course/Owner.md",
+        r"C:\course\Owner.md",
+        r"C:course\Owner.md",
+        r"\\server\share\Owner.md",
+        r"\\?\C:\course\Owner.md",
+        r"\\.\PhysicalDrive0",
+        r"C:\course/mixed\Owner.md",
+    ):
+        assert resolve_note_target(notes_dir, anchored) is None
+
+    real_root = tmp_path / "real-notes"
+    write(real_root / "course" / "Owner.md", "# Owner\n")
+    symlinked_root = tmp_path / "symlinked-notes"
+    symlinked_root.symlink_to(real_root, target_is_directory=True)
+    assert resolve_note_target(symlinked_root / "course", "Owner.md") is None

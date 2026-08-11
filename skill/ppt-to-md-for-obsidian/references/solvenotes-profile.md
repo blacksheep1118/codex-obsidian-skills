@@ -2,6 +2,12 @@
 
 Use this reference only when the target vault or repository clearly follows solvenotes-style conventions, for example local guidance names solvenotes or project scripts define the same checks.
 
+## Guidance Boundary
+
+- Inside the Solvenotes vault, root `AGENT.md` is the only guidance file. Detailed project rules live in `solvenotes/agent/`, alongside the vault rather than inside it.
+- Do not create `notes/agent/`, treat it as course content, or add ordinary Obsidian navigation links to project-rule pages.
+- Read the vault-root `AGENT.md` first, then follow any repository-level rule files it explicitly points to.
+
 ## Quality Checks
 
 - Follow the Audit Output Placement rule in `SKILL.md`: keep temporary reports outside the vault and write corrections and source markers into notes.
@@ -29,6 +35,7 @@ Do not pass the bundled generic `--require-coverage-audit` option in Solvenotes.
 
 ## Source Coverage
 
+- Keep the independent top-level note systems `概念索引`, `模板`, `游戏数值策划`, `科研方法论`, `算法岗学习笔记`, and `学习路径` outside course-to-source directory reconciliation.
 - Run the project-local manifest-only `check_source_coverage.py` first; require every formal manifest row to satisfy the current local schema and target-link contract.
 - Set `SOLVENOTES_SOURCE_ROOT` and run the project-local `check_source_files.py --strict` to verify source existence, declared unit counts, extractability, and explicitly recorded blank/OCR/visual limitations.
 - Treat a missing source root as blocked source verification, not as a passing coverage result. Preserve honest no-extractable-text findings when the manifest already records their boundary.

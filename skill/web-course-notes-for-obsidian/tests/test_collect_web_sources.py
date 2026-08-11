@@ -110,6 +110,23 @@ def test_collect_page_accepts_file_uri_with_spaces(tmp_path: Path):
     assert "week%201.pptx" in page.links[0].url
 
 
+def test_collect_page_skips_same_document_navigation_and_non_web_schemes(tmp_path: Path):
+    html_path = tmp_path / "course.html"
+    html_path.write_text(
+        "<!doctype html><title>Course</title>"
+        "<a href='#toc'>Contents</a>"
+        "<a href='course.html#details'>Details</a>"
+        "<a href='mailto:teacher@example.com'>Email</a>"
+        "<a href='javascript:void(0)'>Open menu</a>"
+        "<a href='paper.pdf'>Paper PDF</a>",
+        encoding="utf-8",
+    )
+
+    page = collect_page(html_path.as_uri())
+
+    assert [(link.kind, link.title) for link in page.links] == [("pdf", "Paper PDF")]
+
+
 def test_collect_page_records_final_url_and_login_required_state(monkeypatch):
     monkeypatch.setattr(
         collect_web_sources,
@@ -183,6 +200,95 @@ def test_read_source_rejects_oversized_content_length_before_body_read(monkeypat
         collect_web_sources.read_source_with_metadata("https://example.com/course", max_bytes=10)
 
     assert response.chunks == [b"should not be read"]
+
+
+def test_read_source_accepts_quoted_charset_parameter(monkeypatch):
+    response = FakeResponse(
+        ["<title>Café</title>".encode("utf-8")],
+        {"content-type": 'text/html; charset="utf-8"'},
+    )
+    monkeypatch.setattr(collect_web_sources, "urlopen", lambda request, timeout: response)
+
+    text, _final_url, status = collect_web_sources.read_source_with_metadata(
+        "https://example.com/course"
+    )
+
+    assert text == "<title>Café</title>"
+    assert status == 200
+
+
+def test_manifest_separates_static_bundle_as_provenance_helper(tmp_path: Path):
+    html_path = tmp_path / "course.html"
+    html_path.write_text(
+        "<!doctype html><title>Course</title>"
+        "<a href='paper.pdf'>Paper PDF</a>"
+        "<a href='app.js'>Client bundle</a>",
+        encoding="utf-8",
+    )
+
+    manifest = build_manifest([collect_page(html_path.as_uri())])
+    learning_section, provenance_section = manifest.split("## Provenance Helpers", 1)
+
+    assert "Paper PDF" in learning_section
+    assert "Client bundle" not in learning_section
+    assert "Client bundle" in provenance_section
+
+
+def test_manifest_keeps_generic_learning_html_while_excluding_true_helpers(tmp_path: Path):
+    html_path = tmp_path / "course.html"
+    html_path.write_text(
+        "<!doctype html><title>Course</title>"
+        "<a href='https://example.edu/attention'>Attention mechanism</a>"
+        "<a href='https://example.edu/attention.json'>Attention examples dataset</a>"
+        "<a href='https://example.edu/static/attention.html'>Static attention chapter</a>"
+        "<a href='https://example.edu/navigation'>Navigation algorithms course</a>"
+        "<a href='https://example.edu/robotics/navigation'>Navigation</a>"
+        "<a href='https://example.edu/examples.js'>JavaScript exercise source</a>"
+        "<a href='https://example.edu/selectors.css'>CSS selectors lesson</a>"
+        "<a href='https://example.edu/memory.wasm'>WebAssembly memory lesson</a>"
+        "<a href='https://example.edu/graphs.map'>Map data structures lesson</a>"
+        "<a href='https://example.edu/api/lesson/1'>Lesson 1 content</a>"
+        "<a href='https://example.edu/api/unlabelled'></a>"
+        "<a href='https://api.example.edu/v1/course'>Course data API</a>"
+        "<a href='https://example.edu/static/app.js'>Client bundle</a>"
+        "<a href='https://example.edu/static/runtime.js'></a>"
+        "<a href='https://example.edu/site-menu'>Site navigation</a>",
+        encoding="utf-8",
+    )
+
+    page = collect_page(html_path.as_uri())
+    links = {link.title: link for link in page.links}
+    manifest = build_manifest([page])
+    learning_section = manifest.split("## Learning Resources", 1)[1].split("## Provenance Helpers", 1)[0]
+    provenance_section = manifest.split("## Provenance Helpers", 1)[1]
+
+    assert classify_url("https://example.edu/attention", "Attention mechanism") == "web_page"
+    learning_titles = (
+        "Attention mechanism",
+        "Attention examples dataset",
+        "Static attention chapter",
+        "Navigation algorithms course",
+        "Navigation",
+        "JavaScript exercise source",
+        "CSS selectors lesson",
+        "WebAssembly memory lesson",
+        "Map data structures lesson",
+        "Lesson 1 content",
+        "https://example.edu/api/unlabelled",
+    )
+    for title in learning_titles:
+        assert links[title].provenance_only is False
+        assert title in learning_section
+        assert title not in provenance_section
+    for title in (
+        "Course data API",
+        "Client bundle",
+        "https://example.edu/static/runtime.js",
+        "Site navigation",
+    ):
+        assert links[title].provenance_only is True
+        assert title not in learning_section
+        assert title in provenance_section
 
 
 def test_collect_source_records_chunked_response_byte_limit(monkeypatch):

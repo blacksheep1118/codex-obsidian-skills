@@ -185,6 +185,72 @@ def test_markdown_it_gfm_table_extension_accepts_table_inside_blockquote() -> No
     assert any(token.type == "table_open" for token in tokens)
 
 
+@pytest.mark.parametrize(
+    "text, expected_checked",
+    (
+        ("`code\n[missing](missing.md)\n`\n", 0),
+        ("``code `\n[missing](missing.md)\n``\n", 0),
+        ("`unclosed\n\n[missing](missing.md)\n`\n", 1),
+        ("`unclosed\n# Heading\n[missing](missing.md)\n`\n", 1),
+        ("- `unclosed\n- [missing](missing.md) `\n", 1),
+    ),
+)
+def test_multiline_inline_code_matches_commonmark_link_visibility(
+    text: str,
+    expected_checked: int,
+    tmp_path: Path,
+) -> None:
+    markdown_it = pytest.importorskip("markdown_it")
+    tokens = markdown_it.MarkdownIt("commonmark").parse(text)
+    oracle_links = sum(
+        child.type == "link_open"
+        for token in tokens
+        for child in (token.children or [])
+    )
+    note = tmp_path / "note.md"
+    note.write_text(text, encoding="utf-8")
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert oracle_links == expected_checked
+    assert checked == expected_checked
+    assert len(broken) == expected_checked
+    assert self_links == []
+
+
+@pytest.mark.parametrize(
+    "line_ending",
+    ("\n", "\r\n", "\r"),
+    ids=("lf", "crlf", "cr"),
+)
+def test_inline_code_soft_and_blank_line_boundaries_cover_all_line_endings(
+    line_ending: str,
+    tmp_path: Path,
+) -> None:
+    soft = tmp_path / "soft.md"
+    soft.write_text(
+        f"`code{line_ending}[hidden](missing.md)`{line_ending}",
+        encoding="utf-8",
+        newline="",
+    )
+    broken, self_links, checked = check_links(tmp_path)
+    assert checked == 0
+    assert broken == []
+    assert self_links == []
+
+    soft.unlink()
+    blank = tmp_path / "blank.md"
+    blank.write_text(
+        f"`unclosed{line_ending}{line_ending}[visible](missing.md)`{line_ending}",
+        encoding="utf-8",
+        newline="",
+    )
+    broken, self_links, checked = check_links(tmp_path)
+    assert checked == 1
+    assert [issue.target for issue in broken] == ["missing.md"]
+    assert self_links == []
+
+
 @pytest.mark.parametrize("case", EMPTY_LIST_PADDING_CASES, ids=lambda case: case.name)
 def test_empty_list_padding_matches_markdown_it_commonmark_oracle(case: EmptyListPaddingCase) -> None:
     markdown_it = pytest.importorskip("markdown_it")

@@ -12,8 +12,14 @@ import re
 import stat
 import struct
 import sys
+import unicodedata
 import zipfile
 from xml.etree import ElementTree as ET
+
+try:
+    from .safe_io import safe_write_text
+except ImportError:
+    from safe_io import safe_write_text
 
 
 END_OF_CHAIN = -2
@@ -254,9 +260,39 @@ def extract(path: Path) -> str:
     raise ValueError(f"unsupported presentation extension: {path.suffix}")
 
 
+def render_extraction(path: Path) -> str:
+    """Wrap fallback text hints in explicit non-source coverage metadata."""
+
+    if path.suffix.lower() == ".pptx":
+        backend = "pptx-zip-slide-xml-text"
+        speaker_notes = "not extracted by this PPTX fallback"
+    elif path.suffix.lower() == ".ppt":
+        backend = "legacy-ppt-ole-cfb-text-records"
+        speaker_notes = "not reliably distinguished or covered by this legacy fallback"
+    else:
+        raise ValueError(f"unsupported presentation extension: {path.suffix}")
+    header = [
+        "=== EXTRACTION METADATA (NOT SOURCE TEXT) ===",
+        f"Source: {path}",
+        f"Backend: {backend}",
+        "Coverage: partial text hints only; this is not complete slide coverage.",
+        "Visual/OCR coverage: none; images, charts, equations, layout, and other visual meaning may be missing.",
+        f"Speaker notes coverage: {speaker_notes}.",
+        "=== EXTRACTED TEXT HINTS ===",
+        "",
+    ]
+    return "\n".join(header) + extract(path)
+
+
 def output_path_for(source: Path, output_dir: Path) -> Path:
     stem = re.sub(r"[\s/]+", "_", source.stem).strip("_")
     return output_dir / f"{stem}.txt"
+
+
+def output_name_key(value: str) -> str:
+    """Model case-insensitive, canonically normalizing destination filesystems."""
+
+    return unicodedata.normalize("NFC", value).casefold()
 
 
 def allocate_output_paths(sources: list[Path], output_dir: Path) -> list[Path]:
@@ -269,27 +305,27 @@ def allocate_output_paths(sources: list[Path], output_dir: Path) -> list[Path]:
     """
 
     default_paths = [output_path_for(source, output_dir) for source in sources]
-    basename_counts = Counter(path.name.casefold() for path in default_paths)
+    basename_counts = Counter(output_name_key(path.name) for path in default_paths)
     allocated: list[Path] = []
     used_names: set[str] = set()
 
     for source, default_path in zip(sources, default_paths):
         candidate = default_path
-        if basename_counts[default_path.name.casefold()] > 1:
+        if basename_counts[output_name_key(default_path.name)] > 1:
             identity = source.expanduser().resolve().as_posix()
             digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:10]
             candidate = output_dir / f"{default_path.stem}--{digest}{default_path.suffix}"
 
-        if candidate.name.casefold() in used_names:
+        if output_name_key(candidate.name) in used_names:
             index = 2
             while True:
                 numbered = candidate.with_name(f"{candidate.stem}--{index}{candidate.suffix}")
-                if numbered.name.casefold() not in used_names:
+                if output_name_key(numbered.name) not in used_names:
                     candidate = numbered
                     break
                 index += 1
 
-        used_names.add(candidate.name.casefold())
+        used_names.add(output_name_key(candidate.name))
         allocated.append(candidate)
 
     return allocated
@@ -316,19 +352,7 @@ def ensure_safe_output_path(output_dir: Path, path: Path) -> Path:
 
 def write_text_no_follow(output_dir: Path, path: Path, content: str) -> None:
     candidate = ensure_safe_output_path(output_dir, path)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    descriptor = os.open(candidate, flags, 0o666)
-    try:
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise ValueError(f"generated output path is not a regular file: {candidate}")
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
-            descriptor = -1
-            stream.write(content)
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
+    safe_write_text(candidate, content)
 
 
 def main() -> int:
@@ -355,7 +379,7 @@ def main() -> int:
     exit_code = 0
     for source, target in zip(args.sources, output_paths):
         try:
-            extracted_text = extract(source)
+            extracted_text = render_extraction(source)
             if target is not None:
                 write_text_no_follow(args.output_dir, target, extracted_text)
                 print(f"wrote {target} source={source}")

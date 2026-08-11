@@ -9,9 +9,9 @@ Users install directly from a GitHub clone with `scripts/install_skill.py` or re
 ## Skill Structure
 
 - The directory name must match `SKILL.md` frontmatter `name`.
-- Each skill keeps its own `SKILL.md`, `agents/openai.yaml`, scripts, references, README, and LICENSE.
+- Each skill keeps its own `SKILL.md`, `agents/openai.yaml`, scripts, agent-needed references, and LICENSE. Keep repository-facing usage documentation under root-level `docs/`; do not add a skill-local README, installation guide, quick reference, or changelog.
 - Shared scripts may have a canonical root copy, but each skill must keep a local copy when the script is needed after standalone installation.
-- Do not move roadmap or planning notes into README files. Report proposed next steps outside the repo docs unless they are accepted product behavior.
+- Do not move roadmap or planning notes into repository documentation. Report proposed next steps outside the repo docs unless they are accepted product behavior.
 
 ## Validation
 

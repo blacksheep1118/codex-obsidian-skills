@@ -1,5 +1,15 @@
 # Note Output Patterns
 
+## Contents
+
+- [Vault Placement](#vault-placement)
+- [Scaffold Lifecycle](#scaffold-lifecycle)
+- [Detailed Note Standard](#detailed-note-standard)
+- [Video Course Site](#video-course-site)
+- [PPT Or Slide Website](#ppt-or-slide-website)
+- [Book Or Chapter Website](#book-or-chapter-website)
+- [Mixed Learning Resource List](#mixed-learning-resource-list)
+
 ## Vault Placement
 
 When a notes directory is provided, put each imported collection in one deterministic folder. Reuse an existing top-level category when the source clearly matches it, such as `计算机视觉` for CVPR/image papers. If no category fits, use the resolved scaffold language: Chinese creates `网络资源/<collection-title>/`, and English creates `Web Resources/<collection-title>/`.
@@ -100,3 +110,5 @@ Summarize and explain. Do not copy long passages.
 Create `source_manifest.md` first, then group notes by topic rather than by URL unless the user asks for per-link notes. The manifest should preserve inaccessible sources with access status and error summaries instead of dropping them. Use URL-level provenance under each section so later edits can trace where each claim came from.
 
 When per-link notes are required, each learning resource in `source_manifest.md` needs either a corresponding note that cites the URL or an explicit skipped/inaccessible status.
+
+Keep URLs used only to discover or verify a client-rendered page under `Provenance Helpers`, not `Learning Resources`. API endpoints, static bundles, and ordinary navigation pages do not require per-link study notes unless they independently contain learning material.

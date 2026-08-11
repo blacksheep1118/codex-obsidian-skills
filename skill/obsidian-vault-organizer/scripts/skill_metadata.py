@@ -11,11 +11,13 @@ from typing import Any
 
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---(?:\n|$)", re.S)
 SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-ALLOWED_FRONTMATTER_KEYS = frozenset({"name", "description", "license", "allowed-tools", "metadata"})
+ALLOWED_FRONTMATTER_KEYS = frozenset({"name", "description"})
 ALLOWED_TOP_LEVEL_KEYS = frozenset({"interface", "dependencies", "policy"})
 ALLOWED_INTERFACE_KEYS = frozenset(
     {"display_name", "short_description", "icon_small", "icon_large", "brand_color", "default_prompt"}
 )
+ALLOWED_DEPENDENCIES_KEYS = frozenset({"tools"})
+ALLOWED_TOOL_KEYS = frozenset({"type", "value", "description", "transport", "url"})
 STRING_INTERFACE_KEYS = ALLOWED_INTERFACE_KEYS
 
 
@@ -41,7 +43,11 @@ def _fallback_scalar(value: str) -> Any:
     return value
 
 
-def _fallback_yaml_mapping(text: str) -> dict[str, Any]:
+def _fallback_yaml_mapping(
+    text: str,
+    *,
+    require_quoted_strings: bool = False,
+) -> dict[str, Any]:
     """Parse the mapping subset used by bundled metadata when PyYAML is absent."""
 
     root: dict[str, Any] = {}
@@ -69,7 +75,13 @@ def _fallback_yaml_mapping(text: str) -> dict[str, Any]:
         if key in parent:
             raise MetadataValidationError(f"line {line_number}: duplicate YAML key {key!r}")
         if raw_value.strip():
-            parent[key] = _fallback_scalar(raw_value.strip())
+            raw_scalar = raw_value.strip()
+            value = _fallback_scalar(raw_scalar)
+            if require_quoted_strings and isinstance(value, str) and not raw_scalar.startswith(("'", '"')):
+                raise MetadataValidationError(
+                    f"line {line_number}: string value for {key!r} must be quoted"
+                )
+            parent[key] = value
         else:
             child: dict[str, Any] = {}
             parent[key] = child
@@ -77,16 +89,82 @@ def _fallback_yaml_mapping(text: str) -> dict[str, Any]:
     return root
 
 
-def load_yaml_mapping(text: str, label: str) -> dict[str, Any]:
+def _pyyaml_load_mapping(
+    text: str,
+    label: str,
+    *,
+    require_quoted_strings: bool,
+) -> dict[str, Any]:
+    import yaml
+
+    class UniqueKeyLoader(yaml.SafeLoader):
+        pass
+
+    def construct_unique_mapping(loader: UniqueKeyLoader, node: Any, deep: bool = False) -> dict[Any, Any]:
+        mapping: dict[Any, Any] = {}
+        for key_node, value_node in node.value:
+            key = loader.construct_object(key_node, deep=deep)
+            if key in mapping:
+                line_number = key_node.start_mark.line + 1
+                raise MetadataValidationError(f"{label} line {line_number}: duplicate YAML key {key!r}")
+            mapping[key] = loader.construct_object(value_node, deep=deep)
+        return mapping
+
+    UniqueKeyLoader.add_constructor(
+        yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+        construct_unique_mapping,
+    )
+
     try:
-        import yaml
+        data = yaml.load(text, Loader=UniqueKeyLoader)
+        if require_quoted_strings:
+            root_node = yaml.compose(text, Loader=yaml.SafeLoader)
+            seen_nodes: set[int] = set()
+
+            def check_string_values(node: Any, *, is_value: bool = False) -> None:
+                if id(node) in seen_nodes:
+                    return
+                seen_nodes.add(id(node))
+                if isinstance(node, yaml.nodes.MappingNode):
+                    for _key_node, value_node in node.value:
+                        check_string_values(value_node, is_value=True)
+                elif isinstance(node, yaml.nodes.SequenceNode):
+                    for value_node in node.value:
+                        check_string_values(value_node, is_value=True)
+                elif (
+                    is_value
+                    and isinstance(node, yaml.nodes.ScalarNode)
+                    and node.tag == "tag:yaml.org,2002:str"
+                    and node.style not in {"'", '"'}
+                ):
+                    line_number = node.start_mark.line + 1
+                    raise MetadataValidationError(
+                        f"{label} line {line_number}: string value {node.value!r} must be quoted"
+                    )
+
+            if root_node is not None:
+                check_string_values(root_node)
+    except yaml.YAMLError as exc:
+        raise MetadataValidationError(f"{label} contains invalid YAML: {exc}") from exc
+    return data
+
+
+def load_yaml_mapping(
+    text: str,
+    label: str,
+    *,
+    require_quoted_strings: bool = False,
+) -> dict[str, Any]:
+    try:
+        import yaml  # noqa: F401
     except ImportError:
-        data = _fallback_yaml_mapping(text)
+        data = _fallback_yaml_mapping(text, require_quoted_strings=require_quoted_strings)
     else:
-        try:
-            data = yaml.safe_load(text)
-        except yaml.YAMLError as exc:
-            raise MetadataValidationError(f"{label} contains invalid YAML: {exc}") from exc
+        data = _pyyaml_load_mapping(
+            text,
+            label,
+            require_quoted_strings=require_quoted_strings,
+        )
     if not isinstance(data, dict):
         raise MetadataValidationError(f"{label} must be a YAML mapping")
     if not all(isinstance(key, str) for key in data):
@@ -118,12 +196,6 @@ def load_skill_frontmatter(path: Path, expected_name: str | None = None) -> dict
         raise MetadataValidationError(f"{path}: frontmatter description must be at most 1024 characters and contain no angle brackets")
     if expected_name is not None and name != expected_name:
         raise MetadataValidationError(f"{path}: frontmatter name {name!r} does not match directory {expected_name!r}")
-    if "license" in data and not isinstance(data["license"], str):
-        raise MetadataValidationError(f"{path}: frontmatter license must be a string")
-    if "allowed-tools" in data and not isinstance(data["allowed-tools"], str):
-        raise MetadataValidationError(f"{path}: frontmatter allowed-tools must be a string")
-    if "metadata" in data and not isinstance(data["metadata"], dict):
-        raise MetadataValidationError(f"{path}: frontmatter metadata must be a mapping")
     return data
 
 
@@ -135,7 +207,11 @@ def _require_mapping(parent: dict[str, Any], key: str, label: str) -> dict[str, 
 
 
 def validate_openai_yaml(path: Path, skill_name: str) -> dict[str, Any]:
-    data = load_yaml_mapping(path.read_text(encoding="utf-8"), str(path))
+    data = load_yaml_mapping(
+        path.read_text(encoding="utf-8"),
+        str(path),
+        require_quoted_strings=True,
+    )
     unexpected = sorted(set(data) - ALLOWED_TOP_LEVEL_KEYS)
     if unexpected:
         raise MetadataValidationError(f"{path}: unexpected top-level keys: {', '.join(unexpected)}")
@@ -165,17 +241,37 @@ def validate_openai_yaml(path: Path, skill_name: str) -> dict[str, Any]:
             raise MetadataValidationError(f"{path}: policy.allow_implicit_invocation must be a boolean")
     if "dependencies" in data:
         dependencies = _require_mapping(data, "dependencies", str(path))
+        unexpected_dependencies = sorted(set(dependencies) - ALLOWED_DEPENDENCIES_KEYS)
+        if unexpected_dependencies:
+            raise MetadataValidationError(
+                f"{path}: unexpected dependencies keys: {', '.join(unexpected_dependencies)}"
+            )
         tools = dependencies.get("tools")
         if not isinstance(tools, list):
             raise MetadataValidationError(f"{path}: dependencies.tools must be a list")
         for index, tool in enumerate(tools):
             if not isinstance(tool, dict):
                 raise MetadataValidationError(f"{path}: dependencies.tools[{index}] must be a mapping")
+            unexpected_tool = sorted(set(tool) - ALLOWED_TOOL_KEYS)
+            if unexpected_tool:
+                raise MetadataValidationError(
+                    f"{path}: unexpected dependencies.tools[{index}] keys: "
+                    + ", ".join(unexpected_tool)
+                )
             if tool.get("type") != "mcp":
                 raise MetadataValidationError(f"{path}: dependencies.tools[{index}].type must be 'mcp'")
-            for key in ("value", "description", "transport", "url"):
-                if key in tool and not isinstance(tool[key], str):
-                    raise MetadataValidationError(f"{path}: dependencies.tools[{index}].{key} must be a string")
+            value = tool.get("value")
+            if not isinstance(value, str) or not value.strip():
+                raise MetadataValidationError(
+                    f"{path}: dependencies.tools[{index}].value must be a non-empty string"
+                )
+            for key in ("description", "transport", "url"):
+                if key in tool and (
+                    not isinstance(tool[key], str) or not tool[key].strip()
+                ):
+                    raise MetadataValidationError(
+                        f"{path}: dependencies.tools[{index}].{key} must be a non-empty string"
+                    )
     return data
 
 

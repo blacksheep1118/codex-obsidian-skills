@@ -143,13 +143,16 @@ python3 scripts/check_source_coverage.py \
   --require-course-prefixed-source-refs
 ```
 
-The checker treats both roots as trust boundaries: `--mapping` entries and
-paper-note `source_files` must resolve beneath the selected source/notes roots.
-Absolute paths, `../` escapes, and symlinks resolving outside those roots are
+The checker treats both roots as trust boundaries. Mapping paths must remain
+beneath the selected source/notes roots. A paper-note `source_files` entry or
+local body source reference must use the exact root-relative spelling of an
+existing regular file. Absolute paths, `../` escapes, case aliases, directory
+targets, and every leaf or ancestor symlink (including broken links) are
 reported as blockers instead of being opened or counted as source evidence.
 When source and note directory names differ, pass the complete explicit mapping
 (for example `All-in-One : Unified Image Restoration=all-in-one,dehaze=去雾,医学人工智能导论=医学人工智能`); strict reconciliation then checks those aliases instead of guessing.
 Known standalone note systems (`概念索引`, `模板`, `游戏数值策划`, `科研方法论`,
+`算法岗学习笔记`, `学习路径`,
 or a matching standalone `note_type`) are excluded from course source-dir
 reconciliation and should not be added as fake source mappings.
 
@@ -164,7 +167,7 @@ For this check, do not treat `course_note_issues 0` as enough. The strict source
 - `note_source_ownership_issues 0`
 - `coverage_evidence_issues 0`
 
-Treat `CHAPTER_MISMATCH_SOURCE_LINK`, `CHAPTER_MISMATCH_NOTE_SOURCE`, and `NONCANONICAL_SOURCE_REF` as blockers before delivery or upload.
+Treat `MANIFEST_TARGET_OWNER_MISMATCH`, `BODY_SOURCE_OWNER_MISMATCH`, and `NONCANONICAL_SOURCE_REF` as blockers before delivery or upload.
 
 ## Review Page Coverage
 

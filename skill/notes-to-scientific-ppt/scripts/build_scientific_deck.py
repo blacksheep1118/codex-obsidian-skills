@@ -82,7 +82,21 @@ def infer_role(title: str) -> str:
     lower = title.lower()
     if any(token in lower for token in ("formula", "algorithm", "equation", "公式", "算法")):
         return "formula/algorithm"
-    if any(token in lower for token in ("result", "experiment", "evidence", "table", "ablation", "实验", "结果", "证据", "表")):
+    if any(
+        token in lower
+        for token in (
+            "result",
+            "experiment",
+            "evidence",
+            "table",
+            "ablation",
+            "实验",
+            "结果",
+            "证据",
+            "表格",
+            "对比表",
+        )
+    ):
         return "evidence/results"
     if any(token in lower for token in ("limitation", "risk", "failure", "局限", "风险", "失败")):
         return "limitations"
@@ -194,8 +208,13 @@ def ensure_required_specs(specs: list[SlideSpec], max_specs: int | None = None) 
         return result
 
     max_specs = max(1, max_specs)
-    required = [limitation, appendix] if max_specs >= 2 else [limitation]
     base = [spec for spec in specs if spec.role not in {"limitations", "appendix"}]
+    if max_specs == 1:
+        return base[:1] or [limitation]
+    if max_specs == 2:
+        return [base[0], limitation] if base else [limitation, appendix]
+
+    required = [limitation, appendix]
     return [*base[: max_specs - len(required)], *required]
 
 

@@ -20,6 +20,7 @@ RESIDUE_RE = re.compile(r"(status:\s*scaffold|待补充|TODO|To complete)", re.I
 SKIPPED_RE = re.compile(r"\b(skipped|inaccessible)\b|不可访问|跳过")
 DIRECT_RESOURCE_KINDS = {"book", "book_pdf", "pdf", "slides", "transcript"}
 READING_LIST_KINDS = {"book_or_chapter", "book", "book_pdf", "pdf"}
+MARKDOWN_ESCAPABLE_PUNCTUATION = frozenset(r'''!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~''')
 ENTRY_MAP_RE = re.compile(
     r"^00[_ ].*(?:学习地图|课程总览|Learning[_ ]+Map|Course[_ ]+Overview).*\.md$",
     re.I,
@@ -75,7 +76,10 @@ def split_table_row(line: str) -> list[str]:
     escaped = False
     for char in stripped:
         if escaped:
-            current.append(char)
+            if char in MARKDOWN_ESCAPABLE_PUNCTUATION:
+                current.append(char)
+            else:
+                current.extend(("\\", char))
             escaped = False
             continue
         if char == "\\":
@@ -86,6 +90,8 @@ def split_table_row(line: str) -> list[str]:
             current = []
             continue
         current.append(char)
+    if escaped:
+        current.append("\\")
     cells.append("".join(current).strip())
     return cells
 
@@ -317,21 +323,59 @@ def validate_web_notes(root: Path, sources: list[str], *, per_link_notes: bool =
 
     require_per_link = per_link_notes or manifest_requires_per_link_notes(rows)
     if require_per_link:
+        resources: list[tuple[str, str]] = []
+        seen_resources: set[str] = set()
         for row in rows:
             if row.section != "Learning Resources":
                 continue
             url = row.values.get("URL", "")
-            if not url:
+            identity = normalize_url(url)
+            if not identity or identity in seen_resources:
                 continue
             if inaccessible_resource(row):
                 continue
-            if any(file_mentions_url(path, url) or explicit_skipped_or_inaccessible(path, url) for path in details):
+            seen_resources.add(identity)
+            resources.append((identity, url))
+
+        note_identities = {
+            path: extract_url_identities(
+                path.read_text(encoding="utf-8", errors="replace")
+            )
+            for path in details
+        }
+        candidates = {
+            identity: [
+                path for path in details if identity in note_identities[path]
+            ]
+            for identity, _url in resources
+        }
+        note_owner: dict[Path, str] = {}
+
+        def assign(identity: str, visited: set[Path]) -> bool:
+            for path in candidates[identity]:
+                if path in visited:
+                    continue
+                visited.add(path)
+                current = note_owner.get(path)
+                if current is None or assign(current, visited):
+                    note_owner[path] = identity
+                    return True
+            return False
+
+        unmatched = {
+            identity
+            for identity, _url in resources
+            if not assign(identity, set())
+        }
+        for identity, url in resources:
+            if identity not in unmatched:
                 continue
             issues.append(
                 WebNoteIssue(
                     "missing_per_link_note",
                     manifest.relative_to(root),
-                    f"learning resource has no corresponding note or skipped/inaccessible status: {url}",
+                    "learning resource has no independently owned detail note or "
+                    f"skipped/inaccessible manifest status: {url}",
                 )
             )
 

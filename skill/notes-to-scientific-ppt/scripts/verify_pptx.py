@@ -16,7 +16,12 @@ import tempfile
 from zipfile import ZipFile
 
 
-SLIDE_RE = re.compile(r"^ppt/slides/slide(\d+)\.xml$")
+SLIDE_RE = re.compile(r"^ppt/slides/slide([0-9]+)\.xml$")
+SLIDE_PNG_RE = re.compile(r"^slide-([0-9]+)\.png$", re.I)
+
+
+class RenderPublishRecoveryError(RuntimeError):
+    """Raised when a render publish cannot restore the previous output set."""
 
 
 def package_slide_count(path: Path) -> int:
@@ -119,10 +124,209 @@ def revalidate_render_directory(
     return safe_output
 
 
-def validate_slide_targets(root: Path, output_dir: Path) -> None:
+def indexed_slide_targets(root: Path, output_dir: Path) -> dict[int, Path]:
+    indexed: dict[int, Path] = {}
     for path in output_dir.iterdir():
-        if path.name.startswith("slide-") and path.suffix.lower() == ".png":
-            ensure_safe_generated_file(root, path)
+        match = SLIDE_PNG_RE.fullmatch(path.name)
+        if match is None:
+            continue
+        safe_path = ensure_safe_generated_file(root, path)
+        page = int(match.group(1))
+        if page in indexed:
+            raise ValueError(
+                f"generated slide previews contain duplicate page {page}: "
+                f"{indexed[page].name}, {path.name}"
+            )
+        indexed[page] = safe_path
+    return indexed
+
+
+def validate_rendered_slide_set(
+    root: Path,
+    output_dir: Path,
+    pages: int,
+) -> list[Path]:
+    indexed = indexed_slide_targets(root, output_dir)
+    expected = set(range(1, pages + 1))
+    if set(indexed) != expected:
+        raise RuntimeError(
+            "rendered PNG page set does not match PDF pages: "
+            f"actual={sorted(indexed)} expected={sorted(expected)}"
+        )
+    return [indexed[page] for page in range(1, pages + 1)]
+
+
+def open_directory_fd(path: Path) -> int | None:
+    """Hold a directory identity during publish on platforms with dir-fd APIs."""
+
+    if os.name == "nt":
+        return None
+    flags = os.O_RDONLY
+    for name in ("O_DIRECTORY", "O_CLOEXEC", "O_NOFOLLOW"):
+        flags |= getattr(os, name, 0)
+    return os.open(path, flags)
+
+
+def entry_identity(directory_fd: int | None, path: Path) -> tuple[int, int] | None:
+    try:
+        if directory_fd is None:
+            status = path.lstat()
+        else:
+            status = os.stat(path.name, dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    return status.st_dev, status.st_ino
+
+
+def replace_entry(
+    source: Path,
+    target: Path,
+    source_fd: int | None,
+    target_fd: int | None,
+) -> None:
+    if source_fd is None or target_fd is None:
+        os.replace(source, target)
+        return
+    os.replace(
+        source.name,
+        target.name,
+        src_dir_fd=source_fd,
+        dst_dir_fd=target_fd,
+    )
+
+
+def publish_render_outputs(
+    render_root: Path,
+    output_dir: Path,
+    render_identity: tuple[int, int],
+    staged_pdf: Path,
+    staged_slides: list[Path],
+    backup_dir: Path,
+) -> tuple[Path, list[Path]]:
+    """Replace the owned render set, rolling back in-process interruptions.
+
+    This transaction does not promise atomic recovery from process termination
+    or machine failure. An incomplete in-process rollback keeps its private
+    recovery directory and reports that path instead of deleting evidence.
+    """
+
+    output_dir = revalidate_render_directory(render_root, output_dir, render_identity)
+    final_pdf = ensure_safe_generated_file(
+        render_root,
+        output_dir / staged_pdf.name,
+    )
+    existing_slides = indexed_slide_targets(render_root, output_dir)
+    existing = [path for path in (final_pdf, *existing_slides.values()) if path.exists()]
+    staging_dir = staged_pdf.parent
+    expected_directory_identities = (
+        render_identity,
+        directory_identity(staging_dir),
+        directory_identity(backup_dir),
+    )
+    output_fd: int | None = None
+    staging_fd: int | None = None
+    backup_fd: int | None = None
+    try:
+        output_fd = open_directory_fd(output_dir)
+        staging_fd = open_directory_fd(staging_dir)
+        backup_fd = open_directory_fd(backup_dir)
+        for descriptor, directory, expected_identity in zip(
+            (output_fd, staging_fd, backup_fd),
+            (output_dir, staging_dir, backup_dir),
+            expected_directory_identities,
+        ):
+            if descriptor is None:
+                continue
+            opened = os.fstat(descriptor)
+            if (opened.st_dev, opened.st_ino) != expected_identity:
+                raise ValueError(
+                    f"render transaction directory identity changed: {directory}"
+                )
+    except BaseException:
+        for descriptor in (backup_fd, staging_fd, output_fd):
+            if descriptor is not None:
+                os.close(descriptor)
+        raise
+
+    backups: list[tuple[Path, Path, tuple[int, int]]] = []
+    published: list[tuple[Path, Path, tuple[int, int]]] = []
+    try:
+        for path in existing:
+            output_dir = revalidate_render_directory(
+                render_root,
+                output_dir,
+                render_identity,
+            )
+            backup = backup_dir / path.name
+            identity = entry_identity(output_fd, path)
+            if identity is None:
+                raise ValueError(f"render output changed before backup: {path}")
+            backups.append((backup, path, identity))
+            replace_entry(path, backup, output_fd, backup_fd)
+
+        for staged in (staged_pdf, *staged_slides):
+            output_dir = revalidate_render_directory(
+                render_root,
+                output_dir,
+                render_identity,
+            )
+            target = ensure_safe_generated_file(
+                render_root,
+                output_dir / staged.name,
+            )
+            identity = entry_identity(staging_fd, staged)
+            if identity is None:
+                raise ValueError(f"staged render output changed before publish: {staged}")
+            published.append((target, staged, identity))
+            replace_entry(staged, target, staging_fd, output_fd)
+
+        final_pdf = ensure_safe_generated_file(
+            render_root,
+            output_dir / staged_pdf.name,
+        )
+        final_slides = validate_rendered_slide_set(
+            render_root,
+            output_dir,
+            len(staged_slides),
+        )
+        return final_pdf, final_slides
+    except BaseException as original:
+        rollback_errors: list[str] = []
+        for target, staged, identity in reversed(published):
+            try:
+                staged_identity = entry_identity(staging_fd, staged)
+                target_identity = entry_identity(output_fd, target)
+                if target_identity == identity and staged_identity is None:
+                    replace_entry(target, staged, output_fd, staging_fd)
+                elif staged_identity != identity:
+                    rollback_errors.append(
+                        f"published {target.name} has conflicting recovery state"
+                    )
+            except BaseException as exc:
+                rollback_errors.append(f"recover published {target.name}: {exc}")
+        for backup, target, identity in reversed(backups):
+            try:
+                backup_identity = entry_identity(backup_fd, backup)
+                target_identity = entry_identity(output_fd, target)
+                if backup_identity == identity and target_identity is None:
+                    replace_entry(backup, target, backup_fd, output_fd)
+                elif target_identity != identity:
+                    rollback_errors.append(
+                        f"backup {target.name} has conflicting recovery state"
+                    )
+            except BaseException as exc:
+                rollback_errors.append(f"restore {target.name}: {exc}")
+        if rollback_errors:
+            raise RenderPublishRecoveryError(
+                "render publish failed; previous outputs need recovery from "
+                f"{backup_dir.parent}: "
+                + "; ".join(rollback_errors)
+            ) from original
+        raise
+    finally:
+        for descriptor in (backup_fd, staging_fd, output_fd):
+            if descriptor is not None:
+                os.close(descriptor)
 
 
 def render_pptx(path: Path, output_dir: Path, expected_slides: int | None, require_render: bool) -> None:
@@ -145,48 +349,108 @@ def render_pptx(path: Path, output_dir: Path, expected_slides: int | None, requi
     render_root = path.parent.expanduser().resolve()
     output_dir = ensure_safe_directory(render_root, render_root / output_relative, create=True)
     render_identity = directory_identity(output_dir)
-    pdf = ensure_safe_generated_file(render_root, output_dir / f"{path.stem}.pdf")
-    validate_slide_targets(render_root, output_dir)
-    with tempfile.TemporaryDirectory(prefix="scientific-deck-lo-") as profile_name:
-        profile_dir = Path(profile_name)
-        subprocess.run(
-            [
-                converter,
-                "--headless",
-                f"-env:UserInstallation={profile_dir.as_uri()}",
-                "--convert-to",
-                "pdf",
-                "--outdir",
-                str(output_dir),
-                str(path),
-            ],
+    ensure_safe_generated_file(render_root, output_dir / f"{path.stem}.pdf")
+    indexed_slide_targets(render_root, output_dir)
+    transaction_dir = Path(
+        tempfile.mkdtemp(
+            prefix=f".{output_dir.name}-stage-",
+            dir=render_root,
+        )
+    )
+    try:
+        staging_dir = transaction_dir / "rendered"
+        backup_dir = transaction_dir / "backup"
+        staging_dir.mkdir()
+        backup_dir.mkdir()
+        staged_pdf = staging_dir / f"{path.stem}.pdf"
+        with tempfile.TemporaryDirectory(prefix="scientific-deck-lo-") as profile_name:
+            profile_dir = Path(profile_name)
+            subprocess.run(
+                [
+                    converter,
+                    "--headless",
+                    f"-env:UserInstallation={profile_dir.as_uri()}",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    str(staging_dir),
+                    str(path),
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        output_dir = revalidate_render_directory(
+            render_root,
+            output_dir,
+            render_identity,
+        )
+        staged_pdf = ensure_safe_generated_file(render_root, staged_pdf)
+        if not staged_pdf.is_file():
+            raise RuntimeError(f"LibreOffice did not create {staged_pdf}")
+        info = subprocess.run(
+            [pdfinfo, str(staged_pdf)],
             check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
         )
-    output_dir = revalidate_render_directory(render_root, output_dir, render_identity)
-    pdf = ensure_safe_generated_file(render_root, pdf)
-    if not pdf.is_file():
-        raise RuntimeError(f"LibreOffice did not create {pdf}")
-    info = subprocess.run([pdfinfo, str(pdf)], check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    output_dir = revalidate_render_directory(render_root, output_dir, render_identity)
-    pdf = ensure_safe_generated_file(render_root, pdf)
-    pages_match = re.search(r"^Pages:\s*(\d+)\s*$", info.stdout, re.M)
-    if pages_match is None:
-        raise RuntimeError("pdfinfo did not report a page count")
-    pages = int(pages_match.group(1))
-    if expected_slides is not None and pages != expected_slides:
-        raise RuntimeError(f"rendered PDF has {pages} pages; expected {expected_slides}")
-    output_dir = revalidate_render_directory(render_root, output_dir, render_identity)
-    pdf = ensure_safe_generated_file(render_root, pdf)
-    validate_slide_targets(render_root, output_dir)
-    subprocess.run([renderer, "-png", str(pdf), str(output_dir / "slide")], check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    output_dir = revalidate_render_directory(render_root, output_dir, render_identity)
-    pdf = ensure_safe_generated_file(render_root, pdf)
-    validate_slide_targets(render_root, output_dir)
+        output_dir = revalidate_render_directory(
+            render_root,
+            output_dir,
+            render_identity,
+        )
+        staged_pdf = ensure_safe_generated_file(render_root, staged_pdf)
+        pages_match = re.search(r"^Pages:\s*(\d+)\s*$", info.stdout, re.M)
+        if pages_match is None:
+            raise RuntimeError("pdfinfo did not report a page count")
+        pages = int(pages_match.group(1))
+        if expected_slides is not None and pages != expected_slides:
+            raise RuntimeError(
+                f"rendered PDF has {pages} pages; expected {expected_slides}"
+            )
+        subprocess.run(
+            [renderer, "-png", str(staged_pdf), str(staging_dir / "slide")],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        output_dir = revalidate_render_directory(
+            render_root,
+            output_dir,
+            render_identity,
+        )
+        staged_pdf = ensure_safe_generated_file(render_root, staged_pdf)
+        staged_slides = validate_rendered_slide_set(
+            render_root,
+            staging_dir,
+            pages,
+        )
+        pdf, _slides = publish_render_outputs(
+            render_root,
+            output_dir,
+            render_identity,
+            staged_pdf,
+            staged_slides,
+            backup_dir,
+        )
+    except RenderPublishRecoveryError:
+        raise
+    except BaseException:
+        shutil.rmtree(transaction_dir, ignore_errors=True)
+        raise
+    else:
+        try:
+            shutil.rmtree(transaction_dir)
+        except OSError as exc:
+            raise RuntimeError(
+                "render outputs were committed, but transaction cleanup failed at "
+                f"{transaction_dir}: {exc}"
+            ) from exc
     print(f"render ok pdf={pdf} pages={pages}")
 
 

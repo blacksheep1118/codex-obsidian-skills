@@ -7,7 +7,7 @@ import argparse
 from dataclasses import dataclass
 from datetime import date
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 import stat
 import sys
@@ -222,8 +222,15 @@ def choose_category_dir(
 ) -> Path:
     if explicit_category:
         category = Path(explicit_category)
+        windows_category = PureWindowsPath(explicit_category)
         notes_root = notes_dir.resolve()
-        if ".." in category.parts:
+        if (
+            category.is_absolute()
+            or windows_category.drive
+            or windows_category.anchor
+            or ".." in category.parts
+            or ".." in windows_category.parts
+        ):
             raise ValueError("explicit category must remain inside --notes-dir")
         candidate = category if category.is_absolute() else notes_root / category
         candidate = ensure_safe_directory(notes_root, candidate, create=False)
@@ -761,6 +768,11 @@ def create_notes(
     map_path = canonical_file(notes_root, collection_dir / map_file_name, map_body)
     manifest_path = canonical_file(notes_root, collection_dir / "source_manifest.md", manifest)
     files = (map_path, manifest_path, *note_paths)
+    path_identities = [path.as_posix().casefold() for path in files]
+    if len(path_identities) != len(set(path_identities)):
+        raise ValueError(
+            "configured map/support/detail output paths collide; choose a distinct --map-note-name"
+        )
 
     if not dry_run:
         ensure_safe_directory(notes_root, collection_dir, create=True)

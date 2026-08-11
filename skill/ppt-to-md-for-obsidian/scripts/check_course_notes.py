@@ -11,9 +11,9 @@ import stat
 import sys
 
 try:
-    from .check_obsidian_links import text_without_code
+    from .check_obsidian_links import count_block_math_delimiters, text_without_code
 except ImportError:
-    from check_obsidian_links import text_without_code
+    from check_obsidian_links import count_block_math_delimiters, text_without_code
 
 
 OVERVIEW_NAMES = ("00_课程总览.md", "00_学习地图.md")
@@ -253,7 +253,7 @@ def find_course_note_issues(
 
     for path in files:
         text = path.read_text(encoding="utf-8", errors="replace")
-        masked_text = text_without_code(text)
+        masked_text, unclosed_fence = text_without_code(text, report_unclosed=True)
         has_conflict_edges = "<<<<<<<" in text and ">>>>>>>" in text
         if not text.strip():
             issues.append(relative_issue(root, path, "empty_file", "Markdown file has no content"))
@@ -270,9 +270,9 @@ def find_course_note_issues(
             if strict_depth and STRICT_TEMPLATE_RE.search(masked_line):
                 issues.append(relative_issue(root, path, "generic_template_residue", f"line {line_number} contains generic/template wording"))
 
-        if sum(1 for line in text.splitlines() if line.strip().startswith("```")) % 2:
-            issues.append(relative_issue(root, path, "unbalanced_fence", "odd number of fenced code block delimiters"))
-        if text.count("$$") % 2:
+        if unclosed_fence:
+            issues.append(relative_issue(root, path, "unbalanced_fence", "fenced code block is not explicitly closed"))
+        if count_block_math_delimiters(masked_text) % 2:
             issues.append(relative_issue(root, path, "unbalanced_math", "odd number of block math delimiters"))
         issues.extend(find_table_issues(root, path, masked_text))
 

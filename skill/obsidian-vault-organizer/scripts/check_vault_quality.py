@@ -5,10 +5,16 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 import stat
 import sys
+import unicodedata
+
+try:
+    from .check_obsidian_links import count_block_math_delimiters, text_without_code
+except ImportError:
+    from check_obsidian_links import count_block_math_delimiters, text_without_code
 
 
 TEMPLATE_RE = re.compile(r"(相关知识链接|TODO|FIXME|TBD|待补|待完善)")
@@ -41,7 +47,6 @@ SOLVENOTES_REPORT_NOTE_TYPES = frozenset(
 )
 BRIDGE_NOTE_RE = re.compile(r"本页保留旧路径，正文请读 \[\[[^\]]+\]\]。")
 WIKI_LINK_RE = re.compile(r"\[\[[^\]]+\]\]")
-FENCE_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})(?P<rest>.*)$")
 DEFAULT_EXCLUDED_DIRS = frozenset({".git", ".obsidian", ".pytest_cache", ".ruff_cache", "__pycache__", "scripts", "skills", "build", "output"})
 DEFAULT_EXCLUDED_FILES = frozenset({"AGENT.md"})
 
@@ -50,6 +55,12 @@ def configure_output_encoding() -> None:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
+
+
+def stem_collision_key(value: str) -> str:
+    """Model canonically normalizing, case-insensitive vault filesystems."""
+
+    return unicodedata.normalize("NFC", value).casefold()
 
 
 @dataclass(frozen=True)
@@ -69,7 +80,8 @@ def normalized_skip_dirs(
     normalized: set[tuple[str, ...]] = set()
     for raw_skip_dir in skip_dirs or []:
         relative = Path(raw_skip_dir)
-        if relative.is_absolute():
+        windows_relative = PureWindowsPath(str(raw_skip_dir))
+        if relative.is_absolute() or windows_relative.drive or windows_relative.anchor:
             raise ValueError(f"--skip-dir must be root-relative: {raw_skip_dir}")
         if not relative.parts or any(part in {"", ".", ".."} for part in relative.parts):
             raise ValueError(f"--skip-dir must name a directory below root: {raw_skip_dir}")
@@ -176,27 +188,6 @@ def relative_issue(root: Path, path: Path, kind: str, message: str) -> VaultIssu
 def is_conflict_marker(line: str, has_conflict_edges: bool) -> bool:
     stripped = line.strip()
     return stripped.startswith("<<<<<<<") or stripped.startswith(">>>>>>>") or (has_conflict_edges and stripped == "=======")
-
-
-def fenced_code_lines(lines: list[str]) -> tuple[set[int], bool]:
-    """Return one-based fenced-code line numbers and whether a fence is unclosed."""
-
-    masked: set[int] = set()
-    active: tuple[str, int] | None = None
-    for line_number, line in enumerate(lines, start=1):
-        match = FENCE_RE.match(line)
-        if active is None:
-            if match:
-                token = match.group("fence")
-                active = (token[0], len(token))
-                masked.add(line_number)
-            continue
-        masked.add(line_number)
-        if match:
-            token = match.group("fence")
-            if token[0] == active[0] and len(token) >= active[1] and not match.group("rest").strip():
-                active = None
-    return masked, active is not None
 
 
 def is_bridge_note(text: str) -> bool:
@@ -315,16 +306,26 @@ def find_vault_issues(
     files = markdown_files(root, skip_dirs=skip_dirs)
     issues: list[VaultIssue] = []
     stems: dict[str, list[Path]] = {}
+    stem_labels: dict[str, str] = {}
+    stem_file_identities: dict[str, set[tuple[int, int]]] = {}
     residue_patterns = profile_patterns(profile, pattern_files)
 
     for path in files:
         text = path.read_text(encoding="utf-8", errors="replace")
+        masked_text, unbalanced_fence = text_without_code(text, report_unclosed=True)
         stripped = text.strip()
         if not is_bridge_note(text):
-            stems.setdefault(path.stem, []).append(path)
+            stem_key = stem_collision_key(path.stem)
+            identity = path.stat()
+            file_identity = (identity.st_dev, identity.st_ino)
+            stem_labels.setdefault(stem_key, path.stem)
+            identities = stem_file_identities.setdefault(stem_key, set())
+            if file_identity not in identities:
+                stems.setdefault(stem_key, []).append(path)
+                identities.add(file_identity)
         has_conflict_edges = "<<<<<<<" in text and ">>>>>>>" in text
         lines = text.splitlines()
-        fenced_lines, unbalanced_fence = fenced_code_lines(lines)
+        masked_lines = masked_text.splitlines()
         solvenotes_report_type = bool(
             profile == "solvenotes"
             and frontmatter_note_types(text) & SOLVENOTES_REPORT_NOTE_TYPES
@@ -345,22 +346,20 @@ def find_vault_issues(
             issues.append(relative_issue(root, path, "empty_file", "Markdown file has no content"))
             continue
 
-        for line_number, line in enumerate(lines, start=1):
+        for line_number, (line, masked_line) in enumerate(zip(lines, masked_lines), start=1):
             if is_conflict_marker(line, has_conflict_edges):
                 issues.append(relative_issue(root, path, "conflict_marker", f"line {line_number} contains merge conflict marker"))
-            if line_number in fenced_lines:
-                continue
-            if TEMPLATE_RE.search(line):
+            if TEMPLATE_RE.search(masked_line):
                 issues.append(relative_issue(root, path, "template_residue", f"line {line_number} contains leftover template text"))
             for residue_pattern in residue_patterns:
-                if residue_pattern.search(line):
+                if residue_pattern.search(masked_line):
                     issues.append(relative_issue(root, path, "strict_study_residue", f"line {line_number} contains profile or custom study-note residue"))
                     break
-            if strict_study and line.strip() == "## 知识链接":
+            if strict_study and masked_line.strip() == "## 知识链接":
                 issues.append(relative_issue(root, path, "link_dump_section", f"line {line_number} contains a tail-style knowledge-link dump heading"))
-            if strict_study and line.startswith("关联阅读：") and len(WIKI_LINK_RE.findall(line)) > 4:
+            if strict_study and masked_line.startswith("关联阅读：") and len(WIKI_LINK_RE.findall(masked_line)) > 4:
                 issues.append(relative_issue(root, path, "dense_related_links", f"line {line_number} contains too many related links for one concept"))
-            if strict_study and line.startswith("关联阅读：") and WIKI_LINK_RE.search(line):
+            if strict_study and masked_line.startswith("关联阅读：") and WIKI_LINK_RE.search(masked_line):
                 previous = ""
                 for prior in reversed(lines[: line_number - 1]):
                     if prior.strip():
@@ -372,15 +371,21 @@ def find_vault_issues(
         if unbalanced_fence:
             issues.append(relative_issue(root, path, "unbalanced_fence", "fenced code block is not closed"))
 
-        if text.count("$$") % 2:
+        if count_block_math_delimiters(masked_text) % 2:
             issues.append(relative_issue(root, path, "unbalanced_math", "odd number of block math delimiters"))
 
     if not allow_duplicate_stems:
-        for stem, paths in sorted(stems.items()):
+        for stem_key, paths in sorted(stems.items()):
             if len(paths) <= 1:
                 continue
             joined = ", ".join(str(path.relative_to(root)) for path in paths)
-            issues.append(VaultIssue(Path(stem), "duplicate_stem", f"duplicate note stem across files: {joined}"))
+            issues.append(
+                VaultIssue(
+                    Path(stem_labels[stem_key]),
+                    "duplicate_stem",
+                    f"duplicate note stem across files: {joined}",
+                )
+            )
 
     return issues
 

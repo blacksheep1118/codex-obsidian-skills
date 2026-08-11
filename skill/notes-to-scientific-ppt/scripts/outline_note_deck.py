@@ -11,18 +11,27 @@ from pathlib import Path
 import re
 import stat
 import sys
+from urllib.parse import unquote
 
 try:
+    from .markdown_links import (
+        MARKDOWN_IMAGE_RE,
+        MARKDOWN_LINK_RE,
+        unescape_markdown_destination,
+    )
     from .safe_io import safe_write_text
 except ImportError:
+    from markdown_links import (
+        MARKDOWN_IMAGE_RE,
+        MARKDOWN_LINK_RE,
+        unescape_markdown_destination,
+    )
     from safe_io import safe_write_text
 
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
-MD_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
 WIKI_LINK_RE = re.compile(r"\[\[([^\]\n]+)\]\]")
 WIKI_EMBED_RE = re.compile(r"!\[\[([^\]\n]+)\]\]")
-IMAGE_RE = re.compile(r"!\[[^\]\n]*\]\(([^)]+)\)")
 MATH_BLOCK_RE = re.compile(r"(?ms)^\s*\$\$\s*$.*?^\s*\$\$\s*$")
 URL_RE = re.compile(r"https?://[^\s)>\]]+")
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
@@ -330,7 +339,15 @@ def summarize_note(path: Path) -> NoteSummary:
     text = strip_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
     headings = tuple(Heading(len(mark.group(1)), mark.group(2).strip()) for mark in HEADING_RE.finditer(text))
     title = next((heading.text for heading in headings if heading.level == 1), path.stem)
-    markdown_links = tuple(sorted(set(MD_LINK_RE.findall(text) + URL_RE.findall(text))))
+    markdown_targets = [
+        unquote(
+            unescape_markdown_destination(
+                target[1:-1] if target.startswith("<") and target.endswith(">") else target
+            )
+        )
+        for target in MARKDOWN_LINK_RE.findall(text)
+    ]
+    markdown_links = tuple(sorted(set(markdown_targets + URL_RE.findall(text))))
     wiki_embeds = set(WIKI_EMBED_RE.findall(text))
     wiki_links = tuple(sorted(set(WIKI_LINK_RE.findall(text)) - wiki_embeds))
     image_embeds, attachment_embeds = classify_wiki_embeds(text)
@@ -340,7 +357,7 @@ def summarize_note(path: Path) -> NoteSummary:
         headings=headings,
         markdown_links=markdown_links,
         wiki_links=wiki_links,
-        image_count=len(IMAGE_RE.findall(text)) + image_embeds,
+        image_count=len(MARKDOWN_IMAGE_RE.findall(text)) + image_embeds,
         attachment_count=attachment_embeds,
         table_count=count_tables(text),
         math_block_count=len(MATH_BLOCK_RE.findall(text)),

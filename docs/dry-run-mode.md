@@ -30,14 +30,14 @@ macOS/Linux:
 
 ```bash
 python3 scripts/install_skill.py --all --dry-run --self-check
-python3 scripts/update_installed_skills.py --all --dry-run
+python3 scripts/update_installed_skills.py --all --dry-run --prune --self-check
 ```
 
 Windows PowerShell:
 
 ```powershell
 py scripts\install_skill.py --all --dry-run --self-check
-py scripts\update_installed_skills.py --all --dry-run
+py scripts\update_installed_skills.py --all --dry-run --prune --self-check
 ```
 
 The vault quality checker is read-only by design:

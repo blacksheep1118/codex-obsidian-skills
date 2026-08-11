@@ -108,6 +108,82 @@ def test_check_course_notes_masks_inline_fenced_and_indented_code(tmp_path: Path
     assert "course_note_issues 0" in result.stdout
 
 
+def test_check_course_notes_reports_unclosed_tilde_fence(tmp_path: Path) -> None:
+    course = tmp_path / "课程"
+    write_minimal_course(course, "~~~python\nprint('unterminated')")
+
+    result = run_checker(course)
+
+    assert result.returncode == 1
+    assert "UNBALANCED_FENCE" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "```text\n$$\n```",
+        "Inline code: `$$`.",
+        "    $$",
+        "~~~text\n$$\n~~~",
+        "> ~~~text\n> $$\n> ~~~",
+        "- item\n  ~~~text\n  $$\n  ~~~",
+    ],
+    ids=("backtick-fence", "inline", "indented", "tilde-fence", "blockquote-fence", "list-fence"),
+)
+def test_check_course_notes_ignores_math_markers_in_commonmark_code(
+    tmp_path: Path,
+    body: str,
+) -> None:
+    course = tmp_path / "课程"
+    write_minimal_course(course, body)
+
+    result = run_checker(course)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "UNBALANCED_MATH" not in result.stdout
+
+
+def test_check_course_notes_still_reports_unbalanced_math_outside_code(tmp_path: Path) -> None:
+    course = tmp_path / "课程"
+    write_minimal_course(course, "$$\nx + y")
+
+    result = run_checker(course)
+
+    assert result.returncode == 1
+    assert "UNBALANCED_MATH" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "<!--\n$$\n-->",
+        "%%\n$$\n%%",
+        r"\$\$",
+        "The literal token $$ appears in this prose sentence.",
+    ],
+    ids=("html-comment", "obsidian-comment", "escaped-literal", "prose"),
+)
+def test_check_course_notes_ignores_non_delimiter_math_text(tmp_path: Path, body: str) -> None:
+    course = tmp_path / "课程"
+    write_minimal_course(course, body)
+
+    result = run_checker(course)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "UNBALANCED_MATH" not in result.stdout
+
+
+@pytest.mark.parametrize("body", ["> $$\n> x + y", "- item\n  $$\n  x + y"], ids=("blockquote", "list"))
+def test_check_course_notes_counts_unbalanced_math_in_containers(tmp_path: Path, body: str) -> None:
+    course = tmp_path / "课程"
+    write_minimal_course(course, body)
+
+    result = run_checker(course)
+
+    assert result.returncode == 1
+    assert "UNBALANCED_MATH" in result.stdout
+
+
 def test_check_course_notes_reports_template_residue_in_list_continuation(tmp_path: Path) -> None:
     course = tmp_path / "课程"
     write_minimal_course(

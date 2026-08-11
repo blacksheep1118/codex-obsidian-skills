@@ -12,7 +12,7 @@ import socket
 import sys
 import time
 from typing import Iterable
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import unquote, urldefrag, urljoin, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, url2pathname, urlopen
 
@@ -33,6 +33,24 @@ TRANSCRIPT_EXTENSIONS = (".vtt", ".srt", ".ttml", ".txt")
 BOOK_PATH_RE = re.compile(r"(/book|/books|/chapter|/chapters|/readings?|/textbook)", re.I)
 COURSE_PATH_RE = re.compile(r"(/course|/courses|/class|/classes|/syllabus|/module|/modules)", re.I)
 DIRECT_RESOURCE_KINDS = {"book", "book_pdf", "pdf", "slides", "transcript"}
+STATIC_HELPER_EXTENSIONS = (".js", ".mjs", ".cjs", ".css", ".map", ".wasm")
+STATIC_HELPER_LABEL_RE = re.compile(
+    r"(?:\bbundle\b|\bsource\s+map\b|\bstylesheet\b|"
+    r"\b(?:webassembly|wasm)\s+module\b|\bstatic\s+(?:asset|script)\b)",
+    re.I,
+)
+STATIC_HELPER_BASENAME_RE = re.compile(
+    r"^(?:app|main|bundle|runtime|vendor|webpack)(?:[._-][a-z0-9]+)*"
+    r"\.(?:js|mjs|cjs|css|map|wasm)$",
+    re.I,
+)
+API_HELPER_PATH_RE = re.compile(r"(?:^|/)(?:api|graphql|wp-json)(?:/|$)", re.I)
+API_HELPER_LABEL_RE = re.compile(r"(?:\b(?:api|endpoint|graphql)\b|接口|端点)", re.I)
+NAVIGATION_HELPER_LABELS = {
+    "open menu",
+    "site navigation",
+    "站点导航",
+}
 LOGIN_PAGE_RE = re.compile(
     r"(?:<input[^>]+type=[\"']password|\b(sign\s*in|log\s*in|login|required\s+login)\b|登录|登入)",
     re.I,
@@ -56,6 +74,7 @@ class LinkRecord:
     title: str
     url: str
     kind: str
+    provenance_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -223,7 +242,7 @@ def read_source_with_metadata(
                 raise SourceTooLargeError(f"source Content-Length exceeds byte limit ({max_bytes} bytes)")
         content_type = response.headers.get("content-type", "")
         charset_match = re.search(r"charset=([^;\s]+)", content_type)
-        encoding = charset_match.group(1) if charset_match else "utf-8"
+        encoding = charset_match.group(1).strip("\"'") if charset_match else "utf-8"
         final_url = normalize_url(response.geturl() or source_url)
         payload = _read_limited(response, max_bytes=max_bytes, deadline=deadline)
         return payload.decode(encoding, errors="replace"), final_url, response.getcode()
@@ -275,6 +294,45 @@ def classify_url(url: str, label: str = "") -> str:
     return "web_page"
 
 
+def is_provenance_helper_link(url: str, label: str = "", kind: str | None = None) -> bool:
+    """Return whether a link is structurally collection provenance, not study material.
+
+    Keep ambiguous links as learning resources.  Only explicit static-bundle
+    shapes, API shapes paired with helper labels, and unambiguous navigation
+    labels become helpers.  Direct PDFs, slides, transcripts, and books remain
+    learning resources even when served below an API-like path.
+    """
+
+    effective_kind = kind or classify_url(url, label)
+    if effective_kind in DIRECT_RESOURCE_KINDS:
+        return False
+    parsed = urlparse(url)
+    path = unquote(parsed.path).casefold()
+    normalized_label = normalize_space(label)
+    if path.endswith(STATIC_HELPER_EXTENSIONS):
+        basename = Path(path).name
+        if STATIC_HELPER_LABEL_RE.search(normalized_label):
+            return True
+        if normalized_label.casefold() in {"", basename} and STATIC_HELPER_BASENAME_RE.fullmatch(
+            basename
+        ):
+            return True
+    if is_api_shaped_url(url) and API_HELPER_LABEL_RE.search(normalize_space(label)):
+        return True
+    return effective_kind == "web_page" and normalized_label.casefold() in NAVIGATION_HELPER_LABELS
+
+
+def is_api_shaped_url(url: str) -> bool:
+    parsed = urlparse(url)
+    path = unquote(parsed.path).casefold()
+    hostname = (parsed.hostname or "").casefold()
+    return bool(
+        API_HELPER_PATH_RE.search(path)
+        or hostname.startswith("api.")
+        or ".api." in hostname
+    )
+
+
 def collect_page(
     source: str,
     timeout: float = 15.0,
@@ -315,11 +373,36 @@ def collect_page(
     )
     links = []
     for href, label in parser.links:
-        absolute = normalize_url(urljoin(page_url, href))
-        kind = classify_url(absolute, label)
-        if kind == "web_page" and not label:
+        raw_href = href.strip()
+        if not raw_href or raw_href.startswith("#"):
             continue
-        links.append(LinkRecord(source=page_url, title=label or absolute, url=absolute, kind=kind))
+        joined = urljoin(page_url, raw_href)
+        parsed_link = urlparse(joined)
+        if parsed_link.scheme.casefold() not in {"http", "https", "file"}:
+            continue
+        defragmented, fragment = urldefrag(joined)
+        page_without_fragment, _page_fragment = urldefrag(page_url)
+        if fragment and normalize_url(defragmented) == normalize_url(page_without_fragment):
+            continue
+        absolute = normalize_url(joined)
+        kind = classify_url(absolute, label)
+        provenance_only = is_provenance_helper_link(absolute, label, kind)
+        if (
+            kind == "web_page"
+            and not label
+            and not provenance_only
+            and not is_api_shaped_url(absolute)
+        ):
+            continue
+        links.append(
+            LinkRecord(
+                source=page_url,
+                title=label or absolute,
+                url=absolute,
+                kind=kind,
+                provenance_only=provenance_only,
+            )
+        )
 
     return PageRecord(
         original_source=source,
@@ -404,12 +487,17 @@ def collect_source(
 
 def dedupe_links(links: Iterable[LinkRecord]) -> list[LinkRecord]:
     seen: set[tuple[str, str]] = set()
+    positions: dict[tuple[str, str], int] = {}
     result: list[LinkRecord] = []
     for link in links:
         key = (link.url, link.kind)
         if key in seen:
+            existing_index = positions[key]
+            if result[existing_index].provenance_only and not link.provenance_only:
+                result[existing_index] = link
             continue
         seen.add(key)
+        positions[key] = len(result)
         result.append(link)
     return result
 
@@ -481,9 +569,29 @@ def build_manifest(pages: list[PageRecord]) -> str:
                 f"{page.access_status} | {status} | {markdown_escape_cell(page.error)} | {markdown_escape_cell(page.url)} |"
             )
         for link in page.links:
+            if link.provenance_only:
+                continue
             lines.append(
                 f"| {link.kind} | {markdown_escape_cell(link.title)} | {markdown_escape_cell(link.url)} | "
                 f"listed | listed |  | {markdown_escape_cell(link.source)} |"
+            )
+
+    lines.extend(
+        [
+            "",
+            "## Provenance Helpers",
+            "",
+            "| Kind | Title | URL | Source Page |",
+            "| --- | --- | --- | --- |",
+        ]
+    )
+    for page in pages:
+        for link in page.links:
+            if not link.provenance_only:
+                continue
+            lines.append(
+                f"| {link.kind} | {markdown_escape_cell(link.title)} | {markdown_escape_cell(link.url)} | "
+                f"{markdown_escape_cell(link.source)} |"
             )
 
     lines.extend(

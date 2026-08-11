@@ -22,14 +22,13 @@ except ImportError:
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MD_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
-REQUIRED_FILES = ['README.md',
- 'LICENSE',
+REQUIRED_FILES = ['LICENSE',
  'requirements.txt',
  'agents/openai.yaml',
  'scripts/build_scientific_deck.py',
  'scripts/verify_pptx.py',
  'scripts/outline_note_deck.py',
+ 'scripts/markdown_links.py',
  'scripts/safe_io.py',
  'scripts/skill_metadata.py',
  'scripts/validate_skill.py',
@@ -95,27 +94,12 @@ def validate_required_files() -> None:
             fail(f"required bundled file is missing: {target}")
 
 
-def validate_readme_links() -> None:
-    path = ROOT / "README.md"
-    if not path.exists():
-        fail("README.md is missing")
-    text = path.read_text(encoding="utf-8")
-    for target in MD_LINK_RE.findall(text):
-        target = target.strip()
-        if target.startswith(("http://", "https://", "mailto:", "#")):
-            continue
-        target = target.split("#", 1)[0]
-        if target and not (ROOT / target).resolve().exists():
-            fail(f"README.md link target does not exist: {target}")
-
-
 def main() -> int:
     metadata = load_skill_metadata()
     validate_openai_yaml(metadata["name"])
     validate_required_files()
     validate_yaml_files()
     validate_references_exist()
-    validate_readme_links()
     print(SUCCESS_MESSAGE)
     return 0
 

@@ -194,6 +194,29 @@ def test_choose_category_dir_rejects_paths_outside_notes_dir(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
+    "unsafe",
+    (
+        r"C:\escape",
+        r"C:escape",
+        r"\\server\share",
+        r"\\?\C:\escape",
+        r"\\.\PhysicalDrive0",
+        r"C:\escape/mixed",
+    ),
+)
+def test_choose_category_dir_rejects_windows_anchors(
+    tmp_path: Path,
+    unsafe: str,
+) -> None:
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    (notes_dir / unsafe).mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="inside --notes-dir"):
+        choose_category_dir(notes_dir, "context", unsafe)
+
+
+@pytest.mark.parametrize(
     ("category_name", "title"),
     [
         ("计算机视觉", "Computer Vision Course"),
@@ -403,3 +426,31 @@ def test_detail_collision_uses_actual_suffixed_stem_in_canonical_map(tmp_path: P
     detail_text = (collection / "01_Audit Course_2.md").read_text(encoding="utf-8")
     assert "[[01_Audit Course_2]]" in map_text
     assert "[[00_Learning_Map]]" in detail_text
+
+
+@pytest.mark.parametrize("map_name", ["source_manifest.md", "01_Audit Course.md"])
+def test_create_web_notes_rejects_output_name_collision_before_writing(
+    tmp_path: Path,
+    map_name: str,
+) -> None:
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    source = tmp_path / "course.html"
+    write_local_course(source)
+
+    result = run_script_unchecked(
+        str(source),
+        "--notes-dir",
+        str(notes_dir),
+        "--title",
+        "Audit Course",
+        "--language",
+        "en",
+        "--map-note-name",
+        map_name,
+    )
+
+    assert result.returncode == 1
+    assert "output paths collide" in result.stderr
+    collection = notes_dir / "Web Resources" / "Audit Course"
+    assert not collection.exists()

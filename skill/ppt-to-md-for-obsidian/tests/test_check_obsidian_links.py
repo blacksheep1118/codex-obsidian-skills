@@ -61,6 +61,90 @@ def test_check_links_accepts_spaces_url_encoding_anchors_and_root_paths(tmp_path
     assert self_links == []
 
 
+def test_check_links_accepts_balanced_parentheses_in_markdown_destination(tmp_path: Path):
+    target = tmp_path / "topic(1).md"
+    target.write_text("# Topic\n", encoding="utf-8")
+    (tmp_path / "index.md").write_text("[Topic](topic(1).md)\n", encoding="utf-8")
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 1
+    assert broken == []
+    assert self_links == []
+
+
+def test_check_links_accepts_commonmark_destination_forms_and_titles(tmp_path: Path):
+    for name in (
+        "foo(and(bar)).md",
+        "escaped(1).md",
+        "folder/My Note(1).md",
+        "encoded(1).md",
+        "literal#name.md",
+    ):
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# Target\n", encoding="utf-8")
+    (tmp_path / "index.md").write_text(
+        "\n".join(
+            [
+                '[Nested](foo(and(bar)).md "nested title")',
+                r"[Escaped](escaped\(1\).md 'escaped title')",
+                "[Spaced](<folder/My Note(1).md> (spaced title))",
+                "[Encoded](encoded%281%29.md#section)",
+                "[Encoded hash](literal%23name.md)",
+                '[External](https://example.com/a%28b%29 "web")',
+                "![Image](missing(and(bar)).png)",
+                "[Empty]( \"title only\")",
+                "[Malformed](foo(and(bar))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 5
+    assert broken == []
+    assert self_links == []
+
+
+def test_check_links_treats_quoted_token_as_bare_destination(tmp_path: Path):
+    target = tmp_path / '"quoted".md'
+    target.write_text("# Quoted\n", encoding="utf-8")
+    (tmp_path / "index.md").write_text('[Quoted]( "quoted".md)\n', encoding="utf-8")
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 1
+    assert broken == []
+    assert self_links == []
+
+
+def test_check_links_rejects_label_that_crosses_a_blank_line(tmp_path: Path):
+    (tmp_path / "target.md").write_text("# Target\n", encoding="utf-8")
+    (tmp_path / "index.md").write_text("[blank\n\nlabel](target.md)\n", encoding="utf-8")
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 0
+    assert broken == []
+    assert self_links == []
+
+
+def test_root_relative_link_does_not_fall_back_to_source_directory(tmp_path: Path):
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    (nested / "target.md").write_text("# Nested target\n", encoding="utf-8")
+    (nested / "source.md").write_text("[Root target](/target.md)\n", encoding="utf-8")
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 1
+    assert [issue.target for issue in broken] == ["/target.md"]
+    assert self_links == []
+
+
 def test_check_links_ignores_external_anchor_mailto_obsidian_and_images(tmp_path: Path):
     page = tmp_path / "a.md"
     page.write_text(
@@ -69,6 +153,9 @@ def test_check_links_ignores_external_anchor_mailto_obsidian_and_images(tmp_path
                 "[Web](https://example.com/missing.md)",
                 "[Mail](mailto:test@example.com)",
                 "[App](obsidian://open?vault=x)",
+                "[Uppercase web](HTTPS://example.com/resource)",
+                "[Protocol relative](//example.com/resource)",
+                "[Custom scheme](vscode://file/example.md)",
                 "[Anchor](#local)",
                 "![Image](missing.png)",
             ]

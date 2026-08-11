@@ -5,6 +5,10 @@ import shutil
 import subprocess
 import sys
 
+import pytest
+
+from scripts.shared.markdown_links import MARKDOWN_IMAGE_RE, MARKDOWN_LINK_RE
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -46,6 +50,108 @@ def test_course_note_checker_accepts_sample_notes():
 
     assert result.returncode == 0
     assert "course_note_issues 0" in result.stdout
+
+
+def test_root_link_checker_cli_accepts_commonmark_nested_and_encoded_destinations(
+    tmp_path: Path,
+):
+    vault = tmp_path / "vault"
+    (vault / "folder").mkdir(parents=True)
+    for target in ("foo(and(bar)).md", "encoded(1).md", "folder/My Note.md"):
+        (vault / target).write_text("# Target\n", encoding="utf-8")
+    (vault / "index.md").write_text(
+        '[Nested](foo(and(bar)).md "title")\n'
+        "[Encoded](encoded%281%29.md#part)\n"
+        "[Spaced](<folder/My Note.md>)\n"
+        "![Image](missing(and(bar)).png)\n",
+        encoding="utf-8",
+    )
+
+    result = run_command("scripts/check_obsidian_links.py", str(vault))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "checked_links 3" in result.stdout
+    assert "broken_links 0" in result.stdout
+
+
+def test_shared_markdown_link_parser_depth_images_and_windows_space_boundaries():
+    depth_32 = "target.md"
+    for index in range(32):
+        depth_32 = f"level{index}({depth_32})"
+    depth_33 = f"overflow({depth_32})"
+    text = (
+        f'[Deep]({depth_32} "title")\n'
+        r"[Windows](<C:\Course Notes\topic(1).md>)" "\n"
+        "![Image](plot(and(detail)).png)\n"
+        f"[Too deep]({depth_33})\n"
+        "[Unclosed](target(and(child))\n"
+    )
+
+    assert MARKDOWN_LINK_RE.findall(text) == [
+        depth_32,
+        r"<C:\Course Notes\topic(1).md>",
+    ]
+    assert MARKDOWN_IMAGE_RE.findall(text) == ["plot(and(detail)).png"]
+
+
+def test_shared_markdown_link_parser_rejects_backslash_space_like_commonmark() -> None:
+    source = r"[Backslash space](foo\ bar.md)"
+    markdown_it = pytest.importorskip("markdown_it")
+
+    assert "<a " not in markdown_it.MarkdownIt("commonmark").render(source)
+    assert MARKDOWN_LINK_RE.findall(source) == []
+
+
+def test_shared_markdown_link_parser_keeps_commonmark_punctuation_escapes() -> None:
+    source = r"[Escaped punctuation](foo\(bar\).md)"
+
+    assert MARKDOWN_LINK_RE.findall(source) == [r"foo\(bar\).md"]
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        ("[soft\nlabel](foo.md)", ["foo.md"]),
+        ("[soft\r\nlabel](foo.md)", ["foo.md"]),
+        ("[soft\rlabel](foo.md)", ["foo.md"]),
+        ("[blank\n\nlabel](foo.md)", []),
+        ("[blank\r\n\r\nlabel](foo.md)", []),
+        ("[blank\r\rlabel](foo.md)", []),
+        ('[quoted]( "title")', ['"title"']),
+        ('[empty angle](<> "title")', ["<>"]),
+        (r'[escaped title](foo.md "a \" quote")', ["foo.md"]),
+        ("[one newline](foo.md\n'title')", ["foo.md"]),
+        ("[blank title](foo.md\n\n'title')", []),
+        ('[blank CR in title](foo.md "a\r\rb")', []),
+        ('[soft CRLF in title](foo.md "a\r\nb")', ["foo.md"]),
+        ("[bad delimiter](foo.md title)", []),
+    ),
+)
+def test_shared_markdown_link_parser_matches_commonmark_boundaries(
+    source: str,
+    expected: list[str],
+) -> None:
+    markdown_it = pytest.importorskip("markdown_it")
+    oracle_links = [
+        child.attrGet("href") or ""
+        for token in markdown_it.MarkdownIt("commonmark").parse(source)
+        for child in (token.children or [])
+        if child.type == "link_open"
+    ]
+
+    assert bool(oracle_links) is bool(expected)
+    assert MARKDOWN_LINK_RE.findall(source) == expected
+
+
+def test_shared_markdown_link_parser_reports_exact_source_spans() -> None:
+    source = "prefix [soft\nlabel](<folder/My Note.md> 'title') suffix"
+
+    matches = list(MARKDOWN_LINK_RE.finditer(source))
+
+    assert len(matches) == 1
+    assert matches[0].group(0) == "[soft\nlabel](<folder/My Note.md> 'title')"
+    assert source[matches[0].start() : matches[0].end()] == matches[0].group(0)
+    assert matches[0].group(1) == "<folder/My Note.md>"
 
 
 def test_course_note_checker_requires_review_pages(tmp_path: Path):

@@ -46,7 +46,7 @@ Treat existing notes, local guidance, source files opened in the current task, g
    - Identify source materials separately from notes.
    - Treat source files as read-only unless the user explicitly asks to rename, move, delete, or reorganize them.
    - For source-consistency claims, build a source-to-note map first. Do not claim a note is source-consistent unless its corresponding source file has been opened or extracted in the current task.
-   - When course-note source checking requires PPT/PPTX text and no dedicated converter skill/tool is available, use `scripts/extract_presentation_text.py` to create temporary source text for comparison. Use the extracted text as evidence for manual note repair, not as an automatic note generator.
+   - When course-note source checking requires PPT/PPTX text and no dedicated converter skill/tool is available, use `scripts/extract_presentation_text.py` to create temporary source text for comparison. Its output begins with extraction metadata and is only partial text evidence: it performs no OCR or complete visual/layout inspection, and speaker-note coverage is absent or unreliable. Keep the metadata separate from source text, and use the extracted hints for manual note repair, not as an automatic note generator or a complete-coverage claim.
 
 2. Load local guidance before editing.
    - Read `AGENT.md`, `agent.md`, and relevant files under `agent/` when present.
@@ -131,7 +131,7 @@ For dry-run work, clearly separate proposed edits from applied edits and do not 
 - `scripts/check_obsidian_links.py`: check Markdown links and Obsidian wiki links while ignoring fenced and inline code.
 - `scripts/check_vault_quality.py`: check empty files, conflict markers, unbalanced fences/math, duplicate note stems, template residue, generic strict-study link placement, optional solvenotes profile residue, fail-closed Solvenotes legacy audit pages, and custom pattern files.
 - `scripts/link_inventory.py`: inventory Markdown, wiki, and external links by file and directory for cleanup before/after comparisons.
-- `scripts/extract_presentation_text.py`: extract PPTX and legacy PPT text into temporary files for source-consistency audits.
+- `scripts/extract_presentation_text.py`: extract partial PPTX and legacy PPT text hints into temporary files with explicit non-OCR, visual, and speaker-note coverage limits.
 - `references/project-vault-workflow.md`: path discovery, local guidance loading, and editing boundaries.
 - `references/obsidian-style.md`: note writing, formulas, links, navigation, and review page style.
 - `references/validation.md`: lightweight validation checks for vault edits.

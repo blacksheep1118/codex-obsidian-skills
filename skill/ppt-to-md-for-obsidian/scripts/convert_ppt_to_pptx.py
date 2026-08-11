@@ -11,6 +11,25 @@ import argparse
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
+from zipfile import BadZipFile, ZipFile
+
+try:
+    from .safe_io import (
+        atomic_binary_writer,
+        ensure_safe_directory,
+        ensure_safe_input_directory,
+        ensure_safe_input_file,
+        ensure_safe_output_path,
+    )
+except ImportError:
+    from safe_io import (
+        atomic_binary_writer,
+        ensure_safe_directory,
+        ensure_safe_input_directory,
+        ensure_safe_input_file,
+        ensure_safe_output_path,
+    )
 
 
 MACOS_SOFFICE = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
@@ -18,6 +37,7 @@ WINDOWS_SOFFICE_PATHS = (
     r"C:\Program Files\LibreOffice\program\soffice.exe",
     r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
 )
+REQUIRED_PPTX_PARTS = {"[Content_Types].xml", "ppt/presentation.xml"}
 
 
 def soffice_candidates(explicit: str | None = None) -> list[str]:
@@ -46,51 +66,75 @@ def find_soffice(explicit: str | None = None) -> str:
     )
 
 
+def validate_pptx_package(path: Path) -> None:
+    """Reject converter output that is not an intact PPTX package."""
+
+    try:
+        with ZipFile(path) as archive:
+            corrupt = archive.testzip()
+            if corrupt is not None:
+                raise RuntimeError(f"LibreOffice produced a PPTX with a corrupt ZIP member: {corrupt}")
+            missing = sorted(REQUIRED_PPTX_PARTS - set(archive.namelist()))
+            if missing:
+                raise RuntimeError(
+                    "LibreOffice produced a PPTX missing required package parts: "
+                    + ", ".join(missing)
+                )
+    except (BadZipFile, OSError) as exc:
+        raise RuntimeError(f"LibreOffice produced an invalid PPTX package: {path}: {exc}") from exc
+
+
 def convert_one(path: Path, out_dir: Path, soffice: str) -> Path:
-    if not path.exists():
-        raise FileNotFoundError(path)
+    path = ensure_safe_input_file(path)
     if path.suffix.lower() != ".ppt":
         raise ValueError(f"expected a .ppt file, got: {path}")
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    before = set(out_dir.glob("*.pptx"))
+    out_dir = ensure_safe_directory(out_dir, create=True)
+    expected = ensure_safe_output_path(out_dir / f"{path.stem}.pptx", create_parent=False)
+    with tempfile.TemporaryDirectory(prefix=".ppt-convert-", dir=out_dir) as staging_name:
+        staging_dir = Path(staging_name)
+        staged = staging_dir / expected.name
+        cmd = [
+            soffice,
+            "--headless",
+            "--convert-to",
+            "pptx",
+            "--outdir",
+            str(staging_dir),
+            str(path),
+        ]
+        result = subprocess.run(cmd, text=True, capture_output=True, check=False)
+        if result.returncode != 0:
+            raise RuntimeError(
+                "LibreOffice conversion failed\n"
+                f"command: {' '.join(cmd)}\n"
+                f"stdout: {result.stdout}\n"
+                f"stderr: {result.stderr}"
+            )
 
-    cmd = [
-        soffice,
-        "--headless",
-        "--convert-to",
-        "pptx",
-        "--outdir",
-        str(out_dir),
-        str(path),
-    ]
-    result = subprocess.run(cmd, text=True, capture_output=True, check=False)
-    if result.returncode != 0:
-        raise RuntimeError(
-            "LibreOffice conversion failed\n"
-            f"command: {' '.join(cmd)}\n"
-            f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}"
-        )
+        staged = ensure_safe_output_path(staged, create_parent=False)
+        if not staged.exists():
+            raise RuntimeError(
+                f"LibreOffice finished without producing expected output {expected.name}. "
+                f"stdout: {result.stdout}\nstderr: {result.stderr}"
+            )
+        validate_pptx_package(staged)
+        with staged.open("rb") as converted, atomic_binary_writer(expected) as output:
+            shutil.copyfileobj(converted, output)
 
-    expected = out_dir / f"{path.stem}.pptx"
-    if expected.exists():
-        return expected
-
-    after = set(out_dir.glob("*.pptx"))
-    created = sorted(after - before)
-    if created:
-        return created[0]
-
-    raise RuntimeError(
-        "LibreOffice finished without producing a .pptx file. "
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
+    return ensure_safe_output_path(expected, create_parent=False)
 
 
 def iter_inputs(input_path: Path) -> list[Path]:
     if input_path.is_dir():
-        return sorted(input_path.glob("*.ppt"))
+        input_path = ensure_safe_input_directory(input_path)
+        return sorted(
+            ensure_safe_input_file(path)
+            for path in input_path.iterdir()
+            if not path.is_symlink()
+            and path.is_file()
+            and path.suffix.casefold() == ".ppt"
+        )
     return [input_path]
 
 

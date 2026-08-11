@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import subprocess
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +28,54 @@ ROUTING_EXPECTATIONS = {
         "boundary": ("$web-course-notes-for-obsidian", "$ppt-to-md-for-obsidian", "$obsidian-vault-organizer"),
     },
 }
+FORBIDDEN_SKILL_AUXILIARY_FILES = {
+    "readme.md",
+    "installation_guide.md",
+    "quick_reference.md",
+    "changelog.md",
+}
+
+
+def test_root_command_reference_uses_supported_notes_to_ppt_mode(tmp_path: Path):
+    command_reference = (ROOT / "docs" / "skill-command-reference.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "--mode paper-reading" in command_reference
+    assert "--mode paper-defense" not in command_reference
+    assert "scripts/extract_legacy_ppt_text.py" in command_reference
+    assert "--brief deck-brief.md" not in command_reference
+    assert "scientific-deck.pptx \\\n  --json" not in command_reference
+
+    note = tmp_path / "note.md"
+    output = tmp_path / "deck-brief.md"
+    note.write_text("# Paper\n\n## Method\n\nEvidence.\n", encoding="utf-8")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(
+                ROOT
+                / "skill"
+                / "notes-to-scientific-ppt"
+                / "scripts"
+                / "outline_note_deck.py"
+            ),
+            str(note),
+            "--mode",
+            "paper-reading",
+            "--out",
+            str(output),
+        ],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output.is_file()
+    assert "Deck Mode: paper-reading" in output.read_text(encoding="utf-8")
 
 
 def load_frontmatter(skill_dir: Path) -> dict:
@@ -55,6 +105,39 @@ def test_all_skills_have_output_contracts_and_validation():
         assert "`scripts/" in text, skill_dir.name
         assert "`references/" in text, skill_dir.name
         assert "## Handoff Boundaries" in text, skill_dir.name
+
+
+def test_skill_packages_exclude_forbidden_auxiliary_documentation():
+    for skill_dir in SKILL_DIRS:
+        present = {
+            path.name.casefold()
+            for path in skill_dir.rglob("*")
+            if path.is_file()
+        }
+        assert not present & FORBIDDEN_SKILL_AUXILIARY_FILES, skill_dir.name
+
+
+def test_long_skill_references_have_top_contents_with_live_heading_anchors():
+    for reference in SKILL_ROOT.glob("*/references/*.md"):
+        lines = reference.read_text(encoding="utf-8").splitlines()
+        if len(lines) <= 100:
+            continue
+
+        contents_index = lines.index("## Contents")
+        assert contents_index <= 12, reference
+        next_heading = next(
+            (index for index in range(contents_index + 1, len(lines)) if lines[index].startswith("## ")),
+            len(lines),
+        )
+        contents = "\n".join(lines[contents_index + 1 : next_heading])
+        anchors = set(re.findall(r"\]\(#([^)]+)\)", contents))
+        expected = {
+            heading.removeprefix("## ").strip().casefold().replace(" ", "-")
+            for heading in lines[next_heading:]
+            if heading.startswith("## ")
+        }
+
+        assert expected <= anchors, (reference, sorted(expected - anchors))
 
 
 def test_skill_frontmatter_is_trigger_oriented():

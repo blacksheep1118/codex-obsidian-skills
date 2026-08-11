@@ -86,7 +86,7 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
    - Check local Obsidian links with `$obsidian-vault-organizer`.
    - Run `scripts/check_web_notes.py <collection-dir> --source <user-url>` with every user-supplied URL or local source, and add `--per-link-notes` when the user requested per-link notes.
    - Check that `source_manifest.md` covers every URL the user supplied, including inaccessible or failed sources.
-   - For each URL in `source_manifest.md`, verify there is a corresponding per-link note when per-link notes were requested or the source is a reading list. Include helper endpoints and client-rendered provenance URLs as separate notes if they are listed in the manifest.
+   - For each URL under `Learning Resources` in `source_manifest.md`, verify there is a corresponding per-link note when per-link notes were requested or the source is a reading list. Keep non-learning endpoints and static bundles under `Provenance Helpers`; they document collection provenance and do not require separate study notes.
    - Check that generated notes do not contain long copied passages from books or web pages.
    - Check that final notes are comparable in detail to existing notes in the destination folder.
    - Run an anti-template audit on per-link notes: flag very short notes, identical heading patterns, vague "value/importance" language without concrete mechanisms, and notes that lack limitations or reading/reproduction checks.

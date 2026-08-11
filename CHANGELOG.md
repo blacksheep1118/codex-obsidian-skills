@@ -4,6 +4,9 @@ All notable changes to this repository are documented here.
 
 ## Unreleased
 
+- Corrected CommonMark inline-link and code-span boundaries across LF, CRLF, and CR; hardened cross-platform root-relative path validation; preserved Windows paths, regexes, and LaTeX in web manifests; and required independent per-resource web-note ownership.
+- Hardened paper-note local source ownership to require exact regular non-symlink files in both frontmatter and body references, and tightened validation of the official `agents/openai.yaml` dependency schema.
+- Moved reusable skill command examples into root-level documentation and removed skill-local README files so installable packages contain only agent-needed resources.
 - Tightened strict source coverage to require canonical source paths, independent frontmatter/body page evidence, topic ownership checks, numeric chapter markers, and outside-root symlink rejection; manual-review markers are classified explicitly.
 - Added PPTX package/python-pptx reopen and slide-count verification, fixed-title overflow rejection, and optional LibreOffice/Poppler render checks for real deck smoke validation.
 - Made vault inventories exclude guidance/tooling/cache Markdown by default, made install dry-runs report per-file added/changed/stale state without pruning, and upgraded CI/local validation to full Ruff.

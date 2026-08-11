@@ -15,19 +15,30 @@ from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 import stat
 import sys
+import unicodedata
 
 try:
     from .clean_latex_from_ppt import clean_text
     from .extract_legacy_ppt_text import LegacyPptTextResult, extract_legacy_ppt_text
     from .extract_pptx_text import extract_pptx_result
     from .extract_pdf_text import LOW_COVERAGE_WARNING, extract_pdf_result
-    from .safe_io import ensure_safe_input_directory, ensure_safe_input_file
+    from .safe_io import (
+        ensure_safe_directory as ensure_nonsymlink_directory,
+        ensure_safe_input_directory,
+        ensure_safe_input_file,
+        safe_write_text,
+    )
 except ImportError:
     from clean_latex_from_ppt import clean_text
     from extract_legacy_ppt_text import LegacyPptTextResult, extract_legacy_ppt_text
     from extract_pptx_text import extract_pptx_result
     from extract_pdf_text import LOW_COVERAGE_WARNING, extract_pdf_result
-    from safe_io import ensure_safe_input_directory, ensure_safe_input_file
+    from safe_io import (
+        ensure_safe_directory as ensure_nonsymlink_directory,
+        ensure_safe_input_directory,
+        ensure_safe_input_file,
+        safe_write_text,
+    )
 
 
 SUPPORTED_SUFFIXES = {".ppt", ".pptx", ".pdf"}
@@ -89,7 +100,7 @@ def safe_relative_config_path(value: str, label: str) -> Path:
         windows_path = PureWindowsPath(value)
     except TypeError as exc:
         raise ValueError(f"{label} must be a relative path string") from exc
-    if path.is_absolute() or windows_path.is_absolute():
+    if path.is_absolute() or windows_path.drive or windows_path.anchor:
         raise ValueError(f"{label} must be root-relative, not absolute: {value!r}")
     if not path.parts or path == Path(".") or ".." in path.parts or ".." in windows_path.parts:
         raise ValueError(f"{label} must not be empty or contain '..': {value!r}")
@@ -97,7 +108,7 @@ def safe_relative_config_path(value: str, label: str) -> Path:
 
 
 def relative_beneath(root: Path, path: Path) -> Path:
-    root = root.resolve()
+    root = Path(os.path.abspath(root.expanduser()))
     candidate = path if path.is_absolute() else root / path
     candidate = Path(os.path.abspath(candidate))
     try:
@@ -109,7 +120,7 @@ def relative_beneath(root: Path, path: Path) -> Path:
 def ensure_safe_directory(root: Path, path: Path, *, create: bool) -> Path:
     """Validate or create a directory without traversing symlink components."""
 
-    root = root.resolve()
+    root = Path(os.path.abspath(root.expanduser()))
     relative = relative_beneath(root, path)
     current = root
     for component in relative.parts:
@@ -146,19 +157,7 @@ def ensure_safe_output_path(root: Path, path: Path, *, create_parent: bool = Tru
 
 def write_text_no_follow(root: Path, path: Path, content: str) -> None:
     candidate = ensure_safe_output_path(root, path)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    descriptor = os.open(candidate, flags, 0o666)
-    try:
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise ValueError(f"output path is not a regular file: {candidate}")
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
-            descriptor = -1
-            stream.write(content)
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
+    safe_write_text(candidate, content)
 
 
 def load_yaml_config(path: Path) -> dict:
@@ -192,7 +191,21 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
     )
 
 
-def iter_sources(source: Path) -> list[Path]:
+def path_is_beneath(path: Path, root: Path) -> bool:
+    candidate = Path(os.path.abspath(path.expanduser()))
+    root = Path(os.path.abspath(root.expanduser()))
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def iter_sources(
+    source: Path,
+    *,
+    exclude_roots: tuple[Path, ...] = (),
+) -> list[Path]:
     """Enumerate regular source files without following any symlink."""
 
     source = source.expanduser()
@@ -214,10 +227,25 @@ def iter_sources(source: Path) -> list[Path]:
         raise ValueError(f"source must be a regular file or directory: {source}")
 
     root = ensure_safe_input_directory(source)
+    excluded = tuple(
+        Path(os.path.abspath(path.expanduser()))
+        for path in exclude_roots
+        if path_is_beneath(path, root)
+    )
     sources: list[Path] = []
     for current_root, directory_names, file_names in os.walk(root, followlinks=False):
         current = Path(current_root)
-        for name in (*directory_names, *file_names):
+        directory_names[:] = [
+            name
+            for name in directory_names
+            if not any(path_is_beneath(current / name, path) for path in excluded)
+        ]
+        visible_files = [
+            name
+            for name in file_names
+            if not any(path_is_beneath(current / name, path) for path in excluded)
+        ]
+        for name in (*directory_names, *visible_files):
             candidate = current / name
             try:
                 mode = candidate.lstat().st_mode
@@ -225,12 +253,31 @@ def iter_sources(source: Path) -> list[Path]:
                 raise ValueError(f"source tree changed while scanning: {candidate}") from exc
             if stat.S_ISLNK(mode):
                 raise ValueError(f"source tree contains symlink: {candidate}")
-        for name in file_names:
+        for name in visible_files:
             candidate = current / name
             if candidate.suffix.lower() not in SUPPORTED_SUFFIXES:
                 continue
             sources.append(ensure_safe_input_file(candidate))
     return sorted(sources)
+
+
+def output_directory_identity(path: Path) -> tuple[int, int]:
+    mode = path.lstat()
+    if stat.S_ISLNK(mode.st_mode) or not stat.S_ISDIR(mode.st_mode):
+        raise ValueError(f"output_dir is not a regular directory: {path}")
+    return mode.st_dev, mode.st_ino
+
+
+def revalidate_output_directory(
+    path: Path,
+    expected_identity: tuple[int, int],
+) -> None:
+    try:
+        current_identity = output_directory_identity(path)
+    except (FileNotFoundError, ValueError):
+        raise ValueError(f"output_dir changed during processing: {path}") from None
+    if current_identity != expected_identity:
+        raise ValueError(f"output_dir changed during processing: {path}")
 
 
 def convert_legacy_ppt(path: Path, converted_dir: Path, soffice: str | None) -> Path:
@@ -314,7 +361,14 @@ def extract_source(path: Path, config: PipelineConfig, converted_dir: Path) -> E
 
 
 def safe_stem(path: Path) -> str:
-    return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in path.stem)
+    stem = unicodedata.normalize("NFC", path.stem)
+    return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in stem)
+
+
+def output_stem_key(value: str) -> str:
+    """Return a key safe for Unicode-normalizing, case-insensitive filesystems."""
+
+    return unicodedata.normalize("NFC", value).casefold()
 
 
 def disambiguated_stem(path: Path, source_identity: Path, used: dict[str, str]) -> str:
@@ -326,18 +380,19 @@ def disambiguated_stem(path: Path, source_identity: Path, used: dict[str, str]) 
     """
 
     base = safe_stem(path)
+    base_key = output_stem_key(base)
     identity = source_identity.as_posix()
-    if base not in used:
-        used[base] = identity
+    if base_key not in used:
+        used[base_key] = identity
         return base
 
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:10]
     candidate = f"{base}-{digest}"
     suffix = 2
-    while candidate in used:
+    while output_stem_key(candidate) in used:
         candidate = f"{base}-{digest}-{suffix}"
         suffix += 1
-    used[candidate] = identity
+    used[output_stem_key(candidate)] = identity
     return candidate
 
 
@@ -428,14 +483,16 @@ def write_placeholders(config: PipelineConfig) -> None:
 def run(config: PipelineConfig) -> list[ProcessedSource]:
     converted_relative = safe_relative_config_path(config.converted_dir, "converted_dir")
     safe_relative_config_path(config.overview_name, "overview_name")
-    sources = iter_sources(config.source)
+    output_root = ensure_nonsymlink_directory(
+        config.output_dir.expanduser(),
+        create=True,
+    )
+    output_identity = output_directory_identity(output_root)
+    config.output_dir = output_root
+    sources = iter_sources(config.source, exclude_roots=(output_root,))
     if not sources:
         raise SystemExit(f"no supported source files found in {config.source}")
-    output_root = config.output_dir.expanduser().resolve()
-    output_root.mkdir(parents=True, exist_ok=True)
-    if not output_root.is_dir():
-        raise ValueError(f"output_dir is not a directory: {output_root}")
-    config.output_dir = output_root
+    revalidate_output_directory(output_root, output_identity)
 
     raw_dir = ensure_safe_directory(
         config.output_dir,

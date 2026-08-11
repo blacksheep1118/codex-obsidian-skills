@@ -2,6 +2,12 @@
 
 Use this reference only when the target vault or repository clearly follows solvenotes-style conventions, for example local guidance names solvenotes or project validators define the profile.
 
+## Guidance Boundary
+
+- Inside the Solvenotes vault, root `AGENT.md` is the only guidance file. Detailed project rules live in `solvenotes/agent/`, alongside the vault rather than inside it.
+- Do not create `notes/agent/`, treat it as note content, or add ordinary Obsidian navigation links to project-rule pages.
+- Read the vault-root `AGENT.md` first, then follow any repository-level rule files it explicitly points to.
+
 ## Quality Checks
 
 - Keep backups, temporary audit ledgers, machine-readable audit output, and reviewer reports outside the vault.

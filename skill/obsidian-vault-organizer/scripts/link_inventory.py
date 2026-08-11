@@ -13,94 +13,30 @@ from urllib.parse import unquote
 
 try:
     from .safe_io import safe_write_text
+    from .markdown_links import MARKDOWN_IMAGE_RE
+    from .check_obsidian_links import (
+        MARKDOWN_LINK_RE,
+        is_external as is_external_target,
+        split_destination_suffix,
+        text_without_code,
+        unescape_markdown_destination,
+    )
 except ImportError:
     from safe_io import safe_write_text
+    from markdown_links import MARKDOWN_IMAGE_RE
+    from check_obsidian_links import (
+        MARKDOWN_LINK_RE,
+        is_external as is_external_target,
+        split_destination_suffix,
+        text_without_code,
+        unescape_markdown_destination,
+    )
 
 
-MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
 WIKI_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
-EXTERNAL_URL_RE = re.compile(r"\b(?:https?://|mailto:)[^\s<>)\]]+")
-FENCE_OPEN_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*$")
-FENCE_CLOSE_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[ \t]*$")
-INDENTED_CODE_RE = re.compile(r"^(?: {4}|\t)")
+EXTERNAL_URL_RE = re.compile(r"\b(?:https?://|mailto:)[^\s<>\]]+")
 DEFAULT_EXCLUDED_DIRS = frozenset({".git", ".obsidian", ".pytest_cache", ".ruff_cache", "__pycache__", "scripts", "skills", "build", "output"})
 DEFAULT_EXCLUDED_FILES = frozenset({"AGENT.md"})
-
-
-def text_without_code(text: str) -> str:
-    """Mask fenced, indented, and inline code while preserving line positions."""
-
-    def mask(value: str) -> str:
-        return "".join("\n" if char == "\n" else " " for char in value)
-
-    masked_lines: list[str] = []
-    fence: tuple[str, int] | None = None
-    for line in text.splitlines(keepends=True):
-        content = line.rstrip("\r\n")
-        if fence is not None:
-            masked_lines.append(mask(line))
-            closing = FENCE_CLOSE_RE.fullmatch(content)
-            if (
-                closing is not None
-                and closing.group("fence")[0] == fence[0]
-                and len(closing.group("fence")) >= fence[1]
-            ):
-                fence = None
-            continue
-
-        opening = FENCE_OPEN_RE.fullmatch(content)
-        if opening is not None:
-            token = opening.group("fence")
-            masked_lines.append(mask(line))
-            fence = (token[0], len(token))
-            continue
-
-        if INDENTED_CODE_RE.match(content):
-            masked_lines.append(mask(line))
-            continue
-
-        masked_lines.append(mask_inline_code(line))
-
-    return "".join(masked_lines)
-
-
-def mask_inline_code(line: str) -> str:
-    """Mask paired CommonMark backtick code spans on one line."""
-
-    runs: list[tuple[int, int, int]] = []
-    index = 0
-    while index < len(line):
-        if line[index] != "`":
-            index += 1
-            continue
-        end = index + 1
-        while end < len(line) and line[end] == "`":
-            end += 1
-        runs.append((index, end, end - index))
-        index = end
-
-    spans: list[tuple[int, int]] = []
-    run_index = 0
-    while run_index < len(runs) - 1:
-        start, _end, length = runs[run_index]
-        close_index = next(
-            (candidate for candidate in range(run_index + 1, len(runs)) if runs[candidate][2] == length),
-            None,
-        )
-        if close_index is None:
-            run_index += 1
-            continue
-        spans.append((start, runs[close_index][1]))
-        run_index = close_index + 1
-
-    if not spans:
-        return line
-    characters = list(line)
-    for start, end in spans:
-        for position in range(start, end):
-            if characters[position] != "\n":
-                characters[position] = " "
-    return "".join(characters)
 
 
 @dataclass(frozen=True)
@@ -120,14 +56,17 @@ def configure_output_encoding() -> None:
             stream.reconfigure(encoding="utf-8", errors="replace")
 
 
-def markdown_files(root: Path) -> list[Path]:
+def markdown_files(root: Path, excluded_paths: set[Path] | None = None) -> list[Path]:
     root = root.resolve()
+    excluded = {path.resolve() for path in (excluded_paths or set())}
     return sorted(
         path
         for path in root.rglob("*.md")
         if path.name not in DEFAULT_EXCLUDED_FILES
         and not set(path.relative_to(root).parts) & DEFAULT_EXCLUDED_DIRS
         and _is_within_root(root, path)
+        and path.is_file()
+        and path.resolve() not in excluded
     )
 
 
@@ -140,15 +79,31 @@ def _is_within_root(root: Path, path: Path) -> bool:
 
 
 def is_external(target: str) -> bool:
-    stripped = target.strip()
-    return stripped.startswith(("http://", "https://", "mailto:", "obsidian://"))
+    return is_external_target(unwrap_angle_destination(target))
+
+
+def unwrap_angle_destination(target: str) -> str:
+    target = target.strip()
+    if target.startswith("<") and target.endswith(">"):
+        return target[1:-1]
+    return target
 
 
 def clean_target(target: str) -> str:
-    target = target.strip()
-    if target.startswith("<") and target.endswith(">"):
-        target = target[1:-1]
-    return unquote(target.split("#", 1)[0].split("?", 1)[0]).strip()
+    target = unwrap_angle_destination(target)
+    target = split_destination_suffix(target)
+    return unquote(unescape_markdown_destination(target)).strip()
+
+
+def clean_external_target(target: str) -> str:
+    return unescape_markdown_destination(unwrap_angle_destination(target)).strip()
+
+
+def trim_external_url(target: str) -> str:
+    target = target.rstrip(".,;")
+    while target.endswith(")") and target.count(")") > target.count("("):
+        target = target[:-1]
+    return target
 
 
 def inventory_file(root: Path, path: Path) -> FileInventory:
@@ -156,11 +111,16 @@ def inventory_file(root: Path, path: Path) -> FileInventory:
     markdown_links: list[str] = []
     wiki_links: list[str] = []
     external_links: list[str] = []
+    markdown_source_spans = sorted(
+        (match.start(), match.end())
+        for pattern in (MARKDOWN_LINK_RE, MARKDOWN_IMAGE_RE)
+        for match in pattern.finditer(text)
+    )
 
     for match in MARKDOWN_LINK_RE.finditer(text):
         target = match.group(1).strip()
         if is_external(target):
-            external_links.append(target)
+            external_links.append(clean_external_target(target))
             continue
         cleaned = clean_target(target)
         if cleaned:
@@ -172,7 +132,12 @@ def inventory_file(root: Path, path: Path) -> FileInventory:
             wiki_links.append(target)
 
     for match in EXTERNAL_URL_RE.finditer(text):
-        target = match.group(0).rstrip(".,;")
+        if any(
+            match.start() < source_end and source_start < match.end()
+            for source_start, source_end in markdown_source_spans
+        ):
+            continue
+        target = trim_external_url(match.group(0))
         if target not in external_links:
             external_links.append(target)
 
@@ -196,8 +161,9 @@ def inventory_file(root: Path, path: Path) -> FileInventory:
     )
 
 
-def build_inventory(root: Path) -> dict:
-    files = [inventory_file(root, path) for path in markdown_files(root)]
+def build_inventory(root: Path, excluded_paths: set[Path] | None = None) -> dict:
+    root = root.resolve()
+    files = [inventory_file(root, path) for path in markdown_files(root, excluded_paths)]
     totals = {
         "files": len(files),
         "markdown_links": sum(item.counts["markdown_links"] for item in files),
@@ -290,7 +256,8 @@ def main() -> int:
     if not root.is_dir():
         parser.error(f"root must be a directory: {root}")
 
-    inventory = build_inventory(root)
+    excluded_paths = {args.out} if args.out else set()
+    inventory = build_inventory(root, excluded_paths)
     if args.format == "json":
         output = json.dumps(inventory, ensure_ascii=False, indent=2) + "\n"
     else:

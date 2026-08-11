@@ -29,6 +29,14 @@ class ValidatorResource:
 
 STATIC_RESOURCES = (
     StaticResource(
+        source=SHARED / "markdown_links.py",
+        targets=(
+            ROOT / "skill" / "ppt-to-md-for-obsidian" / "scripts" / "markdown_links.py",
+            ROOT / "skill" / "obsidian-vault-organizer" / "scripts" / "markdown_links.py",
+            ROOT / "skill" / "notes-to-scientific-ppt" / "scripts" / "markdown_links.py",
+        ),
+    ),
+    StaticResource(
         source=ROOT / "scripts" / "check_obsidian_links.py",
         targets=(
             ROOT / "skill" / "ppt-to-md-for-obsidian" / "scripts" / "check_obsidian_links.py",
@@ -68,13 +76,13 @@ VALIDATORS = (
     ValidatorResource(
         target=ROOT / "skill" / "notes-to-scientific-ppt" / "scripts" / "validate_skill.py",
         required_files=(
-            "README.md",
             "LICENSE",
             "requirements.txt",
             "agents/openai.yaml",
             "scripts/build_scientific_deck.py",
             "scripts/verify_pptx.py",
             "scripts/outline_note_deck.py",
+            "scripts/markdown_links.py",
             "scripts/safe_io.py",
             "scripts/skill_metadata.py",
             "scripts/validate_skill.py",
@@ -86,7 +94,6 @@ VALIDATORS = (
     ValidatorResource(
         target=ROOT / "skill" / "web-course-notes-for-obsidian" / "scripts" / "validate_skill.py",
         required_files=(
-            "README.md",
             "LICENSE",
             "agents/openai.yaml",
             "scripts/collect_web_sources.py",
@@ -103,12 +110,12 @@ VALIDATORS = (
     ValidatorResource(
         target=ROOT / "skill" / "obsidian-vault-organizer" / "scripts" / "validate_skill.py",
         required_files=(
-            "README.md",
             "LICENSE",
             "agents/openai.yaml",
             "scripts/check_obsidian_links.py",
             "scripts/check_vault_quality.py",
             "scripts/link_inventory.py",
+            "scripts/markdown_links.py",
             "scripts/safe_io.py",
             "scripts/skill_metadata.py",
             "scripts/validate_skill.py",
@@ -121,10 +128,10 @@ VALIDATORS = (
     ValidatorResource(
         target=ROOT / "skill" / "ppt-to-md-for-obsidian" / "scripts" / "validate_skill_repo.py",
         required_files=(
-            "README.md",
             "LICENSE",
             "agents/openai.yaml",
             "scripts/check_obsidian_links.py",
+            "scripts/markdown_links.py",
             "scripts/check_course_notes.py",
             "scripts/check_source_coverage.py",
             "scripts/clean_latex_from_ppt.py",

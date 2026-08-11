@@ -1,4 +1,8 @@
+import hashlib
+import os
 from pathlib import Path
+import shutil
+import unicodedata
 
 import pytest
 
@@ -6,8 +10,9 @@ from scripts.check_obsidian_links import check_links
 from scripts.extract_pdf_text import LOW_COVERAGE_WARNING, PdfExtractionResult
 from scripts.extract_legacy_ppt_text import LegacyPptTextResult
 from scripts.extract_pptx_text import PptxExtractionResult
-from scripts.ppt_to_obsidian_pipeline import PipelineConfig, run
+from scripts.ppt_to_obsidian_pipeline import PipelineConfig, disambiguated_stem, run
 import scripts.ppt_to_obsidian_pipeline as pipeline
+import scripts.safe_io as safe_io
 
 
 def test_pipeline_extracts_cleans_and_writes_manifest(tmp_path: Path):
@@ -31,6 +36,29 @@ def test_pipeline_extracts_cleans_and_writes_manifest(tmp_path: Path):
     assert checked == 2
     assert broken == []
     assert self_links == []
+
+
+def test_pipeline_excludes_its_output_subtree_from_rerun_inputs(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "sources"
+    source_root.mkdir()
+    source = source_root / "lecture.pptx"
+    shutil.copyfile(
+        Path("examples/sample-course/raw/sample_course.pptx"),
+        source,
+    )
+    output_dir = source_root / "build" / "obsidian-pipeline"
+    config = PipelineConfig(source=source_root, output_dir=output_dir)
+
+    first = run(config)
+    generated_input_lookalike = output_dir / "converted_pptx" / "lecture.pptx"
+    generated_input_lookalike.parent.mkdir()
+    shutil.copyfile(source, generated_input_lookalike)
+    second = run(config)
+
+    assert [item.source for item in first] == [source]
+    assert [item.source for item in second] == [source]
 
 
 def test_pipeline_manifest_records_pptx_fallback_stats_and_review_guidance(monkeypatch, tmp_path: Path):
@@ -167,6 +195,58 @@ def test_pipeline_disambiguates_same_named_sources(monkeypatch, tmp_path: Path):
     assert any(stem.startswith("lecture-") for stem in raw_stems)
 
 
+def test_pipeline_disambiguates_case_variant_source_names(monkeypatch, tmp_path: Path):
+    first = tmp_path / "a" / "Lecture.pdf"
+    second = tmp_path / "b" / "lecture.pdf"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_bytes(b"%PDF-1.4\n")
+    second.write_bytes(b"%PDF-1.4\n")
+
+    def fake_extract_pdf_result(path: Path) -> PdfExtractionResult:
+        return PdfExtractionResult(
+            markdown=f"# Extracted PDF Text: {path.name}\n\ncontent for {path.parent.name}\n",
+            backend="pypdf",
+            low_coverage=False,
+            empty_pages=0,
+            char_count=10,
+            page_count=1,
+        )
+
+    monkeypatch.setattr(pipeline, "extract_pdf_result", fake_extract_pdf_result)
+    config = PipelineConfig(source=tmp_path, output_dir=tmp_path / "out")
+
+    processed = run(config)
+
+    raw_names = [item.raw.name for item in processed]
+    assert len(raw_names) == 2
+    assert len({name.casefold() for name in raw_names}) == 2
+    assert len(list((config.output_dir / "raw_extracted").glob("*.md"))) == 2
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        (Path("a/Lecture.pdf"), Path("b/lecture.pdf")),
+        (Path("a/é.pdf"), Path("b/e\N{COMBINING ACUTE ACCENT}.pdf")),
+    ],
+)
+def test_disambiguated_stem_is_safe_in_either_source_order(
+    first: Path,
+    second: Path,
+) -> None:
+    for order in ((first, second), (second, first)):
+        used: dict[str, str] = {}
+        names = [disambiguated_stem(path, path, used) for path in order]
+        normalized_keys = {
+            unicodedata.normalize("NFC", name).casefold() for name in names
+        }
+        expected_digest = hashlib.sha256(order[1].as_posix().encode("utf-8")).hexdigest()[:10]
+
+        assert len(normalized_keys) == 2
+        assert names[1].endswith(f"-{expected_digest}")
+
+
 @pytest.mark.parametrize("directory_name", ["raw_extracted", "cleaned", "notes_skeleton", "converted_pptx"])
 def test_pipeline_rejects_symlinked_generated_directories(tmp_path: Path, directory_name: str) -> None:
     output_dir = tmp_path / "out"
@@ -183,6 +263,69 @@ def test_pipeline_rejects_symlinked_generated_directories(tmp_path: Path, direct
         run(config)
 
     assert list(outside.iterdir()) == []
+
+
+@pytest.mark.parametrize("kind", ["root", "parent", "ancestor"])
+def test_pipeline_rejects_output_directory_symlink_components(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "sentinel.txt"
+    sentinel.write_text("keep\n", encoding="utf-8")
+    if kind == "root":
+        output_dir = tmp_path / "out"
+        output_dir.symlink_to(outside, target_is_directory=True)
+    elif kind == "parent":
+        parent = tmp_path / "linked-parent"
+        parent.symlink_to(outside, target_is_directory=True)
+        output_dir = parent / "out"
+    else:
+        ancestor = tmp_path / "linked-ancestor"
+        ancestor.symlink_to(outside, target_is_directory=True)
+        output_dir = ancestor / "nested" / "out"
+    config = PipelineConfig(
+        source=Path("examples/sample-course/raw/sample_course.pptx"),
+        output_dir=output_dir,
+    )
+
+    with pytest.raises(ValueError, match="symlink"):
+        run(config)
+
+    assert sentinel.read_text(encoding="utf-8") == "keep\n"
+    assert sorted(path.name for path in outside.iterdir()) == ["sentinel.txt"]
+
+
+def test_pipeline_detects_output_root_swap_after_source_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "out"
+    detached = tmp_path / "detached-out"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "sentinel.txt"
+    sentinel.write_text("keep\n", encoding="utf-8")
+    real_iter_sources = pipeline.iter_sources
+
+    def swap_after_scan(source: Path, *, exclude_roots: tuple[Path, ...] = ()):
+        sources = real_iter_sources(source, exclude_roots=exclude_roots)
+        output_dir.rename(detached)
+        output_dir.symlink_to(outside, target_is_directory=True)
+        return sources
+
+    monkeypatch.setattr(pipeline, "iter_sources", swap_after_scan)
+    config = PipelineConfig(
+        source=Path("examples/sample-course/raw/sample_course.pptx"),
+        output_dir=output_dir,
+    )
+
+    with pytest.raises(ValueError, match="output_dir changed"):
+        run(config)
+
+    assert sentinel.read_text(encoding="utf-8") == "keep\n"
+    assert sorted(path.name for path in outside.iterdir()) == ["sentinel.txt"]
 
 
 @pytest.mark.parametrize(
@@ -223,7 +366,19 @@ def test_pipeline_rejects_existing_and_dangling_output_symlinks(
 
 
 @pytest.mark.parametrize("field", ["converted_dir", "overview_name"])
-@pytest.mark.parametrize("unsafe", ["../escape", "/absolute/escape"])
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        "../escape",
+        "/absolute/escape",
+        r"C:\escape",
+        r"C:escape",
+        r"\\server\share",
+        r"\\?\C:\escape",
+        r"\\.\PhysicalDrive0",
+        r"C:\escape/mixed",
+    ],
+)
 def test_pipeline_rejects_unsafe_configured_child_paths(
     tmp_path: Path,
     field: str,
@@ -287,3 +442,40 @@ def test_pipeline_rejects_explicit_unsupported_regular_file(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="unsupported explicit source type"):
         run(config)
+
+
+def test_pipeline_replaces_output_hardlink_without_mutating_external_inode(tmp_path: Path) -> None:
+    output_dir = tmp_path / "out"
+    raw_dir = output_dir / "raw_extracted"
+    raw_dir.mkdir(parents=True)
+    outside = tmp_path / "outside.md"
+    outside.write_text("external\n", encoding="utf-8")
+    raw_output = raw_dir / "sample_course.md"
+    os.link(outside, raw_output)
+    config = PipelineConfig(
+        source=Path("examples/sample-course/raw/sample_course.pptx"),
+        output_dir=output_dir,
+    )
+
+    processed = run(config)
+
+    assert len(processed) == 1
+    assert outside.read_text(encoding="utf-8") == "external\n"
+    assert "Extracted PPTX Text" in raw_output.read_text(encoding="utf-8")
+    assert raw_output.stat().st_ino != outside.stat().st_ino
+
+
+def test_pipeline_writer_failure_keeps_existing_output(monkeypatch, tmp_path: Path) -> None:
+    if not safe_io._supports_dir_fd():
+        pytest.skip("directory-relative file operations are unavailable")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    output = output_dir / "result.md"
+    output.write_text("original\n", encoding="utf-8")
+    monkeypatch.setattr(safe_io, "_directory_identity_matches", lambda parent_fd, parent: False)
+
+    with pytest.raises(ValueError, match="parent directory changed"):
+        pipeline.write_text_no_follow(output_dir, output, "replacement\n")
+
+    assert output.read_text(encoding="utf-8") == "original\n"
+    assert list(output_dir.glob(".result.md.*.tmp")) == []

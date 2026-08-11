@@ -44,6 +44,10 @@ The checker covers:
 
 Report broken links and self-links before making content claims.
 
+## Temporary Presentation Text Boundary
+
+`scripts/extract_presentation_text.py` is a last-resort text-hint extractor for manual source comparison. Preserve its leading extraction metadata: both PPTX ZIP/XML and legacy OLE/CFB paths are partial, perform no OCR or complete visual/layout inspection, and do not provide dependable speaker-note coverage. Do not count the metadata as course content or use the text artifact alone to claim complete slide coverage.
+
 ## Strict Solvenotes Report Gate
 
 Reject legacy audit/report pages in each Solvenotes course directory:

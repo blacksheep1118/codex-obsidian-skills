@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 import stat
 import sys
@@ -60,7 +60,9 @@ DEFAULT_IGNORED_DIR_NAMES = frozenset(
 )
 DEFAULT_IGNORED_FILE_NAMES = frozenset({"AGENT.md"})
 FIXED_NOTES_ARTIFACT_NAMES = frozenset({"source_manifest.md", "99_内容覆盖审查.md"})
-STANDALONE_NOTES_DIR_NAMES = frozenset({"概念索引", "模板", "游戏数值策划", "科研方法论"})
+STANDALONE_NOTES_DIR_NAMES = frozenset(
+    {"概念索引", "模板", "游戏数值策划", "科研方法论", "算法岗学习笔记", "学习路径"}
+)
 STANDALONE_NOTE_TYPES = frozenset({"concept_index", "standalone", "template", "methodology"})
 CHINESE_NUMBERS = {
     "零": 0,
@@ -110,7 +112,17 @@ def normalize_text(value: str) -> str:
 
 
 def normalize_path_text(value: str) -> str:
-    return unicodedata.normalize("NFKC", value).replace("\\", "/").strip()
+    # Path ownership is an exact-spelling contract. Compatibility
+    # normalization would make distinct entries such as A.pdf and Ａ.pdf
+    # interchangeable even though they are different source names.
+    return value.replace("\\", "/").strip()
+
+
+def has_cross_platform_anchor(value: str) -> bool:
+    """Reject native absolutes plus Windows drives, UNC, and device anchors."""
+
+    windows_path = PureWindowsPath(value)
+    return Path(value).is_absolute() or bool(windows_path.drive or windows_path.anchor)
 
 
 def chinese_number_to_int(value: str) -> Optional[int]:
@@ -194,13 +206,30 @@ def resolve_beneath(root: Path, raw: str) -> Path | None:
     normalized = normalize_path_text(raw)
     if not normalized:
         return None
-    if Path(normalized).is_absolute():
+    if has_cross_platform_anchor(normalized):
         return None
     root = root.expanduser().resolve()
     candidate = (root / normalized).expanduser().resolve()
     try:
         candidate.relative_to(root)
     except ValueError:
+        return None
+    return candidate
+
+
+def exact_regular_source_target(root: Path, raw: str) -> Path | None:
+    """Return an exact regular source path without symlink components."""
+
+    normalized = normalize_path_text(raw)
+    target = Path(normalized)
+    if not normalized or has_cross_platform_anchor(normalized):
+        return None
+    if any(component in {"", ".", ".."} for component in target.parts):
+        return None
+    candidate = root / target
+    if not is_within_root(root, candidate):
+        return None
+    if not is_regular_file_without_symlink_components(root, candidate):
         return None
     return candidate
 
@@ -268,13 +297,21 @@ def is_regular_file_without_symlink_components(root: Path, path: Path) -> bool:
     current = root
     try:
         for index, component in enumerate(relative.parts):
-            current = current / component
+            # Resolve each component through an exact directory-entry lookup.
+            # This keeps checks case-sensitive even on a case-insensitive host.
+            entry = next(
+                (candidate for candidate in current.iterdir() if candidate.name == component),
+                None,
+            )
+            if entry is None:
+                return False
+            current = entry
             mode = current.lstat().st_mode
             if stat.S_ISLNK(mode):
                 return False
             if index < len(relative.parts) - 1 and not stat.S_ISDIR(mode):
                 return False
-        return stat.S_ISREG(mode)
+        return bool(relative.parts) and stat.S_ISREG(mode)
     except OSError:
         return False
 
@@ -313,7 +350,9 @@ def markdown_files(root: Path, include_ignored: bool = False) -> list[Path]:
     return sorted(
         path
         for path in root.rglob("*.md")
-        if is_within_root(root, path) and not _path_is_ignored(path, root, include_ignored)
+        if is_regular_file_without_symlink_components(root, path)
+        and is_within_root(root, path)
+        and not _path_is_ignored(path, root, include_ignored)
     )
 
 
@@ -544,14 +583,18 @@ def check_source_mappings(
         mapped_notes_dirs.append(notes_dir)
         local_entries = build_source_entries(source_root, source_name, include_ignored=include_ignored)
         entries.extend(local_entries)
-        corpus = normalize_text(course_text(notes_dir))
+        corpus = course_text(notes_dir)
         for entry in local_entries:
             total += 1
             if require_canonical_refs:
                 present = source_entry_mentioned_exact(corpus, entry)
             else:
+                normalized_corpus = normalize_text(corpus)
                 candidates = (entry.course_relative, entry.root_relative, entry.name, entry.stem)
-                present = any(normalize_text(candidate) in corpus for candidate in candidates)
+                present = any(
+                    normalize_text(candidate) in normalized_corpus
+                    for candidate in candidates
+                )
             if not present:
                 issues.append(
                     CoverageIssue(
@@ -572,8 +615,8 @@ def source_entry_mentioned(text: str, entry: SourceEntry) -> bool:
 def source_entry_mentioned_exact(text: str, entry: SourceEntry) -> bool:
     """Match only the canonical source-root-relative path."""
 
-    canonical = normalize_text(entry.root_relative)
-    haystack = normalize_text(text)
+    canonical = normalize_path_text(entry.root_relative)
+    haystack = normalize_path_text(text)
     # Do not let a longer path or a prefixed basename satisfy an exact-path
     # contract.  Markdown punctuation/backticks remain valid delimiters;
     # path-like characters and Unicode word characters do not.
@@ -588,8 +631,8 @@ def page_source_evidence(text: str, entry: SourceEntry) -> bool:
 
 
 def resolve_note_target(notes_dir: Path, raw_target: str) -> Path | None:
-    target = normalize_path_text(raw_target).strip().lstrip("/")
-    if not target:
+    target = normalize_path_text(raw_target).strip()
+    if not target or has_cross_platform_anchor(target):
         return None
     candidates: list[Path] = []
     target_path = Path(target)
@@ -597,14 +640,24 @@ def resolve_note_target(notes_dir: Path, raw_target: str) -> Path | None:
     prefix = notes_dir.name + "/"
     if stripped.startswith(prefix):
         stripped = stripped[len(prefix) :]
-    for candidate in (notes_dir / target_path, notes_dir / stripped, notes_dir.parent / target_path):
+    notes_root = notes_dir.parent
+    for candidate in (notes_dir / target_path, notes_dir / stripped, notes_root / target_path):
         if candidate.suffix.lower() != ".md":
             candidate = candidate.with_suffix(".md")
         try:
-            candidate.resolve().relative_to(notes_dir.parent.resolve())
+            relative = candidate.relative_to(notes_root)
         except ValueError:
             continue
-        if candidate.exists() and candidate not in candidates:
+        # Reject lexical traversal before looking at filesystem resolution, and
+        # accept only a regular note reached without root/ancestor/leaf
+        # symlinks.  A directory named ``owner.md`` is not a Markdown note.
+        if any(component in {"", ".", ".."} for component in relative.parts):
+            continue
+        if (
+            is_within_root(notes_root, candidate)
+            and is_regular_file_without_symlink_components(notes_root, candidate)
+            and candidate not in candidates
+        ):
             candidates.append(candidate)
     return candidates[0] if candidates else None
 
@@ -840,8 +893,17 @@ def check_paper_source_ownership(
                     )
                 )
                 continue
-            if not source_path.exists():
+            lexical_source = source_root / Path(normalize_path_text(raw))
+            if not lexical_source.exists() and not lexical_source.is_symlink():
                 issues.append(CoverageIssue("paper_source_not_found", path, f"declared paper source does not exist: {raw!r}"))
+            elif exact_regular_source_target(source_root, raw) is None:
+                issues.append(
+                    CoverageIssue(
+                        "paper_source_not_regular",
+                        path,
+                        f"declared paper source must use exact spelling and be a regular file without symlink components: {raw!r}",
+                    )
+                )
         body = note_body_text(path)
         for raw in SOURCE_REF_RE.findall(body):
             if is_external_source_ref(raw):
@@ -853,6 +915,25 @@ def check_paper_source_ownership(
                         "paper_source_outside_root",
                         path,
                         f"body cites source outside source root: {raw!r}",
+                    )
+                )
+                continue
+            lexical_source = source_root / Path(raw_norm)
+            if not lexical_source.exists() and not lexical_source.is_symlink():
+                issues.append(
+                    CoverageIssue(
+                        "paper_source_not_found",
+                        path,
+                        f"body cites local source that does not exist: {raw!r}",
+                    )
+                )
+                continue
+            if exact_regular_source_target(source_root, raw_norm) is None:
+                issues.append(
+                    CoverageIssue(
+                        "paper_source_not_regular",
+                        path,
+                        f"body source must use exact spelling and be a regular file without symlink components: {raw!r}",
                     )
                 )
                 continue
@@ -923,6 +1004,7 @@ def check_example_evidence(
     for notes_dir in sorted({path.resolve() for path in notes_dirs}):
         local_source_examples = 0
         local_generated_lines = 0
+        local_has_example_content = False
         files = [
             path
             for path in markdown_files(notes_dir, include_ignored=include_ignored)
@@ -935,7 +1017,6 @@ def check_example_evidence(
         for path in files:
             text = path.read_text(encoding="utf-8", errors="replace")
             in_supplement = False
-            local_has_example_content = False
             if SUPPLEMENT_HEADING in text:
                 supplement_notes += 1
             for line_number, line in enumerate(text.splitlines(), start=1):

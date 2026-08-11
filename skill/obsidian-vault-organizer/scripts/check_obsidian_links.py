@@ -10,11 +10,41 @@ import re
 import sys
 from urllib.parse import unquote
 
+try:
+    from .markdown_links import (
+        MARKDOWN_LINK_RE,
+        split_destination_suffix,
+        unescape_markdown_destination,
+    )
+except ImportError:
+    try:
+        from .shared.markdown_links import (
+            MARKDOWN_LINK_RE,
+            split_destination_suffix,
+            unescape_markdown_destination,
+        )
+    except ImportError:
+        try:
+            from markdown_links import (
+                MARKDOWN_LINK_RE,
+                split_destination_suffix,
+                unescape_markdown_destination,
+            )
+        except ImportError:
+            from shared.markdown_links import (
+                MARKDOWN_LINK_RE,
+                split_destination_suffix,
+                unescape_markdown_destination,
+            )
 
-MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]\n]+\]\(([^)]+)\)")
 WIKI_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
+LINE_ENDING_PATTERN = r"(?:\r\n|\r(?!\n)|(?<!\r)\n)"
+BLANK_LINE_RE = re.compile(LINE_ENDING_PATTERN + r"[ \t]*" + LINE_ENDING_PATTERN)
+URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 FENCE_OPEN_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*$")
 FENCE_CLOSE_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[ \t]*$")
+BLOCK_MATH_DELIMITER_RE = re.compile(r"^[ \t]*\$\$[ \t]*$")
+COMMENT_SPAN_RE = re.compile(r"<!--.*?(?:-->|\Z)|%%.*?(?:%%|\Z)", re.DOTALL)
 LIST_ITEM_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?P<marker>[-+*]|\d{1,9}[.)])(?:(?P<spacing>[ \t]+)|$)"
 )
@@ -181,7 +211,11 @@ def mask_prefix(value: str, end: int) -> str:
     return "".join(characters)
 
 
-def text_without_code(text: str) -> str:
+def text_without_code(
+    text: str,
+    *,
+    report_unclosed: bool = False,
+) -> str | tuple[str, bool]:
     """Mask CommonMark code and expose non-code container bodies in place.
 
     A closing fence may be longer than its opener (CommonMark), so a single
@@ -194,12 +228,17 @@ def text_without_code(text: str) -> str:
         return "".join("\n" if char == "\n" else " " for char in value)
 
     masked_lines: list[str] = []
+    inline_boundaries: set[int] = {0, len(text)}
+    source_offset = 0
     fence: FenceContext | None = None
+    unclosed_fence = False
     list_stack: list[ListContext] = []
     active_quote_depth = 0
     in_indented_code = False
     previous_blank = True
     for line in text.splitlines(keepends=True):
+        line_start = source_offset
+        source_offset += len(line)
         raw = line.rstrip("\r\n")
 
         if fence is not None:
@@ -224,6 +263,7 @@ def text_without_code(text: str) -> str:
                         list_stack,
                         previous_blank=False,
                     )
+                    inline_boundaries.update((line_start, source_offset))
                     masked_lines.append(mask(line))
                     closing = FENCE_CLOSE_RE.fullmatch(logical)
                     if (
@@ -238,6 +278,7 @@ def text_without_code(text: str) -> str:
                 # A nonblank outdent closes a fence opened in a list. Keep
                 # only any outer list containers that the current line still
                 # belongs to, then process this same line as ordinary Markdown.
+                unclosed_fence = True
                 fence = None
                 in_indented_code = False
                 _whitespace_end, indent = leading_whitespace(content)
@@ -255,12 +296,14 @@ def text_without_code(text: str) -> str:
                     else []
                 )
             else:
+                unclosed_fence = True
                 fence = None
                 list_stack = []
                 in_indented_code = False
 
         quote_depth, quote_end = blockquote_prefix(raw)
         if quote_depth != active_quote_depth:
+            inline_boundaries.add(line_start)
             list_stack = []
             in_indented_code = False
             active_quote_depth = quote_depth
@@ -274,6 +317,7 @@ def text_without_code(text: str) -> str:
         else:
             next_stack = None
         if next_stack is not None:
+            inline_boundaries.add(line_start)
             list_stack = next_stack
             logical = content[layout.body_index:]
             prefix_end = quote_end + layout.body_index
@@ -298,6 +342,7 @@ def text_without_code(text: str) -> str:
 
         opening = FENCE_OPEN_RE.fullmatch(logical)
         if opening is not None:
+            inline_boundaries.update((line_start, source_offset))
             token = opening.group("fence")
             masked_lines.append(mask(line))
             if not line_list_indents:
@@ -316,6 +361,7 @@ def text_without_code(text: str) -> str:
 
         logical_indent = indentation_columns(logical)
         if in_indented_code and logical_indent >= 4:
+            inline_boundaries.update((line_start, source_offset))
             masked_lines.append(mask(line))
             previous_blank = False
             continue
@@ -325,6 +371,7 @@ def text_without_code(text: str) -> str:
             not list_stack or previous_blank or not list_stack[-1].has_body
         )
         if can_start_indented_code:
+            inline_boundaries.update((line_start, source_offset))
             masked_lines.append(mask(line))
             in_indented_code = True
             if list_stack:
@@ -334,51 +381,112 @@ def text_without_code(text: str) -> str:
 
         if list_stack:
             list_stack[-1].has_body = True
-        masked_lines.append(mask_prefix(mask_inline_code(line), prefix_end))
+        logical_stripped = logical.strip()
+        if (
+            re.match(r"^#{1,6}(?:[ \t]+|$)", logical.lstrip(" \t"))
+            or re.fullmatch(r"(?:=+|-+)", logical_stripped)
+            or re.fullmatch(r"(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,}", logical_stripped)
+        ):
+            inline_boundaries.update((line_start, source_offset))
+        masked_lines.append(mask_prefix(line, prefix_end))
         previous_blank = False
 
-    return "".join(masked_lines)
+    # Inline code spans are inline-level constructs but may cross a soft line
+    # break.  Apply their state machine to the complete, block-code-masked
+    # document instead of resetting it for every physical line.
+    masked = mask_inline_code("".join(masked_lines), boundaries=inline_boundaries)
+    if report_unclosed:
+        return masked, unclosed_fence or fence is not None
+    return masked
 
 
-def mask_inline_code(line: str) -> str:
-    """Mask paired CommonMark backtick code spans on one line.
+def count_block_math_delimiters(text: str) -> int:
+    """Count standalone ``$$`` lines outside Markdown and Obsidian comments.
+
+    Callers pass text already processed by :func:`text_without_code`, which
+    masks code and CommonMark container prefixes in place.  Requiring the
+    delimiter to occupy the remaining logical line avoids treating prose,
+    escaped literals, or comment examples as block-math structure.
+    """
+
+    visible = COMMENT_SPAN_RE.sub(
+        lambda match: "".join("\n" if char == "\n" else " " for char in match.group()),
+        text,
+    )
+    return sum(bool(BLOCK_MATH_DELIMITER_RE.fullmatch(line)) for line in visible.splitlines())
+
+
+def _inline_code_segments(
+    text: str,
+    boundaries: set[int] | None = None,
+) -> list[tuple[int, int]]:
+    """Return inline-block ranges separated by CommonMark blank lines.
+
+    A code span may cross a soft line break, but it cannot cross the blank line
+    that ends its inline block.  Keeping the separator outside every range also
+    ensures that an unmatched opener cannot hide later prose in a new block.
+    """
+
+    split_points = {0, len(text), *(boundaries or set())}
+    for boundary in BLANK_LINE_RE.finditer(text):
+        split_points.update((boundary.start(), boundary.end()))
+    ordered = sorted(point for point in split_points if 0 <= point <= len(text))
+    return [
+        (start, end)
+        for start, end in zip(ordered, ordered[1:])
+        if start < end
+    ]
+
+
+def mask_inline_code(
+    text: str,
+    *,
+    boundaries: set[int] | None = None,
+) -> str:
+    """Mask paired CommonMark backtick code spans across soft line breaks.
 
     Code spans close with a backtick run of the same length as the opener;
     shorter runs may occur inside the span.  Pairing runs explicitly avoids
     treating those interior runs as an early close (which a simple regular
-    expression would do).  Unmatched runs are left untouched so links in
-    ordinary text are still checked.
+    expression would do).  Pairing is reset at blank-line block boundaries,
+    and unmatched runs are left untouched so ordinary later prose is checked.
     """
 
     runs: list[tuple[int, int, int]] = []
-    index = 0
-    while index < len(line):
-        if line[index] != "`":
-            index += 1
-            continue
-        end = index + 1
-        while end < len(line) and line[end] == "`":
-            end += 1
-        runs.append((index, end, end - index))
-        index = end
-
     spans: list[tuple[int, int]] = []
-    run_index = 0
-    while run_index < len(runs) - 1:
-        start, _end, length = runs[run_index]
-        close_index = next(
-            (candidate for candidate in range(run_index + 1, len(runs)) if runs[candidate][2] == length),
-            None,
-        )
-        if close_index is None:
-            run_index += 1
-            continue
-        spans.append((start, runs[close_index][1]))
-        run_index = close_index + 1
+    for segment_start, segment_end in _inline_code_segments(text, boundaries):
+        runs.clear()
+        index = segment_start
+        while index < segment_end:
+            if text[index] != "`":
+                index += 1
+                continue
+            end = index + 1
+            while end < segment_end and text[end] == "`":
+                end += 1
+            runs.append((index, end, end - index))
+            index = end
+
+        run_index = 0
+        while run_index < len(runs) - 1:
+            start, _end, length = runs[run_index]
+            close_index = next(
+                (
+                    candidate
+                    for candidate in range(run_index + 1, len(runs))
+                    if runs[candidate][2] == length
+                ),
+                None,
+            )
+            if close_index is None:
+                run_index += 1
+                continue
+            spans.append((start, runs[close_index][1]))
+            run_index = close_index + 1
 
     if not spans:
-        return line
-    characters = list(line)
+        return text
+    characters = list(text)
     for start, end in spans:
         for position in range(start, end):
             if characters[position] != "\n":
@@ -403,11 +511,8 @@ def is_external(target: str) -> bool:
     stripped = target.strip()
     return (
         not stripped
-        or stripped.startswith("#")
-        or stripped.startswith("http://")
-        or stripped.startswith("https://")
-        or stripped.startswith("mailto:")
-        or stripped.startswith("obsidian://")
+        or stripped.startswith(("#", "//"))
+        or bool(URI_SCHEME_RE.match(stripped))
     )
 
 
@@ -417,8 +522,8 @@ def clean_target(target: str) -> str | None:
         target = target[1:-1]
     if is_external(target):
         return None
-    target = target.split("#", 1)[0].split("?", 1)[0]
-    target = unquote(target).strip()
+    target = split_destination_suffix(target)
+    target = unquote(unescape_markdown_destination(target)).strip()
     return target or None
 
 
@@ -444,12 +549,14 @@ def resolve_target(root: Path, source: Path, raw_target: str, by_stem: dict[str,
     if target is None:
         return []
 
-    if target.startswith("/"):
+    root_relative = target.startswith("/")
+    if root_relative:
         target = target.lstrip("/")
 
     root = root.resolve()
     candidates = []
-    for base in (source.parent, root):
+    bases = (root,) if root_relative else (source.parent, root)
+    for base in bases:
         candidate = (base / target).resolve()
         if is_within_root(root, candidate):
             candidates.append(candidate)
@@ -458,7 +565,7 @@ def resolve_target(root: Path, source: Path, raw_target: str, by_stem: dict[str,
             if is_within_root(root, candidate):
                 candidates.append(candidate)
 
-    if "/" not in target and target in by_stem:
+    if not root_relative and "/" not in target and target in by_stem:
         candidates.extend(
             candidate.resolve()
             for candidate in by_stem[target]

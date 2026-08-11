@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -39,6 +40,49 @@ def test_vault_quality_reports_generic_issues_and_duplicate_stems(tmp_path: Path
     assert {"duplicate_stem", "empty_file", "conflict_marker", "template_residue"}.issubset(issue_kinds(issues))
 
 
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("Topic.md", "topic.md"),
+        ("é.md", "e\N{COMBINING ACUTE ACCENT}.md"),
+    ],
+    ids=("case", "canonical-unicode"),
+)
+def test_vault_quality_reports_cross_platform_stem_collisions(
+    tmp_path: Path,
+    first: str,
+    second: str,
+) -> None:
+    vault = tmp_path / "vault"
+    write(vault / "a" / first, "# First\n")
+    write(vault / "b" / second, "# Second\n")
+
+    issues = find_vault_issues(vault)
+
+    duplicates = [issue for issue in issues if issue.kind == "duplicate_stem"]
+    assert len(duplicates) == 1
+    assert "a/" in duplicates[0].message
+    assert "b/" in duplicates[0].message
+
+
+def test_vault_quality_does_not_double_report_one_hardlinked_note(
+    tmp_path: Path,
+) -> None:
+    vault = tmp_path / "vault"
+    original = vault / "a" / "Topic.md"
+    alias = vault / "b" / "topic.md"
+    write(original, "# Shared\n")
+    alias.parent.mkdir(parents=True)
+    try:
+        os.link(original, alias)
+    except OSError as exc:
+        pytest.skip(f"hard links unavailable: {exc}")
+
+    issues = find_vault_issues(vault)
+
+    assert "duplicate_stem" not in issue_kinds(issues)
+
+
 def test_vault_quality_ignores_todo_inside_balanced_fenced_code(tmp_path: Path):
     vault = tmp_path / "vault"
     write(vault / "example.md", "# Example\n\n```python\n# TODO: demonstrate placeholder syntax\n```\n")
@@ -47,6 +91,111 @@ def test_vault_quality_ignores_todo_inside_balanced_fenced_code(tmp_path: Path):
 
     assert "template_residue" not in issue_kinds(issues)
     assert "unbalanced_fence" not in issue_kinds(issues)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Use `TODO = False` in this code example.",
+        "    TODO = False",
+        "> ```python\n> TODO = False\n> ```",
+        "- example\n  ```python\n  TODO = False\n  ```",
+    ],
+    ids=("inline", "indented", "blockquote-fence", "list-fence"),
+)
+def test_vault_quality_ignores_template_markers_in_commonmark_code(
+    tmp_path: Path,
+    body: str,
+) -> None:
+    vault = tmp_path / "vault"
+    write(vault / "example.md", f"# Example\n\n{body}\n")
+
+    issues = find_vault_issues(vault)
+
+    assert "template_residue" not in issue_kinds(issues)
+
+
+@pytest.mark.parametrize(
+    "body, expected_residue",
+    (
+        ("`code\nTODO mechanism\n`", False),
+        ("``code `\nTODO mechanism\n``", False),
+        ("`unclosed\n\nTODO mechanism\n`", True),
+    ),
+)
+def test_vault_quality_multiline_code_span_residue_boundaries(
+    tmp_path: Path,
+    body: str,
+    expected_residue: bool,
+) -> None:
+    vault = tmp_path / "vault"
+    write(vault / "example.md", f"# Example\n\n{body}\n")
+
+    issues = find_vault_issues(vault)
+
+    assert ("template_residue" in issue_kinds(issues)) is expected_residue
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "```text\n$$\n```",
+        "Inline code: `$$`.",
+        "    $$",
+        "~~~text\n$$\n~~~",
+        "> ~~~text\n> $$\n> ~~~",
+        "- item\n  ~~~text\n  $$\n  ~~~",
+    ],
+    ids=("backtick-fence", "inline", "indented", "tilde-fence", "blockquote-fence", "list-fence"),
+)
+def test_vault_quality_ignores_math_markers_in_commonmark_code(
+    tmp_path: Path,
+    body: str,
+) -> None:
+    vault = tmp_path / "vault"
+    write(vault / "example.md", f"# Example\n\n{body}\n")
+
+    issues = find_vault_issues(vault)
+
+    assert "unbalanced_math" not in issue_kinds(issues)
+
+
+def test_vault_quality_still_reports_unbalanced_math_outside_code(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    write(vault / "example.md", "# Example\n\n$$\nx + y\n")
+
+    issues = find_vault_issues(vault)
+
+    assert "unbalanced_math" in issue_kinds(issues)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "<!--\n$$\n-->",
+        "%%\n$$\n%%",
+        r"\$\$",
+        "The literal token $$ appears in this prose sentence.",
+    ],
+    ids=("html-comment", "obsidian-comment", "escaped-literal", "prose"),
+)
+def test_vault_quality_ignores_non_delimiter_math_text(tmp_path: Path, body: str) -> None:
+    vault = tmp_path / "vault"
+    write(vault / "example.md", f"# Example\n\n{body}\n")
+
+    issues = find_vault_issues(vault)
+
+    assert "unbalanced_math" not in issue_kinds(issues)
+
+
+@pytest.mark.parametrize("body", ["> $$\n> x + y", "- item\n  $$\n  x + y"], ids=("blockquote", "list"))
+def test_vault_quality_counts_unbalanced_math_in_containers(tmp_path: Path, body: str) -> None:
+    vault = tmp_path / "vault"
+    write(vault / "example.md", f"# Example\n\n{body}\n")
+
+    issues = find_vault_issues(vault)
+
+    assert "unbalanced_math" in issue_kinds(issues)
 
 
 def test_vault_quality_keeps_conflict_and_unbalanced_fence_checks_inside_code(tmp_path: Path):
@@ -414,6 +563,32 @@ def test_skip_dir_rejects_noncanonical_component_spelling_on_any_filesystem(tmp_
         markdown_files(vault, skip_dirs=[Path("canonicaltopic")])
     with pytest.raises(ValueError, match="non-canonical spelling.*nestedpart.*NestedPart"):
         markdown_files(vault, skip_dirs=[Path("CanonicalTopic/nestedpart")])
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    (
+        "/absolute",
+        r"C:\topic",
+        r"C:topic",
+        r"\\server\share",
+        r"\\?\C:\topic",
+        r"\\.\PhysicalDrive0",
+        r"C:\topic/mixed",
+    ),
+)
+def test_skip_dir_rejects_posix_and_windows_anchors(
+    tmp_path: Path,
+    unsafe: str,
+) -> None:
+    vault = tmp_path / "vault"
+    if not Path(unsafe).is_absolute():
+        write(vault / unsafe / "note.md", "# Literal lookalike\n")
+    else:
+        vault.mkdir()
+
+    with pytest.raises(ValueError, match="root-relative"):
+        markdown_files(vault, skip_dirs=[Path(unsafe)])
 
 
 def test_skip_dir_canonical_nested_paths_are_effective(tmp_path: Path):

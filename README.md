@@ -4,7 +4,7 @@
 
 Codex skills for turning courseware and Markdown note collections into organized Obsidian vaults and research presentations. The repository focuses on practical study-note workflows: extracting slide content, rewriting it into readable Markdown, maintaining navigation pages, repairing links, turning notes into rigorous PPTX decks, and keeping existing vaults coherent.
 
-This is a skill collection, not a single monolithic skill. Each installable skill lives under [`skill/`](skill/) and keeps its own `SKILL.md`, scripts, references, examples, README, and LICENSE so it can be copied directly into `CODEX_HOME/skills` or the default Codex skills directory.
+This is a skill collection, not a single monolithic skill. Each installable skill lives under [`skill/`](skill/) and keeps its own `SKILL.md`, agents metadata, scripts, references, examples, and LICENSE so it can be copied directly into `CODEX_HOME/skills` or the default Codex skills directory. Repository-facing command documentation stays under root-level [`docs/`](docs/) rather than inside installable skill packages.
 
 The project is distributed through GitHub commits, branches, tags, and CI. Do not hand-compress the repository or commit generated archives; keep the Git tree clean and let CI block caches, macOS resource files, and generated outputs.
 
@@ -114,15 +114,17 @@ Update installed skills from a fresh checkout:
 
 ```bash
 git pull
-python3 scripts/update_installed_skills.py --all --self-check
+python3 scripts/update_installed_skills.py --all --dry-run --prune --self-check
+python3 scripts/update_installed_skills.py --all --prune --self-check
 ```
 
 ```powershell
 git pull
-py scripts\update_installed_skills.py --all --self-check
+py scripts\update_installed_skills.py --all --dry-run --prune --self-check
+py scripts\update_installed_skills.py --all --prune --self-check
 ```
 
-`update_installed_skills.py` does not create backups and performs a non-pruning synchronization by default. Use its dry-run mode first when you want an audit of the per-file changes; that mode never writes.
+`update_installed_skills.py` does not create backups and keeps stale destination files by default. The commands above opt into `--prune`, so inspect the dry-run before authorizing the matching write. Dry-run mode never writes.
 
 ## Quick Start
 
@@ -163,7 +165,6 @@ When a task crosses sources, notes, cleanup, and deck creation, follow the hando
 └── skill/
     ├── web-course-notes-for-obsidian/
     │   ├── SKILL.md
-    │   ├── README.md
     │   ├── LICENSE
     │   ├── agents/
     │   ├── examples/
@@ -172,7 +173,6 @@ When a task crosses sources, notes, cleanup, and deck creation, follow the hando
     │   └── tests/
     ├── ppt-to-md-for-obsidian/
     │   ├── SKILL.md
-    │   ├── README.md
     │   ├── LICENSE
     │   ├── agents/
     │   ├── examples/
@@ -181,7 +181,6 @@ When a task crosses sources, notes, cleanup, and deck creation, follow the hando
     │   └── tests/
     ├── notes-to-scientific-ppt/
     │   ├── SKILL.md
-    │   ├── README.md
     │   ├── LICENSE
     │   ├── agents/
     │   ├── examples/
@@ -190,7 +189,6 @@ When a task crosses sources, notes, cleanup, and deck creation, follow the hando
     │   └── tests/
     └── obsidian-vault-organizer/
         ├── SKILL.md
-        ├── README.md
         ├── LICENSE
         ├── agents/
         ├── references/
@@ -203,6 +201,7 @@ The web course notes skill includes:
 
 - `collect_web_sources.py`: collect titles, descriptions, and learning-resource links from course video, slide, book, and mixed learning URLs.
 - `create_web_notes.py`: classify URL collections into existing note folders, write `source_manifest.md`, and create detailed note scaffolds that must be expanded from source content before delivery.
+- `check_web_notes.py`: validate source coverage, scaffold residue, entry/detail notes, and per-link note coverage.
 - `validate_skill.py`: validate skill metadata and bundled-resource references.
 
 The PPT skill includes deterministic helpers for the fragile parts of courseware conversion:
@@ -219,6 +218,7 @@ The PPT skill includes deterministic helpers for the fragile parts of courseware
 The vault organizer skill includes:
 
 - `check_obsidian_links.py`: validate existing notes or vault directories.
+- `link_inventory.py`: record per-file and per-directory Markdown, wiki, external, and unique-link counts for before/after comparison.
 - `check_vault_quality.py`: report empty files, conflict markers, unbalanced fences/math, duplicate note stems, and leftover template text; repeatable `--skip-dir` excludes only an exact canonical root-relative nested directory subtree that is validated separately, rejecting symlink components and non-canonical spelling.
 - `validate_skill.py`: validate skill metadata and bundled-resource references.
 
@@ -370,6 +370,7 @@ py scripts\validate_skill.py
 - [Compatibility](docs/compatibility.md)
 - [Dry-run organization mode](docs/dry-run-mode.md)
 - [License policy](docs/license-policy.md)
+- [Skill command reference](docs/skill-command-reference.md)
 - [Skill routing](docs/routing.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security](SECURITY.md)

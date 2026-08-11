@@ -80,6 +80,32 @@ def test_frontmatter_schema_rejects_wrong_shapes(tmp_path: Path, frontmatter: st
         load_skill_frontmatter(skill / "SKILL.md", expected_name=skill.name)
 
 
+def test_frontmatter_rejects_legacy_extra_keys(tmp_path: Path):
+    skill = write_skill(
+        tmp_path,
+        frontmatter="---\nname: demo-skill\ndescription: Valid description\nlicense: MIT\n---\n",
+    )
+
+    with pytest.raises(MetadataValidationError, match="unexpected frontmatter keys: license"):
+        load_skill_frontmatter(skill / "SKILL.md", expected_name=skill.name)
+
+
+def test_frontmatter_rejects_duplicate_yaml_keys(tmp_path: Path):
+    skill = write_skill(
+        tmp_path,
+        frontmatter=(
+            "---\n"
+            "name: demo-skill\n"
+            "name: replaced-name\n"
+            "description: Valid description\n"
+            "---\n"
+        ),
+    )
+
+    with pytest.raises(MetadataValidationError, match="duplicate YAML key 'name'"):
+        load_skill_frontmatter(skill / "SKILL.md", expected_name=skill.name)
+
+
 @pytest.mark.parametrize(
     ("short_description", "message"),
     [
@@ -130,9 +156,85 @@ def test_openai_yaml_requires_exact_default_prompt_skill_token(tmp_path: Path, p
     assert "exact token" in install_skill.self_check_skill(skill)[0]
 
 
+def test_openai_yaml_requires_quoted_string_values(tmp_path: Path):
+    skill = write_skill(
+        tmp_path,
+        openai_yaml=(
+            "interface:\n"
+            "  display_name: Demo Skill\n"
+            '  short_description: "Run a structured demonstration workflow"\n'
+            '  default_prompt: "Use $demo-skill to demonstrate this workflow."\n'
+        ),
+    )
+
+    with pytest.raises(MetadataValidationError, match="string value 'Demo Skill' must be quoted"):
+        validate_openai_yaml(skill / "agents" / "openai.yaml", skill.name)
+
+
+def test_openai_yaml_rejects_duplicate_nested_keys(tmp_path: Path):
+    skill = write_skill(
+        tmp_path,
+        openai_yaml=(
+            "interface:\n"
+            '  display_name: "Demo Skill"\n'
+            '  display_name: "Replacement"\n'
+            '  short_description: "Run a structured demonstration workflow"\n'
+            '  default_prompt: "Use $demo-skill to demonstrate this workflow."\n'
+        ),
+    )
+
+    with pytest.raises(MetadataValidationError, match="duplicate YAML key 'display_name'"):
+        validate_openai_yaml(skill / "agents" / "openai.yaml", skill.name)
+
+
 def test_root_metadata_wrapper_and_installer_reject_scalar_interface(tmp_path: Path):
     skill = write_skill(tmp_path, openai_yaml='interface: "not a mapping"\n')
 
     with pytest.raises(SystemExit):
         check_openai_yaml_sync.validate_openai_yaml(skill, skill.name)
     assert "interface must be a mapping" in install_skill.self_check_skill(skill)[0]
+
+
+@pytest.mark.parametrize(
+    ("dependency_yaml", "message"),
+    (
+        ("  unexpected: []\n", "unexpected dependencies keys"),
+        (
+            "  tools:\n"
+            "    - type: \"mcp\"\n"
+            "      value: \"github\"\n"
+            "      unexpected: \"x\"\n",
+            "unexpected dependencies.tools\\[0\\] keys",
+        ),
+        (
+            "  tools:\n"
+            "    - type: \"mcp\"\n",
+            "value must be a non-empty string",
+        ),
+        (
+            "  tools:\n"
+            "    - type: \"mcp\"\n"
+            "      value: \"\"\n",
+            "value must be a non-empty string",
+        ),
+    ),
+)
+def test_openai_yaml_enforces_dependency_schema(
+    tmp_path: Path,
+    dependency_yaml: str,
+    message: str,
+) -> None:
+    skill = write_skill(
+        tmp_path,
+        openai_yaml=(
+            "interface:\n"
+            '  display_name: "Demo Skill"\n'
+            '  short_description: "Run a structured demonstration workflow"\n'
+            '  default_prompt: "Use $demo-skill to demonstrate this workflow."\n'
+            "dependencies:\n"
+            f"{dependency_yaml}"
+        ),
+    )
+
+    with pytest.raises(MetadataValidationError, match=message):
+        validate_openai_yaml(skill / "agents" / "openai.yaml", skill.name)

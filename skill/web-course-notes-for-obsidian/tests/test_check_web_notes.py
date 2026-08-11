@@ -6,6 +6,8 @@ import sys
 
 import pytest
 
+from scripts.check_web_notes import load_manifest_rows
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check_web_notes.py"
@@ -89,6 +91,45 @@ def test_check_web_notes_passes_finalized_note_and_per_link_resource(tmp_path: P
             "This note explains the reading list item with concrete mechanisms, limitations, and next checks.\n"
         ),
     )
+
+    result = run_checker(collection, "--source", source, "--per-link-notes")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "web_note_issues 0" in result.stdout
+
+
+def test_manifest_parser_preserves_windows_paths_regex_and_latex(tmp_path: Path) -> None:
+    collection = tmp_path / "collection"
+    source = r"C:\Course\index.html"
+    write(collection / "source_manifest.md", manifest(source))
+    rows_text = (collection / "source_manifest.md").read_text(encoding="utf-8")
+    rows_text = rows_text.replace("Course page |", r"regex \d+ and latex \alpha |")
+    write(collection / "source_manifest.md", rows_text)
+    rows = load_manifest_rows(collection / "source_manifest.md")
+    assert rows[0].values["Original Source"] == source
+    assert rows[0].values["Description"] == r"regex \d+ and latex \alpha"
+    write_entry_map(collection)
+    write(collection / "01_Course.md", "# Course\n\nFinal explanation.\n")
+
+    result = run_checker(collection, "--source", source)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "web_note_issues 0" in result.stdout
+
+
+def test_check_web_notes_does_not_require_notes_for_provenance_helpers(tmp_path: Path):
+    collection = tmp_path / "collection"
+    source = "https://example.com/course"
+    helper = "https://example.com/static/app.js"
+    manifest_text = manifest(source) + (
+        "\n## Provenance Helpers\n\n"
+        "| Kind | Title | URL | Source Page |\n"
+        "| --- | --- | --- | --- |\n"
+        f"| web_page | Client bundle | {helper} | {source} |\n"
+    )
+    write(collection / "source_manifest.md", manifest_text)
+    write_entry_map(collection)
+    write(collection / "01_Course.md", f"# Course\n\nSource: {source}\n\nFinal explanation.\n")
 
     result = run_checker(collection, "--source", source, "--per-link-notes")
 
@@ -233,6 +274,42 @@ def test_check_web_notes_fails_when_reading_list_resource_has_no_note(tmp_path: 
     assert result.returncode == 1
     assert "MISSING_PER_LINK_NOTE" in result.stdout
     assert chapter_2 in result.stdout
+
+
+def test_per_link_notes_rejects_one_aggregator_for_multiple_resources(
+    tmp_path: Path,
+) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/readings"
+    chapter_1 = "https://example.com/readings/chapter-1"
+    chapter_2 = "https://example.com/readings/chapter-2"
+    write(
+        collection / "source_manifest.md",
+        manifest(
+            source,
+            page_kind="book_or_chapter",
+            resources=[
+                (chapter_1, "listed", "listed", ""),
+                (chapter_2, "listed", "listed", ""),
+            ],
+        ),
+    )
+    write_entry_map(collection)
+    write(
+        collection / "01_Aggregate.md",
+        f"# Aggregate\n\n{chapter_1}\n\n{chapter_2}\n\nCombined explanation.\n",
+    )
+
+    aggregated = run_checker(collection, "--source", source, "--per-link-notes")
+    assert aggregated.returncode == 1
+    assert aggregated.stdout.count("MISSING_PER_LINK_NOTE") == 1
+
+    write(
+        collection / "02_Chapter_2.md",
+        f"# Chapter 2\n\n{chapter_2}\n\nIndependent explanation.\n",
+    )
+    separated = run_checker(collection, "--source", source, "--per-link-notes")
+    assert separated.returncode == 0, separated.stdout + separated.stderr
 
 
 def test_check_web_notes_skipped_or_inaccessible_resource_does_not_require_note(tmp_path: Path):
