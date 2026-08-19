@@ -19,6 +19,9 @@ ai_infra
 
 These IDs are the complete top-level algorithm-job set. A technical keyword is
 not an ID. Map it by task and context, then link to the shared core concept.
+The bundled `scripts/algorithm_job_taxonomy.py` is the machine-readable center
+for this contract; do not hand-write a second direction list in a scanner or
+test.
 
 ## Migration decisions
 
@@ -59,6 +62,11 @@ ML/DL, PyTorch, Linux, SQL, system basics, experiments, and communication.
 Runnable code requires an explicit marker, self-contained inputs, stated
 dependencies, and a recorded compile/test command. Unknown code fences are not
 automatically executable.
+
+The read-only `scripts/check_algorithm_job_vault.py` checks route-shaped
+navigation, frontmatter and required entries. It must allow technical prose
+to mention a cross-topic while rejecting that same topic when it is configured
+as a top-level route.
 
 Official JD entries require company, role, one canonical direction, stage,
 location, check date, URL, and uncertainty/status notes. Small samples must

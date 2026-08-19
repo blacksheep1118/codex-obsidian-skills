@@ -1,20 +1,9 @@
 from pathlib import Path
 
+from algorithm_job_taxonomy import CANONICAL_IDS
+
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED = {
-    "cv",
-    "nlp_llm",
-    "recommendation",
-    "search",
-    "speech",
-    "robotics",
-    "automotive",
-    "embodied_ai",
-    "ai_infra",
-}
-
-
 def test_canonical_direction_table_is_closed():
     text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
     table = text.split("## Canonical direction set", 1)[1].split(
@@ -25,7 +14,7 @@ def test_canonical_direction_table_is_closed():
         for line in table.splitlines()
         if line.startswith("| `")
     }
-    assert ids == EXPECTED
+    assert ids == CANONICAL_IDS
     assert len(ids) == 9
 
 

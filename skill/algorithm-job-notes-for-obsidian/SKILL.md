@@ -26,6 +26,20 @@ evidence contracts. It does not turn every technical topic into a job route.
 6. Validate links, frontmatter, examples, formulas, code markers, and the
    repository's own full checks before writing a final response.
 
+For a real vault scan, run the bundled read-only checker after the vault's
+own quick gate:
+
+```bash
+python3 scripts/check_algorithm_job_vault.py /path/to/vault --json
+```
+
+The checker reads one canonical taxonomy from
+`scripts/algorithm_job_taxonomy.py`. It inspects navigation headings, matrix
+headers, route-shaped table/list rows, frontmatter direction fields, required
+direction entries and the DSA/C++/training/ML handoff. It deliberately does
+not reject a normal body sentence that mentions RL, GNN, RAG, multimodal
+models or time-series. It never edits the vault.
+
 ## Canonical direction set
 
 This is the only algorithm-job top-level direction set. Keep the IDs stable.
@@ -158,6 +172,20 @@ Solvenotes vault, prefer `bash scripts/dev_check.sh quick` first and
 than inventing a parallel validator. Use `references/` for project-specific
 rules and validation details.
 
+For this skill's direction-aware behavior, run the isolated scanner tests and
+validator as well:
+
+```bash
+python3 -m pytest skill/algorithm-job-notes-for-obsidian/tests
+python3 skill/algorithm-job-notes-for-obsidian/scripts/validate_skill.py
+```
+
+The scanner tests use small temporary Vault fixtures covering a valid nine-
+direction map, a missing direction, an extra RL route, natural RL prose, a
+combined route, stale frontmatter, and missing DSA/C++ entries. Unknown code
+fences remain outside the runnable-code check; only the vault's explicit
+`<!-- runnable: cpp17 -->` marker is eligible for compilation.
+
 For the source skill repository, run its root hygiene, pytest, metadata,
 install dry-run, and full validator commands; run the changed skill's isolated
 tests and validator as well. For an agents directory without Git or tests,
@@ -182,6 +210,9 @@ perform a deterministic rule scan and report that it is a file-level check.
 
 - `references/algorithm-job-contract.md`: compact contract for direction IDs,
   migration, evidence, and validation.
+- `scripts/algorithm_job_taxonomy.py` and
+  `scripts/check_algorithm_job_vault.py`: the single taxonomy and the
+  read-only structural scanner for this skill.
 - `scripts/`: use the repository-level validators and install scripts; do not
   create a second installation mechanism inside this skill.
 - `references/`: read the vault's local profile and validation notes before
