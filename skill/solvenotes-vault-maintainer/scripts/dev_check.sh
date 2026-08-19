@@ -50,11 +50,12 @@ trap on_exit EXIT
 
 usage() {
   cat <<'EOF'
-Usage: SOLVENOTES_VAULT_ROOT=/path/to/notes bash scripts/dev_check.sh <quick|full|github-ready|gc> [options]
+Usage: SOLVENOTES_VAULT_ROOT=/path/to/notes bash scripts/dev_check.sh <quick|full|online|github-ready|gc> [options]
 
 Commands:
   quick         run fast external-vault checks and Skill tests
   full          run the complete external-vault gate
+  online        read-only external URL audit; results/cache stay outside the vault
   github-ready  full plus repository hygiene, large-file and public checks
   gc            refuse by default; requires: gc --confirm-prune-now
 EOF
@@ -150,6 +151,26 @@ github_ready() {
   run_step git -C "$VAULT_ROOT" status --short --branch
 }
 
+online() {
+  require_vault
+  local -a extra_args=("${@:2}")
+  local has_json_out=0
+  local argument
+  for argument in "${extra_args[@]}"; do
+    if [[ "$argument" == "--json-out" || "$argument" == --json-out=* ]]; then
+      has_json_out=1
+      break
+    fi
+  done
+  if [[ "$has_json_out" -eq 1 ]]; then
+    check_script check_external_sources.py --root "$VAULT_ROOT" "${extra_args[@]}"
+  else
+    check_script check_external_sources.py --root "$VAULT_ROOT" \
+      --json-out "${SOLVENOTES_ONLINE_JSON_OUT:-/tmp/solvenotes-external-sources.json}" \
+      "${extra_args[@]}"
+  fi
+}
+
 gc_repo() {
   local confirmation="${1:-}"
   if [[ "$#" -ne 1 || "$confirmation" != "--confirm-prune-now" ]]; then
@@ -165,6 +186,7 @@ command="${1:-}"
 case "$command" in
   quick) quick ;;
   full) full ;;
+  online) online "$@" ;;
   github-ready) github_ready ;;
   gc) gc_repo "${@:2}" ;;
   -h|--help|help) usage ;;

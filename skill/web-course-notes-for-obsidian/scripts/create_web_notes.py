@@ -11,6 +11,7 @@ from pathlib import Path, PureWindowsPath
 import re
 import stat
 import sys
+import tempfile
 
 from collect_web_sources import (
     DEFAULT_MAX_RESPONSE_BYTES,
@@ -747,8 +748,20 @@ def create_notes(
     root_folder_name: str | None = None,
     map_note_name: str | None = None,
     dry_run: bool = False,
+    publish: bool = False,
+    staging_dir: Path | None = None,
 ) -> CreatedNotes:
     notes_root = validated_notes_root(notes_dir, allow_missing=dry_run)
+    if publish:
+        output_root = notes_root
+    elif staging_dir is not None:
+        output_root = validated_notes_root(staging_dir, allow_missing=True)
+        if not output_root.exists() and not dry_run:
+            output_root.mkdir(parents=True)
+    else:
+        output_root = Path(tempfile.mkdtemp(prefix="solvenotes-web-staging-"))
+    if not output_root.exists() and not dry_run:
+        output_root.mkdir(parents=True)
     pages = collect_sources(
         sources,
         timeout=timeout,
@@ -761,16 +774,16 @@ def create_notes(
     map_file_name = note_file_name(map_note_name, DEFAULT_MAP_NOTE_NAMES[resolved_language])
     map_note_stem = note_stem(map_file_name)
     category_dir = choose_category_dir(
-        notes_root,
+        output_root,
         f"{chosen_title} {context_for_pages(pages)}",
         category,
         default_root_folder=fallback_root_folder,
     )
     folder_name = safe_path_name(folder or chosen_title, "web-resource")
     collection_dir = category_dir / folder_name
-    collection_dir = ensure_safe_directory(notes_root, collection_dir, create=False)
+    collection_dir = ensure_safe_directory(output_root, collection_dir, create=False)
     today = existing_collection_date(
-        notes_root,
+        output_root,
         collection_dir / map_file_name,
         date.today(),
     )
@@ -783,13 +796,13 @@ def create_notes(
         note_title = safe_path_name(display_title, f"source-{index}")
         note_name = f"{index:02d}_{note_title}"
         content = page_note_content(page, index, today, display_title, resolved_language, map_note_stem)
-        note_path = available_file(notes_root, collection_dir / f"{note_name}.md", content)
+        note_path = available_file(output_root, collection_dir / f"{note_name}.md", content)
         note_paths.append(note_path)
         note_names.append(note_path.stem)
 
     map_body = map_content(chosen_title, pages, note_names, today, resolved_language)
-    map_path = canonical_file(notes_root, collection_dir / map_file_name, map_body)
-    manifest_path = canonical_file(notes_root, collection_dir / "source_manifest.md", manifest)
+    map_path = canonical_file(output_root, collection_dir / map_file_name, map_body)
+    manifest_path = canonical_file(output_root, collection_dir / "source_manifest.md", manifest)
     files = (map_path, manifest_path, *note_paths)
     path_identities = [path.as_posix().casefold() for path in files]
     if len(path_identities) != len(set(path_identities)):
@@ -798,13 +811,13 @@ def create_notes(
         )
 
     if not dry_run:
-        ensure_safe_directory(notes_root, collection_dir, create=True)
-        write_text_no_follow(notes_root, map_path, map_body)
-        write_text_no_follow(notes_root, manifest_path, manifest)
+        ensure_safe_directory(output_root, collection_dir, create=True)
+        write_text_no_follow(output_root, map_path, map_body)
+        write_text_no_follow(output_root, manifest_path, manifest)
         for index, (note_path, page) in enumerate(zip(note_paths, pages), start=1):
             display_title = title if title and len(pages) == 1 else page.title or title_from_url(page.url)
             write_text_no_follow(
-                notes_root,
+                output_root,
                 note_path,
                 page_note_content(page, index, today, display_title, resolved_language, map_note_stem),
             )
@@ -816,7 +829,9 @@ def main() -> int:
     configure_output_encoding()
     parser = argparse.ArgumentParser(description="Create an Obsidian note folder from web learning resource URLs.")
     parser.add_argument("sources", nargs="+", help="URL or local HTML file")
-    parser.add_argument("--notes-dir", type=Path, required=True, help="Existing Obsidian notes directory")
+    parser.add_argument("--notes-dir", type=Path, required=True, help="Obsidian notes directory used only when --publish is set")
+    parser.add_argument("--publish", action="store_true", help="Publish finished output into --notes-dir; default writes scaffolds to external staging")
+    parser.add_argument("--staging-dir", type=Path, help="External staging directory; defaults to /tmp/solvenotes-web-staging-*")
     parser.add_argument("--category", help="Existing or new top-level category folder under --notes-dir")
     parser.add_argument("--folder", help="Collection folder name under the selected category")
     parser.add_argument("--title", help="Collection title used for the entry map note")
@@ -858,12 +873,17 @@ def main() -> int:
             root_folder_name=args.root_folder_name,
             map_note_name=args.map_note_name,
             dry_run=args.dry_run,
+            publish=args.publish,
+            staging_dir=args.staging_dir,
         )
     except (OSError, ValueError) as exc:
         print(f"ERROR: failed to create web notes: {exc}", file=sys.stderr)
         return 1
 
-    action = "would_create" if args.dry_run else "created"
+    if args.dry_run:
+        action = "would_publish" if args.publish else "would_stage"
+    else:
+        action = "published" if args.publish else "staged"
     print(f"{action}_web_notes {created.collection_dir}")
     for path in created.files:
         print(path)

@@ -17,6 +17,11 @@ from create_web_notes import choose_category_dir, safe_path_name  # noqa: E402
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
+    # Existing tests exercise the explicit publication path.  The production
+    # CLI defaults to external staging; the dedicated test below covers that
+    # default without hiding it behind this compatibility helper.
+    if "--publish" not in args:
+        args = (*args, "--publish")
     return subprocess.run(
         [sys.executable, "scripts/create_web_notes.py", *args],
         cwd=ROOT,
@@ -30,6 +35,8 @@ def run_script(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 def run_script_unchecked(*args: str) -> subprocess.CompletedProcess[str]:
+    if "--publish" not in args:
+        args = (*args, "--publish")
     return subprocess.run(
         [sys.executable, "scripts/create_web_notes.py", *args],
         cwd=ROOT,
@@ -49,6 +56,38 @@ def write_local_course(path: Path, title: str = "Audit Course") -> None:
     )
 
 
+def run_script_raw(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "scripts/create_web_notes.py", *args],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=True,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"},
+    )
+
+
+def test_create_web_notes_defaults_to_external_staging(tmp_path: Path):
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+
+    result = run_script_raw(
+        "https://example.com/readings/staged.pdf",
+        "--notes-dir",
+        str(notes_dir),
+        "--title",
+        "Staged Course",
+    )
+
+    assert "staged_web_notes" in result.stdout
+    assert not (notes_dir / "Web Resources" / "Staged Course").exists()
+    staged_path = Path(next(line for line in result.stdout.splitlines() if line.startswith("staged_web_notes ")).split(" ", 1)[1])
+    assert staged_path.is_dir()
+    assert (staged_path / "00_Learning_Map.md").exists()
+
+
 def test_create_web_notes_defaults_to_english_for_english_source(tmp_path: Path):
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir()
@@ -60,7 +99,7 @@ def test_create_web_notes_defaults_to_english_for_english_source(tmp_path: Path)
     )
 
     collection_dir = notes_dir / "Web Resources" / "Zhu From Noise Modeling CVPR 2016 paper"
-    assert f"created_web_notes {collection_dir}" in result.stdout
+    assert f"published_web_notes {collection_dir}" in result.stdout
     assert (collection_dir / "00_Learning_Map.md").exists()
     assert not (notes_dir / "网络资源").exists()
     assert not (collection_dir / "00_学习地图.md").exists()
@@ -178,7 +217,7 @@ def test_create_web_notes_dry_run_allows_missing_notes_root_without_creating_it(
         "--dry-run",
     )
 
-    assert "would_create_web_notes" in result.stdout
+    assert "would_publish_web_notes" in result.stdout
     assert not notes_dir.exists()
 
 

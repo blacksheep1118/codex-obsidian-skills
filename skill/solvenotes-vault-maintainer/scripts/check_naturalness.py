@@ -12,16 +12,27 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from notes_utils import markdown_files, read_text, rel, strip_frontmatter, text_without_code
 
 PLACEHOLDER_RE = re.compile(r"(?:在此填写|TODO|FIXME|待补充|<待填写>)", re.I)
-BOILERPLATE_RE = re.compile(
-    r"(?:本页(?:用于|负责|将介绍)|学习完本页后|复习时要把该点放回|"
-    r"不要只背名词|易错点[:：]\s*(?:注意理解|需要理解)|本章内容非常重要)"
+BOILERPLATE_PATTERNS = (
+    ("meta_opening", re.compile(r"本页(?:用于|负责|将介绍)|本篇(?:用于|负责|将介绍)")),
+    (
+        "learning_outcome",
+        re.compile(r"学完本(?:页|篇)(?:后)?\s*[，,]?\s*(?:应能|能够|可以)(?:独立完成)?"),
+    ),
+    (
+        "generic_section",
+        re.compile(r"学习目标、前置知识与适用边界|项目验收与面试表达|学完检查"),
+    ),
+    ("bridge_sentence", re.compile(r"学习完本页后|复习时要把该点放回")),
+    ("generic_warning", re.compile(r"不要只背名词|易错点[:：]\s*(?:注意理解|需要理解)")),
+    ("generic_summary", re.compile(r"本章内容非常重要")),
 )
 HEADING_RE = re.compile(r"^#{1,6}\s+")
+H2_RE = re.compile(r"^##\s+(.+?)\s*$")
 FENCE_RE = re.compile(r"^\s*(\x60{3}|~~~)")
 HTML_COMMENT_RE = re.compile(r"^\s*<!--.*-->\s*$")
 MIN_PARAGRAPH_LENGTH = 24
@@ -74,10 +85,38 @@ def normalized_paragraphs(text: str) -> list[tuple[int, str]]:
     return normalized
 
 
+def heading_sequence(text: str) -> tuple[str, ...]:
+    """Return the meaningful H2 skeleton without treating code as prose."""
+
+    headings: list[str] = []
+    in_fence = False
+    for line in text.splitlines():
+        if FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = H2_RE.match(line.strip())
+        if match:
+            heading = re.sub(r"\s+", " ", match.group(1)).strip()
+            if heading:
+                headings.append(heading)
+    return tuple(headings)
+
+
+def first_prose_paragraph(text: str) -> str | None:
+    paragraphs = normalized_paragraphs(text)
+    return paragraphs[0][1] if paragraphs else None
+
+
 def scan() -> dict[str, object]:
     high_confidence: list[dict[str, object]] = []
     review_candidates: list[dict[str, object]] = []
     paragraph_locations: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    opening_locations: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    heading_groups: dict[tuple[str, tuple[str, ...]], list[str]] = defaultdict(list)
+    repeated_section_counts: Counter[str] = Counter()
+    repeated_section_files: dict[str, set[str]] = defaultdict(set)
     files = markdown_files()
 
     for path in files:
@@ -89,16 +128,32 @@ def scan() -> dict[str, object]:
                 high_confidence.append(
                     {"path": relative, "line": line_number, "kind": "placeholder", "context": line.strip()}
                 )
-            if BOILERPLATE_RE.search(line) and not (
-                line.lstrip().startswith(">") and "不构成" in line
-            ):
-                review_candidates.append(
-                    {"path": relative, "line": line_number, "kind": "boilerplate", "context": line.strip()}
-                )
+            if not (line.lstrip().startswith(">") and "不构成" in line):
+                for kind, pattern in BOILERPLATE_PATTERNS:
+                    if pattern.search(line):
+                        review_candidates.append(
+                            {
+                                "path": relative,
+                                "line": line_number,
+                                "kind": kind,
+                                "context": line.strip(),
+                            }
+                        )
+                        break
         for line_number, paragraph in normalized_paragraphs(prose):
             if paragraph.startswith(("关联阅读：", "**关联阅读", "来源说明", "**来源说明")):
                 continue
             paragraph_locations[paragraph].append((relative, line_number))
+        opening = first_prose_paragraph(prose)
+        if opening and not opening.startswith(("关联阅读：", "来源说明")):
+            opening_locations[opening].append((relative, 1))
+        sequence = heading_sequence(strip_frontmatter(text))
+        if len(sequence) >= 3:
+            heading_groups[(str(path.parent), sequence)].append(relative)
+            for heading in sequence:
+                if heading in {"学习目标、前置知识与适用边界", "项目验收与面试表达", "学完检查"}:
+                    repeated_section_counts[heading] += 1
+                    repeated_section_files[heading].add(relative)
 
     for paragraph, locations in paragraph_locations.items():
         if len(locations) >= 3 and len({path for path, _ in locations}) == 1:
@@ -120,6 +175,45 @@ def scan() -> dict[str, object]:
                     "count": len(locations),
                     "files": sorted({path for path, _ in locations}),
                     "context": paragraph[:180],
+                }
+            )
+
+    for opening, locations in opening_locations.items():
+        if len(locations) >= 4:
+            review_candidates.append(
+                {
+                    "path": locations[0][0],
+                    "line": locations[0][1],
+                    "kind": "repeated_opening",
+                    "count": len(locations),
+                    "files": sorted({path for path, _ in locations}),
+                    "context": opening[:180],
+                }
+            )
+
+    for (_directory, sequence), locations in heading_groups.items():
+        if len(locations) >= 4:
+            review_candidates.append(
+                {
+                    "path": locations[0],
+                    "line": 1,
+                    "kind": "repeated_h2_skeleton",
+                    "count": len(locations),
+                    "files": sorted(locations),
+                    "context": " / ".join(sequence[:8]),
+                }
+            )
+
+    for heading, count in repeated_section_counts.items():
+        if count >= 6:
+            review_candidates.append(
+                {
+                    "path": sorted(repeated_section_files[heading])[0],
+                    "line": 1,
+                    "kind": "repeated_section_heading",
+                    "count": count,
+                    "files": sorted(repeated_section_files[heading]),
+                    "context": heading,
                 }
             )
 

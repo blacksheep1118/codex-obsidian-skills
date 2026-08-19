@@ -53,13 +53,14 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
    - Direct PDF/PPT/transcript/book URLs should be recorded as resources without attempting to parse binary content as HTML.
    - Capture titles, canonical URLs, descriptions, source type, and links to slides, videos, transcripts, chapters, and PDFs.
    - Process sources independently. If one URL or local HTML file fails, keep it in `source_manifest.md` with `access_status`, source type guess, and a concise error instead of dropping the source or failing the whole manifest.
-   - For client-rendered pages, record both the visible page URL and any legitimate public data endpoint or static bundle used only to locate the endpoint. Mark helper URLs as provenance, not learning material.
+   - For client-rendered pages, record the visible page URL and any legitimate public data endpoint used only to locate the endpoint. Mark helper URLs as provenance, not learning material; do not publish raw API responses or frontend bundles as study notes.
    - Record inaccessible or ambiguous sources instead of silently skipping them.
 
 3. Place notes in the vault.
    - If the user provides an Obsidian notes directory, inspect existing top-level folders and classify the collection into the closest existing folder.
    - If no existing folder fits, create a language-specific fallback folder under the notes directory: `网络资源/<collection-title>/` for Chinese scaffolds or `Web Resources/<collection-title>/` for English scaffolds.
-   - Use `scripts/create_web_notes.py --notes-dir <notes-dir> <url...>` to create the collection folder, `source_manifest.md`, the language-specific entry map note, and detailed note scaffolds.
+   - Use `scripts/create_web_notes.py --notes-dir <notes-dir> <url...>` to create an external staging collection by default. Use `--publish` only after the scaffold has been read, completed, source-checked, copyright-checked, and passed the local note validators.
+   - Use `--staging-dir /tmp/<name>` when a stable external staging path is useful; never use a staging directory inside the Notes vault.
    - Use `--category <folder>` when the user or context clearly identifies the destination category.
    - Use `--language auto` by default. Read `references/note-output.md` for its detection, placement, and naming rules; use `--language zh|en`, `--root-folder-name`, or `--map-note-name` for explicit overrides.
    - Follow the scaffold lifecycle in `references/note-output.md`; do not deliver unfinished scaffolds.

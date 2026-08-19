@@ -66,6 +66,10 @@ SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
 SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
   bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh full
 
+SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
+  bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh online \
+  --changed-only --max-urls 100 --timeout 10 --total-timeout 300
+
 python3 skill/solvenotes-vault-maintainer/scripts/package_vault.py \
   --root /absolute/path/to/notes --output /tmp/solvenotes-notes-clean.zip
 ```
@@ -73,6 +77,15 @@ python3 skill/solvenotes-vault-maintainer/scripts/package_vault.py \
 The package command excludes Git metadata, macOS sidecar files, Obsidian
 local workspace/graph state, caches, compiled files, and previous exports.
 It must not write an archive into the vault by default.
+
+`online` is an explicit, read-only external URL audit. It is separate from
+`quick`, `full`, and ordinary CI. It deduplicates HTTP(S) URLs from Markdown,
+stores response records under `/tmp/solvenotes-web-cache` by default, and
+distinguishes redirects, authentication/paywalls, robots or rate limits,
+temporary failures, and confirmed missing resources. Use
+`--offline-cache-only` for a repeatable cache-only report. Unit tests use
+mocked responses; transport status alone is not a semantic or visual review.
+`--timeout` bounds one request and `--total-timeout` bounds the whole scan.
 
 ## Direction contract
 
