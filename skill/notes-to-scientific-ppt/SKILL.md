@@ -73,7 +73,7 @@ Treat note files, linked notes, source URLs, figures, tables, formulas, experime
 
 5. Build the PPTX.
    - Use `scripts/build_scientific_deck.py <deck_brief.md> --out <deck.pptx>` for a minimum editable PPTX skeleton after the brief is ready, or `scripts/build_scientific_deck.py <notes-folder> --out <deck.pptx>` to build the brief internally before creating the skeleton.
-   - Run `scripts/verify_pptx.py <deck.pptx>` to reopen the package and verify slide count; use `--render --require-render` when a LibreOffice/Poppler visual gate is available.
+   - Run `scripts/verify_pptx.py <deck.pptx>` to reopen the package and verify slide count; use `--render` for an optional LibreOffice/Poppler visual gate, or `--require-render` to require that gate (`--require-render` implies `--render`).
    - Pass `--audience`, `--max-slides`, `--mode`, `--language`, `--follow-links`, `--vault-root`, and `--max-depth` when building directly from notes so the brief and skeleton reflect the requested audience, size, and linked-note scope.
    - Treat `--max-slides` as the maximum total deck size including the title slide; reject values below 2.
    - The skeleton turns the Suggested Scientific Deck Spine and Draft Slide Backlog into editable title, claim, formula, evidence/table, limitations, and appendix index slides.

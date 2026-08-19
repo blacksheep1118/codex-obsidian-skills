@@ -285,6 +285,54 @@ def test_create_web_notes_rejects_symlinked_fallback_and_collection_directories(
 
 
 @pytest.mark.parametrize(
+    "kind",
+    ("leaf_same_inode", "leaf_external", "ancestor", "broken_leaf", "broken_ancestor"),
+)
+def test_create_web_notes_rejects_symlinked_notes_root_components(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    real_notes = tmp_path / "real" / "notes"
+    if not kind.startswith("broken"):
+        real_notes.mkdir(parents=True)
+    if kind in {"leaf_same_inode", "leaf_external"}:
+        alias_parent = tmp_path / ("real" if kind == "leaf_same_inode" else "boundary")
+        alias_parent.mkdir(parents=True, exist_ok=True)
+        notes_root = alias_parent / "notes-alias"
+        notes_root.symlink_to(real_notes, target_is_directory=True)
+        assert notes_root.stat().st_ino == real_notes.stat().st_ino
+    elif kind == "ancestor":
+        alias_parent = tmp_path / "parent-alias"
+        alias_parent.symlink_to(real_notes.parent, target_is_directory=True)
+        notes_root = alias_parent / real_notes.name
+        assert notes_root.stat().st_ino == real_notes.stat().st_ino
+    elif kind == "broken_leaf":
+        notes_root = tmp_path / "broken-notes"
+        notes_root.symlink_to(tmp_path / "missing-notes", target_is_directory=True)
+    else:
+        alias_parent = tmp_path / "broken-parent"
+        alias_parent.symlink_to(tmp_path / "missing-parent", target_is_directory=True)
+        notes_root = alias_parent / "notes"
+    source = tmp_path / "course.html"
+    write_local_course(source)
+
+    result = run_script_unchecked(
+        str(source),
+        "--notes-dir",
+        str(notes_root),
+        "--title",
+        "Audit Course",
+        "--language",
+        "en",
+    )
+
+    assert result.returncode == 1
+    assert "symlink" in result.stderr.lower()
+    if real_notes.exists():
+        assert list(real_notes.iterdir()) == []
+
+
+@pytest.mark.parametrize(
     "output_name",
     ["00_Learning_Map.md", "source_manifest.md", "01_Audit Course.md"],
 )

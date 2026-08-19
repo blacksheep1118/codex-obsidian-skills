@@ -462,7 +462,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-width-inches", type=float)
     parser.add_argument("--expected-height-inches", type=float)
     parser.add_argument("--render", action="store_true", help="render to PDF and PNG previews when tools are available")
-    parser.add_argument("--require-render", action="store_true", help="fail instead of reporting manual review when render tools are unavailable")
+    parser.add_argument(
+        "--require-render",
+        action="store_true",
+        help="require rendering (implies --render) and fail when render tools are unavailable or rendering fails",
+    )
     args = parser.parse_args(argv)
     try:
         package_slides = package_slide_count(args.pptx)
@@ -481,7 +485,7 @@ def main(argv: list[str] | None = None) -> int:
             if expected is not None and not math.isclose(actual, expected, rel_tol=0, abs_tol=0.01):
                 raise RuntimeError(f"slide {label} is {actual:.3f} inches; expected {expected:.3f}")
         print(f"pptx_reopen ok slides={reopened_slides}")
-        if args.render:
+        if args.render or args.require_render:
             render_pptx(args.pptx, args.pptx.parent / f"{args.pptx.stem}-render", args.expected_slides or reopened_slides, args.require_render)
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

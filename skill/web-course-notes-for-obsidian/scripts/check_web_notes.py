@@ -11,8 +11,12 @@ import stat
 import sys
 
 try:
+    from .check_obsidian_links import COMMENT_SPAN_RE, text_without_code
+    from .safe_io import ensure_safe_input_directory
     from .url_identity import extract_url_identities, normalize_url
 except ImportError:
+    from check_obsidian_links import COMMENT_SPAN_RE, text_without_code
+    from safe_io import ensure_safe_input_directory
     from url_identity import extract_url_identities, normalize_url
 
 
@@ -43,8 +47,6 @@ SUPPORT_NOTE_STEMS = frozenset(
         "validation_report",
     }
 )
-
-
 @dataclass(frozen=True)
 class ManifestRow:
     section: str
@@ -126,6 +128,12 @@ def load_manifest_rows(manifest: Path) -> list[ManifestRow]:
 
 def is_regular_file_without_symlink_components(root: Path, path: Path) -> bool:
     try:
+        root_mode = root.lstat().st_mode
+    except OSError:
+        return False
+    if stat.S_ISLNK(root_mode) or not stat.S_ISDIR(root_mode):
+        return False
+    try:
         relative = path.relative_to(root)
     except ValueError:
         return False
@@ -145,6 +153,18 @@ def is_regular_file_without_symlink_components(root: Path, path: Path) -> bool:
 
 def symlink_issues(root: Path) -> list[WebNoteIssue]:
     issues: list[WebNoteIssue] = []
+    try:
+        root_mode = root.lstat().st_mode
+    except OSError:
+        return issues
+    if stat.S_ISLNK(root_mode):
+        return [
+            WebNoteIssue(
+                "unsafe_symlink",
+                Path("."),
+                "finalized collection root must not be a symlink",
+            )
+        ]
     for path in sorted(root.rglob("*")):
         try:
             is_symlink = stat.S_ISLNK(path.lstat().st_mode)
@@ -179,8 +199,20 @@ def is_support_note(path: Path) -> bool:
     return without_collision_suffix in SUPPORT_NOTE_STEMS
 
 
+def visible_markdown_text(text: str) -> str:
+    """Mask CommonMark code plus HTML/Obsidian comments in one evidence view."""
+
+    code_masked = text_without_code(text)
+    assert isinstance(code_masked, str)
+    return COMMENT_SPAN_RE.sub(
+        lambda match: "".join("\n" if char == "\n" else " " for char in match.group()),
+        code_masked,
+    )
+
+
 def has_substantive_markdown_body(path: Path) -> bool:
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    text = path.read_text(encoding="utf-8", errors="replace")
+    lines = visible_markdown_text(text).splitlines()
     in_frontmatter = bool(lines and lines[0].strip() == "---")
     for index, line in enumerate(lines):
         stripped = line.strip()
@@ -221,12 +253,13 @@ def manifest_covers_source(rows: list[ManifestRow], source: str) -> bool:
 
 def file_mentions_url(path: Path, url: str) -> bool:
     text = path.read_text(encoding="utf-8", errors="replace")
-    return normalize_url(url) in extract_url_identities(text)
+    return normalize_url(url) in extract_url_identities(visible_markdown_text(text))
 
 
 def explicit_skipped_or_inaccessible(path: Path, url: str) -> bool:
     text = path.read_text(encoding="utf-8", errors="replace")
-    return normalize_url(url) in extract_url_identities(text) and bool(SKIPPED_RE.search(text))
+    visible = visible_markdown_text(text)
+    return normalize_url(url) in extract_url_identities(visible) and bool(SKIPPED_RE.search(visible))
 
 
 def manifest_requires_per_link_notes(rows: list[ManifestRow]) -> bool:
@@ -269,7 +302,15 @@ def inaccessible_resource(row: ManifestRow) -> bool:
 
 
 def validate_web_notes(root: Path, sources: list[str], *, per_link_notes: bool = False) -> list[WebNoteIssue]:
+    try:
+        root = ensure_safe_input_directory(root)
+    except (OSError, ValueError) as exc:
+        message = str(exc)
+        kind = "unsafe_symlink" if "symlink" in message.casefold() else "invalid_root"
+        return [WebNoteIssue(kind, Path("."), message)]
     issues = symlink_issues(root)
+    if any(issue.kind == "unsafe_symlink" and issue.path == Path(".") for issue in issues):
+        return issues
     manifest = root / "source_manifest.md"
     if not manifest.exists() and not manifest.is_symlink():
         issues.append(WebNoteIssue("missing_manifest", Path("source_manifest.md"), "source_manifest.md is required"))
@@ -311,7 +352,8 @@ def validate_web_notes(root: Path, sources: list[str], *, per_link_notes: bool =
 
     for path in notes:
         text = path.read_text(encoding="utf-8", errors="replace")
-        for line_number, line in enumerate(text.splitlines(), start=1):
+        visible = visible_markdown_text(text)
+        for line_number, line in enumerate(visible.splitlines(), start=1):
             if RESIDUE_RE.search(line):
                 issues.append(
                     WebNoteIssue(
@@ -339,7 +381,9 @@ def validate_web_notes(root: Path, sources: list[str], *, per_link_notes: bool =
 
         note_identities = {
             path: extract_url_identities(
-                path.read_text(encoding="utf-8", errors="replace")
+                visible_markdown_text(
+                    path.read_text(encoding="utf-8", errors="replace")
+                )
             )
             for path in details
         }
@@ -390,13 +434,7 @@ def main() -> int:
     parser.add_argument("--per-link-notes", action="store_true", help="Require every learning resource to have a note or explicit skipped/inaccessible status")
     args = parser.parse_args()
 
-    root = args.root.resolve()
-    if not root.exists():
-        parser.error(f"directory does not exist: {root}")
-    if not root.is_dir():
-        parser.error(f"root must be a directory: {root}")
-
-    issues = validate_web_notes(root, args.source, per_link_notes=args.per_link_notes)
+    issues = validate_web_notes(args.root, args.source, per_link_notes=args.per_link_notes)
     print(f"web_note_issues {len(issues)}")
     for issue in issues:
         print(f"{issue.kind.upper()}: {issue.path}: {issue.message}")

@@ -10,11 +10,31 @@ import subprocess
 import sys
 
 from install_ignore import should_ignore_relative
+from shared.safe_io import ensure_safe_input_directory
 
 sys.dont_write_bytecode = True
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ROOT_ERROR_REASON = "root must be an existing directory without symlink components"
+
+
+class RepoHygieneRootError(ValueError):
+    """Stable failure for a root that is unsafe or is not a directory."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        super().__init__(f"{path}: {ROOT_ERROR_REASON}")
+
+
+def validate_root(path: Path) -> Path:
+    """Return a lexical absolute directory root without following symlinks."""
+
+    lexical = Path(os.path.abspath(path.expanduser()))
+    try:
+        return ensure_safe_input_directory(lexical)
+    except (OSError, ValueError):
+        raise RepoHygieneRootError(lexical) from None
 
 
 def run_git(root: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
@@ -88,10 +108,10 @@ def main() -> int:
         help="also scan untracked/ignored workspace artifacts; default checks Git-tracked files only in Git repositories",
     )
     args = parser.parse_args()
-    root = args.root.resolve()
-
-    if not root.exists():
-        print(f"ERROR: root does not exist: {root}", file=sys.stderr)
+    try:
+        root = validate_root(args.root)
+    except RepoHygieneRootError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
     if is_git_repo(root):

@@ -171,6 +171,97 @@ def test_openai_yaml_requires_quoted_string_values(tmp_path: Path):
         validate_openai_yaml(skill / "agents" / "openai.yaml", skill.name)
 
 
+def test_openai_yaml_accepts_package_local_regular_icons_and_hex_color(tmp_path: Path):
+    skill = write_skill(
+        tmp_path,
+        openai_yaml=(
+            "interface:\n"
+            '  display_name: "Demo Skill"\n'
+            '  short_description: "Run a structured demonstration workflow"\n'
+            '  icon_small: "./assets/small.png"\n'
+            '  icon_large: "./assets/large.svg"\n'
+            '  brand_color: "#a1B2c3"\n'
+            '  default_prompt: "Use $demo-skill to demonstrate this workflow."\n'
+        ),
+    )
+    assets = skill / "assets"
+    assets.mkdir()
+    (assets / "small.png").write_bytes(b"png")
+    (assets / "large.svg").write_text("<svg/>\n", encoding="utf-8")
+
+    validate_openai_yaml(skill / "agents" / "openai.yaml", skill.name)
+
+
+@pytest.mark.parametrize(
+    ("icon", "message"),
+    (
+        ("/absolute/icon.svg", "relative path"),
+        ("../outside.svg", "relative path"),
+        ("C:\\\\icons\\\\icon.svg", "relative path"),
+        ("./assets/missing.svg", "does not exist"),
+    ),
+)
+def test_openai_yaml_rejects_invalid_icon_paths(
+    tmp_path: Path,
+    icon: str,
+    message: str,
+):
+    skill = write_skill(
+        tmp_path,
+        openai_yaml=(
+            "interface:\n"
+            '  display_name: "Demo Skill"\n'
+            '  short_description: "Run a structured demonstration workflow"\n'
+            f'  icon_small: "{icon}"\n'
+            '  default_prompt: "Use $demo-skill to demonstrate this workflow."\n'
+        ),
+    )
+
+    with pytest.raises(MetadataValidationError, match=message):
+        validate_openai_yaml(skill / "agents" / "openai.yaml", skill.name)
+
+
+def test_openai_yaml_rejects_icon_symlink(tmp_path: Path):
+    skill = write_skill(
+        tmp_path,
+        openai_yaml=(
+            "interface:\n"
+            '  display_name: "Demo Skill"\n'
+            '  short_description: "Run a structured demonstration workflow"\n'
+            '  icon_small: "./assets/icon.svg"\n'
+            '  default_prompt: "Use $demo-skill to demonstrate this workflow."\n'
+        ),
+    )
+    assets = skill / "assets"
+    assets.mkdir()
+    outside = tmp_path / "outside.svg"
+    outside.write_text("<svg/>\n", encoding="utf-8")
+    try:
+        (assets / "icon.svg").symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    with pytest.raises(MetadataValidationError, match="must not contain symlinks"):
+        validate_openai_yaml(skill / "agents" / "openai.yaml", skill.name)
+
+
+@pytest.mark.parametrize("color", ("blue", "#12345", "#1234567", "123456", "#GG0000"))
+def test_openai_yaml_rejects_non_rrggbb_brand_color(tmp_path: Path, color: str):
+    skill = write_skill(
+        tmp_path,
+        openai_yaml=(
+            "interface:\n"
+            '  display_name: "Demo Skill"\n'
+            '  short_description: "Run a structured demonstration workflow"\n'
+            f'  brand_color: "{color}"\n'
+            '  default_prompt: "Use $demo-skill to demonstrate this workflow."\n'
+        ),
+    )
+
+    with pytest.raises(MetadataValidationError, match="#RRGGBB"):
+        validate_openai_yaml(skill / "agents" / "openai.yaml", skill.name)
+
+
 def test_openai_yaml_rejects_duplicate_nested_keys(tmp_path: Path):
     skill = write_skill(
         tmp_path,

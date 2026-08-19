@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import sys
 from typing import BinaryIO
+import unicodedata
 from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -30,6 +31,17 @@ TOTAL_SLIDE_COUNT_RE = re.compile(
     re.M,
 )
 MAX_TITLE_CHARS = 180
+TITLE_BOX_WIDTH_INCHES = 12.2
+TITLE_FONT_SIZE_POINTS = 28
+TITLE_MAX_LINES = 2
+TITLE_WIDTH_SAFETY_FACTOR = 0.95
+MAX_TITLE_DISPLAY_UNITS = (
+    TITLE_BOX_WIDTH_INCHES
+    * 72
+    / TITLE_FONT_SIZE_POINTS
+    * TITLE_MAX_LINES
+    * TITLE_WIDTH_SAFETY_FACTOR
+)
 
 
 @dataclass(frozen=True)
@@ -218,8 +230,32 @@ def ensure_required_specs(specs: list[SlideSpec], max_specs: int | None = None) 
     return [*base[: max_specs - len(required)], *required]
 
 
+def estimated_title_display_units(value: str) -> float:
+    """Estimate title width in em-like units for the fixed two-line box."""
+
+    units = 0.0
+    for character in value:
+        if unicodedata.combining(character):
+            continue
+        if character.isspace():
+            units += 0.35
+        elif unicodedata.east_asian_width(character) in {"W", "F"}:
+            units += 1.0
+        elif character in "MW@%&":
+            units += 0.9
+        elif character in "ilI.,:;!|'`":
+            units += 0.3
+        elif character.isupper():
+            units += 0.7
+        elif character.isdigit():
+            units += 0.58
+        else:
+            units += 0.55
+    return units
+
+
 def validate_deck_text(title: str, specs: list[SlideSpec]) -> None:
-    """Reject titles that cannot be trusted to fit the fixed-height title box."""
+    """Reject titles that cannot be trusted to fit the fixed two-line box."""
 
     labels = [("deck title", title)]
     labels.extend((f"slide {index} title", spec.title) for index, spec in enumerate(specs, start=1))
@@ -231,6 +267,12 @@ def validate_deck_text(title: str, specs: list[SlideSpec]) -> None:
         if len(value) > MAX_TITLE_CHARS:
             raise ValueError(
                 f"{label} is {len(value)} characters; maximum is {MAX_TITLE_CHARS} for the fixed title box"
+            )
+        display_units = estimated_title_display_units(value)
+        if display_units > MAX_TITLE_DISPLAY_UNITS:
+            raise ValueError(
+                f"{label} estimated display width is {display_units:.1f} units; "
+                f"maximum is {MAX_TITLE_DISPLAY_UNITS:.1f} for the fixed two-line title box"
             )
 
 
@@ -281,7 +323,12 @@ def build_with_python_pptx(title: str, specs: list[SlideSpec], out: BinaryIO) ->
     prs.slide_height = Inches(7.5)
 
     def add_title(slide, text: str) -> None:
-        box = slide.shapes.add_textbox(Inches(0.55), Inches(0.35), Inches(12.2), Inches(0.7))
+        box = slide.shapes.add_textbox(
+            Inches(0.55),
+            Inches(0.35),
+            Inches(TITLE_BOX_WIDTH_INCHES),
+            Inches(1.15),
+        )
         frame = box.text_frame
         frame.clear()
         p = frame.paragraphs[0]
@@ -299,7 +346,7 @@ def build_with_python_pptx(title: str, specs: list[SlideSpec], out: BinaryIO) ->
         p.alignment = PP_ALIGN.RIGHT
 
     def add_bullets(slide, bullets: list[str]) -> None:
-        box = slide.shapes.add_textbox(Inches(0.75), Inches(1.35), Inches(11.8), Inches(4.9))
+        box = slide.shapes.add_textbox(Inches(0.75), Inches(1.7), Inches(11.8), Inches(4.55))
         frame = box.text_frame
         frame.word_wrap = True
         frame.clear()
@@ -341,8 +388,8 @@ def slide_xml(title: str, lines: list[str]) -> str:
     <p:spTree>
       <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
       <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-      <p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="500000" y="300000"/><a:ext cx="11500000" cy="800000"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US" sz="3000" b="1"/><a:t>{escape(title)}</a:t></a:r></a:p></p:txBody></p:sp>
-      <p:sp><p:nvSpPr><p:cNvPr id="3" name="Body"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="700000" y="1350000"/><a:ext cx="10800000" cy="4800000"/></a:xfrm></p:spPr>{xml_text_body(lines)}</p:sp>
+      <p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="500000" y="300000"/><a:ext cx="11500000" cy="1200000"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US" sz="3000" b="1"/><a:t>{escape(title)}</a:t></a:r></a:p></p:txBody></p:sp>
+      <p:sp><p:nvSpPr><p:cNvPr id="3" name="Body"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="700000" y="1800000"/><a:ext cx="10800000" cy="4200000"/></a:xfrm></p:spPr>{xml_text_body(lines)}</p:sp>
     </p:spTree>
   </p:cSld>
   <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>

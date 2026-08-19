@@ -6,6 +6,8 @@ import shutil
 import subprocess
 import sys
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -35,6 +37,78 @@ def run_script(
         check=check,
         timeout=timeout,
     )
+
+
+def make_hygiene_root(tmp_path: Path, kind: str) -> Path:
+    regular_dir = tmp_path / "regular-root"
+    regular_dir.mkdir(exist_ok=True)
+    if kind == "regular-dir":
+        return regular_dir
+    if kind == "missing":
+        return tmp_path / "missing-root"
+    regular_file = tmp_path / "root.txt"
+    regular_file.write_text("fixture\n", encoding="utf-8")
+    if kind == "file":
+        return regular_file
+    alias = tmp_path / f"{kind}-root"
+    if kind == "symlink-dir":
+        alias.symlink_to(regular_dir, target_is_directory=True)
+    elif kind == "symlink-file":
+        alias.symlink_to(regular_file)
+    elif kind == "broken-symlink":
+        alias.symlink_to(tmp_path / "missing-target")
+    else:
+        raise AssertionError(kind)
+    return alias
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ("missing", "file", "symlink-dir", "symlink-file", "broken-symlink"),
+)
+@pytest.mark.parametrize("scan_worktree", (False, True), ids=("default", "scan-worktree"))
+def test_repo_hygiene_cli_rejects_invalid_root_shapes(
+    tmp_path: Path,
+    kind: str,
+    scan_worktree: bool,
+) -> None:
+    root = make_hygiene_root(tmp_path, kind)
+    arguments = ["scripts/check_repo_hygiene.py", "--root", str(root)]
+    if scan_worktree:
+        arguments.append("--scan-worktree")
+
+    result = run_script(*arguments, check=False)
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr == (
+        f"ERROR: {root}: root must be an existing directory without symlink components\n"
+    )
+    assert "Traceback" not in result.stderr
+
+
+def test_repo_hygiene_api_rejects_symlink_root_and_accepts_regular_directory(
+    tmp_path: Path,
+) -> None:
+    regular = make_hygiene_root(tmp_path, "regular-dir")
+    alias = make_hygiene_root(tmp_path, "symlink-dir")
+
+    assert check_repo_hygiene.validate_root(regular) == regular
+    with pytest.raises(check_repo_hygiene.RepoHygieneRootError) as caught:
+        check_repo_hygiene.validate_root(alias)
+    assert str(caught.value) == (
+        f"{alias}: root must be an existing directory without symlink components"
+    )
+
+
+def test_repo_hygiene_keeps_valid_non_git_directory_semantics(tmp_path: Path) -> None:
+    root = make_hygiene_root(tmp_path, "regular-dir")
+
+    result = run_script("scripts/check_repo_hygiene.py", "--root", str(root))
+
+    assert result.returncode == 0
+    assert "is not a Git repository" in result.stderr
+    assert result.stdout == "repo_hygiene ok workspace_scan=clean\n"
 
 
 def test_repo_hygiene_accepts_current_tracked_files():

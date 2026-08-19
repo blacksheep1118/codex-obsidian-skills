@@ -5,12 +5,20 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import os
 from pathlib import Path, PureWindowsPath
 import re
 import stat
 import sys
 import unicodedata
 from typing import Optional
+
+try:
+    from .check_obsidian_links import COMMENT_SPAN_RE, text_without_code
+    from .safe_io import ensure_safe_input_directory
+except ImportError:
+    from check_obsidian_links import COMMENT_SPAN_RE, text_without_code
+    from safe_io import ensure_safe_input_directory
 
 
 SOURCE_EXTENSIONS = {".pdf", ".ppt", ".pptx"}
@@ -34,6 +42,8 @@ PAGE_EVIDENCE_RE = re.compile(
     r"(?:页\s*/?\s*slide|slide|page|p\.)\s*[:：]?\s*\d+|页\s*[:：]?\s*\d+",
     re.I,
 )
+EVIDENCE_LIST_ITEM_RE = re.compile(r"^(?:[-+*]|\d{1,9}[.)])(?:\s+|$)")
+EVIDENCE_HEADING_RE = re.compile(r"^#{1,6}(?:\s+|$)")
 LEGACY_FAILURE_LABELS = ("PPT不可读", "PDF不可读", "待人工确认", "待手工确认")
 RESIDUAL_REVIEW_MARKERS = (
     "需复核",
@@ -98,6 +108,25 @@ class SourceEntry:
     # Compatibility metadata only.  Owner decisions must not use a source
     # stem or numeric ordinal; manifest/frontmatter/body checks own that gate.
     chapter_signature: Optional[str] = None
+
+
+ROOT_ERROR_REASON = "must be an existing directory without symlink components"
+
+
+def validate_scan_root(path: Path, option: str) -> tuple[Path | None, CoverageIssue | None]:
+    """Validate a CLI scan root without resolving away lexical symlinks."""
+
+    lexical = Path(os.path.abspath(path.expanduser()))
+    try:
+        safe = ensure_safe_input_directory(lexical)
+    except (OSError, ValueError):
+        kind = "invalid_source_root" if option == "--source-root" else "invalid_notes_root"
+        return None, CoverageIssue(
+            kind,
+            lexical,
+            f"{option} {ROOT_ERROR_REASON}",
+        )
+    return safe, None
 
 
 def configure_output_encoding() -> None:
@@ -278,7 +307,7 @@ def _path_is_ignored(path: Path, root: Path, include_ignored: bool) -> bool:
 def is_within_root(root: Path, path: Path) -> bool:
     try:
         path.resolve().relative_to(root.resolve())
-    except ValueError:
+    except (OSError, RuntimeError, ValueError):
         return False
     return True
 
@@ -361,14 +390,14 @@ def source_files(source_root: Path, include_ignored: bool = False) -> list[Path]
         path
         for path in source_root.rglob("*")
         if is_within_root(source_root, path)
-        and path.is_file()
+        and is_regular_file_without_symlink_components(source_root, path)
         and path.suffix.lower() in SOURCE_EXTENSIONS
         and not _path_is_ignored(path, source_root, include_ignored)
     )
 
 
 def source_boundary_issues(source_root: Path, include_ignored: bool = False) -> list[CoverageIssue]:
-    """Report source symlinks that would make a scan read outside its root."""
+    """Report every source-tree symlink, including in-root and broken links."""
 
     if not source_root.is_dir():
         return []
@@ -376,14 +405,15 @@ def source_boundary_issues(source_root: Path, include_ignored: bool = False) -> 
     for path in sorted(source_root.rglob("*")):
         if not path.is_symlink() or _path_is_ignored(path, source_root, include_ignored):
             continue
-        if not is_within_root(source_root, path):
-            issues.append(
-                CoverageIssue(
-                    "source_symlink_outside_root",
-                    path,
-                    f"source symlink resolves outside source root: {path.resolve()}",
-                )
+        outside_root = not is_within_root(source_root, path)
+        issues.append(
+            CoverageIssue(
+                "source_symlink_outside_root" if outside_root else "source_symlink",
+                path,
+                "source tree symlinks are not allowed; source inputs must be regular "
+                "files reached without symlink components",
             )
+        )
     return issues
 
 
@@ -624,10 +654,93 @@ def source_entry_mentioned_exact(text: str, entry: SourceEntry) -> bool:
     return re.search(pattern, haystack) is not None
 
 
-def page_source_evidence(text: str, entry: SourceEntry) -> bool:
-    """Require canonical path plus a page/slide locator in note body text."""
+def visible_source_references(text: str) -> list[tuple[int, str, str]]:
+    """Return semantic backticked source refs outside block code and comments.
 
-    return source_entry_mentioned_exact(text, entry) and bool(PAGE_EVIDENCE_RE.search(text))
+    Source paths intentionally use inline-code formatting. Temporarily remove
+    only their backtick delimiters before applying the shared CommonMark code
+    masker, so semantic inline refs stay visible while fenced, indented, list,
+    and blockquote code remains excluded.
+    """
+
+    protected = list(text)
+    for match in SOURCE_REF_RE.finditer(text):
+        protected[match.start()] = " "
+        protected[match.end() - 1] = " "
+    visible = text_without_code("".join(protected))
+    assert isinstance(visible, str)
+    visible = COMMENT_SPAN_RE.sub(
+        lambda match: "".join("\n" if char == "\n" else " " for char in match.group()),
+        visible,
+    )
+
+    references: list[tuple[int, str, str]] = []
+    offset = 0
+    visible_lines = visible.splitlines(keepends=True)
+    raw_lines = text.splitlines(keepends=True)
+    assert len(raw_lines) == len(visible_lines)
+    for line_number, (raw_line, visible_line) in enumerate(
+        zip(raw_lines, visible_lines),
+        start=1,
+    ):
+        for match in SOURCE_REF_RE.finditer(raw_line):
+            start = offset + match.start(1)
+            end = offset + match.end(1)
+            if visible[start:end].strip():
+                references.append((line_number, match.group(1), visible_line))
+        offset += len(raw_line)
+    return references
+
+
+def page_source_evidence(text: str, entry: SourceEntry) -> bool:
+    """Require canonical path and locator in the same evidence block or row."""
+
+    return any(
+        source_entry_mentioned_exact(block, entry)
+        and bool(PAGE_EVIDENCE_RE.search(block))
+        for block in source_evidence_blocks(text)
+    )
+
+
+def source_evidence_blocks(text: str) -> list[str]:
+    """Split visible Markdown into paragraph/list/table evidence units.
+
+    Blank lines delimit paragraphs, each list item starts a new unit, and each
+    table row is independent. This prevents a canonical source on one row or
+    paragraph from borrowing a page locator from an unrelated unit.
+    """
+
+    visible = text_without_code(text)
+    assert isinstance(visible, str)
+    raw_lines = text.splitlines()
+    visible_lines = visible.splitlines()
+    assert len(raw_lines) == len(visible_lines)
+    blocks: list[str] = []
+    current: list[str] = []
+
+    def flush() -> None:
+        if current:
+            blocks.append("\n".join(current))
+            current.clear()
+
+    for raw_line, visible_line in zip(raw_lines, visible_lines):
+        stripped = visible_line.strip()
+        if not stripped:
+            flush()
+            continue
+        raw_logical = re.sub(r"^(?:>\s*)+", "", raw_line.strip())
+        is_table_row = "|" in raw_logical and (
+            raw_logical.startswith("|") or raw_logical.endswith("|")
+        )
+        if is_table_row or EVIDENCE_HEADING_RE.match(raw_logical):
+            flush()
+            blocks.append(raw_line)
+            continue
+        if EVIDENCE_LIST_ITEM_RE.match(raw_logical):
+            flush()
+        current.append(raw_line)
+    flush()
+    return blocks
 
 
 def resolve_note_target(notes_dir: Path, raw_target: str) -> Path | None:
@@ -1120,72 +1233,80 @@ def check_audit_source_tables(
             path = notes_dir / audit_name
             if not is_regular_file_without_symlink_components(notes_dir, path):
                 continue
-            for line_number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
-                refs = SOURCE_REF_RE.findall(line)
-                if not refs:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            for line_number, ref, visible_line in visible_source_references(text):
+                if is_external_source_ref(ref):
                     continue
-                links = WIKI_LINK_RE.findall(line)
-                for ref in refs:
-                    matches = match_source_entries(ref, entries)
-                    if len(matches) > 1:
-                        issues.append(
-                            CoverageIssue(
-                                "ambiguous_source_ref",
-                                path,
-                                f"line {line_number} uses non-unique source reference {ref!r}; use the canonical root-relative path",
-                            )
+                links = WIKI_LINK_RE.findall(visible_line)
+                matches = match_source_entries(ref, entries)
+                if not matches:
+                    issues.append(
+                        CoverageIssue(
+                            "unknown_source_ref",
+                            path,
+                            f"line {line_number} cites no exact regular source in the selected source root: {ref!r}",
                         )
-                    for entry in matches:
-                        if require_course_prefixed_refs and entry.course_name not in ("", "."):
-                            ref_norm = normalize_path_text(ref)
-                            root_norm = normalize_path_text(entry.root_relative)
-                            if ref_norm != root_norm:
-                                issues.append(
-                                    CoverageIssue(
-                                        "noncanonical_source_ref",
-                                        path,
-                                        f"line {line_number} uses {ref!r}; prefer root-relative source path {entry.root_relative!r}",
-                                    )
+                    )
+                    continue
+                if len(matches) > 1:
+                    issues.append(
+                        CoverageIssue(
+                            "ambiguous_source_ref",
+                            path,
+                            f"line {line_number} uses non-unique source reference {ref!r}; use the canonical root-relative path",
+                        )
+                    )
+                for entry in matches:
+                    if require_course_prefixed_refs and entry.course_name not in ("", "."):
+                        ref_norm = normalize_path_text(ref)
+                        root_norm = normalize_path_text(entry.root_relative)
+                        if ref_norm != root_norm:
+                            issues.append(
+                                CoverageIssue(
+                                    "noncanonical_source_ref",
+                                    path,
+                                    f"line {line_number} uses {ref!r}; prefer root-relative source path {entry.root_relative!r}",
                                 )
-                        for link in links:
-                            target_path = resolve_note_target(notes_dir, link)
-                            if target_path is None:
-                                issues.append(
-                                    CoverageIssue(
-                                        "manifest_target_missing_note",
-                                        path,
-                                        f"line {line_number} targets missing note {link!r} for canonical source {entry.root_relative!r}",
-                                    )
-                                )
-                                continue
-                            declared_refs = frontmatter_source_files(target_path)
-                            declared_owner = any(
-                                normalize_path_text(raw) == normalize_path_text(entry.root_relative)
-                                for raw in declared_refs
                             )
-                            if not declared_owner:
-                                issues.append(
-                                    CoverageIssue(
-                                        "manifest_target_owner_mismatch",
-                                        path,
-                                        f"line {line_number} targets {link!r}, but that note lacks canonical frontmatter ownership for {entry.root_relative!r}",
-                                    )
+                    for link in links:
+                        target_path = resolve_note_target(notes_dir, link)
+                        if target_path is None:
+                            issues.append(
+                                CoverageIssue(
+                                    "manifest_target_missing_note",
+                                    path,
+                                    f"line {line_number} targets missing note {link!r} for canonical source {entry.root_relative!r}",
                                 )
-                            allowed_refs = set(declared_refs)
-                            allowed_refs.add(entry.root_relative)
-                            body_conflicts = body_source_owner_conflicts(
-                                note_body_text(target_path),
-                                entries,
-                                allowed_refs,
                             )
-                            for body_line, conflicting_source in body_conflicts:
-                                issues.append(
-                                    CoverageIssue(
-                                        "body_source_owner_mismatch",
-                                        target_path,
-                                        f"body line {body_line} names canonical source {conflicting_source!r}, conflicting with manifest/frontmatter owner {entry.root_relative!r}",
-                                    )
+                            continue
+                        declared_refs = frontmatter_source_files(target_path)
+                        declared_owner = any(
+                            normalize_path_text(raw) == normalize_path_text(entry.root_relative)
+                            for raw in declared_refs
+                        )
+                        if not declared_owner:
+                            issues.append(
+                                CoverageIssue(
+                                    "manifest_target_owner_mismatch",
+                                    path,
+                                    f"line {line_number} targets {link!r}, but that note lacks canonical frontmatter ownership for {entry.root_relative!r}",
                                 )
+                            )
+                        allowed_refs = set(declared_refs)
+                        allowed_refs.add(entry.root_relative)
+                        body_conflicts = body_source_owner_conflicts(
+                            note_body_text(target_path),
+                            entries,
+                            allowed_refs,
+                        )
+                        for body_line, conflicting_source in body_conflicts:
+                            issues.append(
+                                CoverageIssue(
+                                    "body_source_owner_mismatch",
+                                    target_path,
+                                    f"body line {body_line} names canonical source {conflicting_source!r}, conflicting with manifest/frontmatter owner {entry.root_relative!r}",
+                                )
+                            )
     return issues
 
 
@@ -1277,14 +1398,32 @@ def main() -> int:
             "--mapping is required unless --discover-sibling-mappings, --strict, or paper-only checking is used"
         )
 
-    source_root = args.source_root.resolve()
-    notes_root = args.notes_root.resolve()
+    source_root, source_root_issue = validate_scan_root(args.source_root, "--source-root")
+    notes_root, notes_root_issue = validate_scan_root(args.notes_root, "--notes-root")
+    root_issues = [
+        issue for issue in (source_root_issue, notes_root_issue) if issue is not None
+    ]
+    if root_issues:
+        for issue in root_issues:
+            print(f"{issue.status}: {issue.kind.upper()}: {issue.path}: {issue.message}")
+        return 1
+    assert source_root is not None and notes_root is not None
     discover = args.discover_sibling_mappings or args.strict
     mapping, mapping_path_issues = validate_mapping_paths(
         source_root,
         notes_root,
         args.mapping or {},
     )
+    if (
+        not mapping_path_issues
+        and not any(source_root.iterdir())
+        and not any(notes_root.iterdir())
+    ):
+        print(
+            "STRUCTURAL: EMPTY_COVERAGE_SCOPE: .: source and notes roots are both "
+            "empty; there is no coverage scope to validate"
+        )
+        return 1
     if discover:
         mapping = discover_sibling_mappings(
             source_root,
@@ -1307,7 +1446,7 @@ def main() -> int:
     audit_issues = check_audit_source_tables(
         mapped_notes_dirs,
         entries,
-        args.require_course_prefixed_source_refs,
+        args.strict or args.require_course_prefixed_source_refs,
         include_ignored=args.include_ignored,
     )
     ownership_issues = check_note_source_ownership(

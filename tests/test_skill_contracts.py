@@ -27,6 +27,10 @@ ROUTING_EXPECTATIONS = {
         "positive": ("existing Markdown/Obsidian notes", "scientific PPTX deck", "科研严谨风PPT"),
         "boundary": ("$web-course-notes-for-obsidian", "$ppt-to-md-for-obsidian", "$obsidian-vault-organizer"),
     },
+    "algorithm-job-notes-for-obsidian": {
+        "positive": ("algorithm-job learning notes", "internship or recruiting maps", "nine directions"),
+        "boundary": ("$obsidian-vault-organizer", "$ppt-to-md-for-obsidian"),
+    },
 }
 FORBIDDEN_SKILL_AUXILIARY_FILES = {
     "readme.md",
@@ -78,6 +82,22 @@ def test_root_command_reference_uses_supported_notes_to_ppt_mode(tmp_path: Path)
     assert "Deck Mode: paper-reading" in output.read_text(encoding="utf-8")
 
 
+def test_ppt_skill_generated_example_marker_matches_checker_contract():
+    skill_text = (
+        SKILL_ROOT / "ppt-to-md-for-obsidian" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    checker_text = (
+        SKILL_ROOT
+        / "ppt-to-md-for-obsidian"
+        / "scripts"
+        / "check_source_coverage.py"
+    ).read_text(encoding="utf-8")
+    match = re.search(r'^GENERATED_MARKER = "([^"]+)"$', checker_text, re.M)
+
+    assert match is not None
+    assert f"`{match.group(1)}`" in skill_text
+
+
 def load_frontmatter(skill_dir: Path) -> dict:
     text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
     match = FRONTMATTER_RE.match(text)
@@ -92,7 +112,7 @@ def load_frontmatter(skill_dir: Path) -> dict:
 
 
 def test_all_skills_have_output_contracts_and_validation():
-    assert len(SKILL_DIRS) == 4
+    assert len(SKILL_DIRS) == 5
 
     for skill_dir in SKILL_DIRS:
         text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")

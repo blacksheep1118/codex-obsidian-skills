@@ -24,7 +24,7 @@ Validation:
 
 ## Script Support
 
-The repository management scripts support dry-run flags.
+The repository management scripts support dry-run flags. Use the install dry-run only when the selected destination skill directories do not exist; use the update dry-run to inspect an existing installation.
 
 macOS/Linux:
 

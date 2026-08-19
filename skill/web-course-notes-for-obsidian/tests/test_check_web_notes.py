@@ -76,6 +76,53 @@ def test_check_web_notes_fails_on_scaffold_residue_and_missing_user_source(tmp_p
     assert "MISSING_USER_SOURCE" in result.stdout
 
 
+@pytest.mark.parametrize(
+    "code_block",
+    [
+        "```python\n# TODO: upstream example\npass\n```",
+        "~~~text\nTo complete: literal source text\n~~~",
+        "`TODO: inline code`",
+        "    TODO: indented code",
+        "> ```text\n> 待补充: quoted code\n> ```",
+        "- ```text\n  TODO: list code\n  ```",
+    ],
+    ids=("fenced", "tilde", "inline", "indented", "blockquote", "list"),
+)
+def test_check_web_notes_ignores_scaffold_words_in_commonmark_code(
+    tmp_path: Path,
+    code_block: str,
+) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/course"
+    write(collection / "source_manifest.md", manifest(source))
+    write_entry_map(collection)
+    write(
+        collection / "01_Course.md",
+        f"# Course\n\nFinished source-specific explanation.\n\n{code_block}\n",
+    )
+
+    result = run_checker(collection, "--source", source)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "web_note_issues 0" in result.stdout
+
+
+def test_check_web_notes_still_reports_visible_scaffold_word(tmp_path: Path) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/course"
+    write(collection / "source_manifest.md", manifest(source))
+    write_entry_map(collection)
+    write(
+        collection / "01_Course.md",
+        "# Course\n\nFinished source-specific explanation.\n\nTODO: add the missing experiment.\n",
+    )
+
+    result = run_checker(collection, "--source", source)
+
+    assert result.returncode == 1
+    assert "SCAFFOLD_RESIDUE" in result.stdout
+
+
 def test_check_web_notes_passes_finalized_note_and_per_link_resource(tmp_path: Path):
     collection = tmp_path / "collection"
     source = "https://example.com/course"
@@ -372,6 +419,117 @@ def test_check_web_notes_rejects_external_per_link_note_symlink(tmp_path: Path) 
     assert "MISSING_PER_LINK_NOTE" in result.stdout
 
 
+@pytest.mark.parametrize(
+    "kind",
+    ("leaf_same_inode", "leaf_external", "ancestor", "broken_leaf", "broken_ancestor"),
+)
+def test_check_web_notes_rejects_symlinked_collection_root_components(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    source = "https://example.com/course"
+    real_collection = tmp_path / "real" / "collection"
+    if not kind.startswith("broken"):
+        write(real_collection / "source_manifest.md", manifest(source))
+        write_entry_map(real_collection)
+        write(real_collection / "01_Course.md", "# Course\n\nFinished source-specific note.\n")
+
+    if kind in {"leaf_same_inode", "leaf_external"}:
+        alias_parent = tmp_path / ("real" if kind == "leaf_same_inode" else "boundary")
+        alias_parent.mkdir(parents=True, exist_ok=True)
+        root = alias_parent / "collection-alias"
+        root.symlink_to(real_collection, target_is_directory=True)
+        assert root.stat().st_ino == real_collection.stat().st_ino
+    elif kind == "ancestor":
+        alias_parent = tmp_path / "parent-alias"
+        alias_parent.symlink_to(real_collection.parent, target_is_directory=True)
+        root = alias_parent / real_collection.name
+        assert root.stat().st_ino == real_collection.stat().st_ino
+    elif kind == "broken_leaf":
+        root = tmp_path / "broken-collection"
+        root.symlink_to(tmp_path / "missing-collection", target_is_directory=True)
+    else:
+        alias_parent = tmp_path / "broken-parent"
+        alias_parent.symlink_to(tmp_path / "missing-parent", target_is_directory=True)
+        root = alias_parent / "collection"
+
+    result = run_checker(root, "--source", source)
+
+    assert result.returncode == 1
+    assert "UNSAFE_SYMLINK" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "hidden_note",
+    [
+        "# Hidden\n\n<!--\n{resource}\n-->\n",
+        "# Hidden\n\n%%\n{resource}\n%%\n",
+        "# Hidden\n\n<!-- outer\n%%\n{resource}\n%%\n-->\n",
+        "# Hidden\n\n%% outer\n<!--\n{resource}\n-->\n%%\n",
+        "# Hidden\n\n```text\n{resource}\n````\n",
+        "# Hidden\n\n~~~text\n{resource}\n~~~~\n",
+        "# Hidden\n\n`{resource}`\n",
+        "# Hidden\n\n    {resource}\n",
+        "# Hidden\n\n> ```text\n> {resource}\n> ```\n",
+        "# Hidden\n\n- ```text\n  {resource}\n  ```\n",
+    ],
+    ids=(
+        "html-comment",
+        "obsidian-comment",
+        "html-outer-nested",
+        "obsidian-outer-nested",
+        "backtick-fence",
+        "tilde-fence",
+        "inline-code",
+        "indented-code",
+        "blockquote-fence",
+        "list-fence",
+    ),
+)
+def test_hidden_or_code_url_cannot_satisfy_detail_or_per_link_contract(
+    tmp_path: Path,
+    hidden_note: str,
+) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/readings"
+    resource = "https://example.com/paper.pdf"
+    write(collection / "source_manifest.md", manifest(source, resource))
+    write_entry_map(collection)
+    write(collection / "01_Hidden.md", hidden_note.format(resource=resource))
+
+    result = run_checker(collection, "--source", source, "--per-link-notes")
+
+    assert result.returncode == 1
+    assert "MISSING_DETAIL_NOTE" in result.stdout
+    assert "MISSING_PER_LINK_NOTE" in result.stdout
+
+
+def test_visible_url_after_nested_hidden_contexts_satisfies_per_link_contract(
+    tmp_path: Path,
+) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/readings"
+    resource = "https://example.com/paper.pdf"
+    write(collection / "source_manifest.md", manifest(source, resource))
+    write_entry_map(collection)
+    write(
+        collection / "01_Visible.md",
+        "# Visible\n\n"
+        "<!-- hidden copy: {resource} -->\n\n"
+        "- example\n"
+        "  ```text\n"
+        "  {resource}\n"
+        "  ```\n\n"
+        "Concrete mechanism and limitation.\n\n"
+        "Visible source: {resource}\n".format(resource=resource),
+    )
+
+    result = run_checker(collection, "--source", source, "--per-link-notes")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "web_note_issues 0" in result.stdout
+
+
 def test_per_link_coverage_requires_exact_extracted_url_token(tmp_path: Path) -> None:
     collection = tmp_path / "collection"
     source = "https://example.com/readings"
@@ -407,7 +565,7 @@ def test_per_link_url_identity_preserves_reserved_percent_octets(tmp_path: Path)
     assert match.returncode == 0, match.stdout + match.stderr
 
 
-def test_per_link_url_extraction_trims_markdown_code_and_table_delimiters(tmp_path: Path) -> None:
+def test_per_link_url_extraction_handles_visible_table_delimiters(tmp_path: Path) -> None:
     collection = tmp_path / "collection"
     source = "https://example.com/readings"
     resource = "https://example.com/paper.pdf"
@@ -415,7 +573,7 @@ def test_per_link_url_extraction_trims_markdown_code_and_table_delimiters(tmp_pa
     write_entry_map(collection)
     write(
         collection / "01_Course.md",
-        f"# Course\n\nSource: {source}\n\n| resource |\n| --- |\n| `{resource}`|\n",
+        f"# Course\n\nSource: {source}\n\n| resource |\n| --- |\n| {resource} |\n",
     )
 
     result = run_checker(collection, "--source", source, "--per-link-notes")

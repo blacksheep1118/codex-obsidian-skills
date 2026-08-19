@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
+import stat
 from typing import Any
 
 
@@ -206,6 +207,47 @@ def _require_mapping(parent: dict[str, Any], key: str, label: str) -> dict[str, 
     return value
 
 
+def _validate_icon_asset(metadata_path: Path, key: str, value: str) -> None:
+    relative = PurePosixPath(value)
+    windows = PureWindowsPath(value)
+    if (
+        not value.strip()
+        or "\\" in value
+        or relative.is_absolute()
+        or windows.drive
+        or windows.anchor
+        or ".." in relative.parts
+        or ".." in windows.parts
+    ):
+        raise MetadataValidationError(
+            f"{metadata_path}: interface.{key} must be a relative path inside the skill directory"
+        )
+
+    skill_dir = metadata_path.parent.parent
+    candidate = skill_dir.joinpath(*relative.parts)
+    current = skill_dir
+    for index, component in enumerate(relative.parts):
+        current = current / component
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            raise MetadataValidationError(
+                f"{metadata_path}: interface.{key} asset does not exist: {value}"
+            ) from None
+        if stat.S_ISLNK(mode):
+            raise MetadataValidationError(
+                f"{metadata_path}: interface.{key} asset path must not contain symlinks: {value}"
+            )
+        if index < len(relative.parts) - 1 and not stat.S_ISDIR(mode):
+            raise MetadataValidationError(
+                f"{metadata_path}: interface.{key} asset parent is not a directory: {value}"
+            )
+    if not candidate.is_file() or not stat.S_ISREG(candidate.lstat().st_mode):
+        raise MetadataValidationError(
+            f"{metadata_path}: interface.{key} must reference a regular file: {value}"
+        )
+
+
 def validate_openai_yaml(path: Path, skill_name: str) -> dict[str, Any]:
     data = load_yaml_mapping(
         path.read_text(encoding="utf-8"),
@@ -226,6 +268,11 @@ def validate_openai_yaml(path: Path, skill_name: str) -> dict[str, Any]:
     for key in STRING_INTERFACE_KEYS & interface.keys():
         if not isinstance(interface[key], str):
             raise MetadataValidationError(f"{path}: interface.{key} must be a string")
+    for key in ("icon_small", "icon_large"):
+        if key in interface:
+            _validate_icon_asset(path, key, interface[key])
+    if "brand_color" in interface and not re.fullmatch(r"#[0-9A-Fa-f]{6}", interface["brand_color"]):
+        raise MetadataValidationError(f"{path}: interface.brand_color must use #RRGGBB hex format")
     short_description = interface["short_description"]
     if not 25 <= len(short_description) <= 64:
         raise MetadataValidationError(f"{path}: interface.short_description must be 25-64 characters")

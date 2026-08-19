@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+from types import SimpleNamespace
 
 import pytest
 
@@ -31,6 +32,38 @@ def fake_successful_render(command: list[str], **_kwargs) -> subprocess.Complete
         prefix = Path(command[-1])
         prefix.with_name(f"{prefix.name}-1.png").write_bytes(b"PNG")
     return subprocess.CompletedProcess(command, 0, stdout="")
+
+
+@pytest.mark.parametrize(
+    ("flag", "required"),
+    [("--render", False), ("--require-render", True)],
+)
+def test_render_flags_invoke_render_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    flag: str,
+    required: bool,
+) -> None:
+    pptx = tmp_path / "deck.pptx"
+    pptx.write_bytes(b"placeholder")
+    presentation = SimpleNamespace(
+        slides=[object()],
+        slide_width=12192000,
+        slide_height=6858000,
+    )
+    calls: list[tuple[Path, Path, int | None, bool]] = []
+    monkeypatch.setattr(verify_pptx, "package_slide_count", lambda _path: 1)
+    monkeypatch.setattr(verify_pptx, "reopen_presentation", lambda _path: presentation)
+    monkeypatch.setattr(
+        verify_pptx,
+        "render_pptx",
+        lambda path, output_dir, expected, require: calls.append(
+            (path, output_dir, expected, require)
+        ),
+    )
+
+    assert verify_pptx.main([str(pptx), flag]) == 0
+    assert calls == [(pptx, tmp_path / "deck-render", 1, required)]
 
 
 def test_render_pptx_cleans_libreoffice_profile_after_success(

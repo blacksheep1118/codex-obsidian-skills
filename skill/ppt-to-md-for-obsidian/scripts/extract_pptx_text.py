@@ -12,8 +12,9 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import stat
 import sys
-from zipfile import ZipFile
+from zipfile import BadZipFile, ZipFile
 import xml.etree.ElementTree as ET
 
 try:
@@ -28,6 +29,16 @@ NS = {
     "c": "http://schemas.openxmlformats.org/drawingml/2006/chart",
 }
 SLIDE_XML_RE = re.compile(r"ppt/slides/slide(\d+)\.xml$")
+REQUIRED_PPTX_PARTS = {"[Content_Types].xml", "ppt/presentation.xml"}
+
+
+class PptxExtractionError(ValueError):
+    """Stable user-facing failure for an unreadable PPTX input."""
+
+    def __init__(self, path: Path, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"{path}: {reason}")
 
 
 @dataclass
@@ -46,6 +57,52 @@ class PptxExtractionResult:
     slide_count: int
     blank_slides: int
     media_objects: int
+
+
+def validate_pptx_input(path: Path) -> None:
+    """Validate the ordinary ZIP/OOXML boundary before selecting a backend."""
+
+    if path.suffix.casefold() != ".pptx":
+        raise PptxExtractionError(path, "input must be a .pptx file")
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError as exc:
+        raise PptxExtractionError(path, "file does not exist") from exc
+    except OSError as exc:
+        raise PptxExtractionError(path, "input path cannot be inspected") from exc
+    if not stat.S_ISREG(mode):
+        raise PptxExtractionError(path, "input is not a regular file")
+
+    try:
+        with ZipFile(path) as archive:
+            members = archive.infolist()
+            if any(member.flag_bits & 0x1 for member in members):
+                raise PptxExtractionError(
+                    path,
+                    "encrypted PPTX packages are not supported",
+                )
+            if archive.testzip() is not None:
+                raise PptxExtractionError(path, "PPTX ZIP package has a corrupt member")
+            names = {member.filename for member in members}
+            if not REQUIRED_PPTX_PARTS <= names:
+                raise PptxExtractionError(
+                    path,
+                    "PPTX package is missing required OOXML parts",
+                )
+            try:
+                for name in REQUIRED_PPTX_PARTS:
+                    ET.fromstring(archive.read(name))
+            except (ET.ParseError, UnicodeError):
+                raise PptxExtractionError(
+                    path,
+                    "PPTX package contains malformed required XML",
+                ) from None
+    except PptxExtractionError:
+        raise
+    except (BadZipFile, EOFError):
+        raise PptxExtractionError(path, "invalid PPTX ZIP package") from None
+    except OSError as exc:
+        raise PptxExtractionError(path, "PPTX package cannot be read") from exc
 
 
 def extraction_header(
@@ -251,76 +308,83 @@ def extract_pptx_result(
     include_media_placeholders: bool = True,
     include_slide_title: bool = True,
 ) -> PptxExtractionResult:
+    validate_pptx_input(path)
     try:
         from pptx import Presentation
     except ImportError:
-        return extract_pptx_with_zip_result(path, include_slide_title=include_slide_title)
+        try:
+            return extract_pptx_with_zip_result(path, include_slide_title=include_slide_title)
+        except Exception as exc:
+            raise PptxExtractionError(path, "PPTX package could not be parsed") from exc
 
-    prs = Presentation(str(path))
-    rendered_slides: list[str] = []
-    blank_slides = 0
-    media_objects = 0
+    try:
+        prs = Presentation(str(path))
+        rendered_slides: list[str] = []
+        blank_slides = 0
+        media_objects = 0
 
-    for idx, slide in enumerate(prs.slides, start=1):
-        records = []
-        seen = set()
-        for shape in slide.shapes:
-            for record in iter_shape_records(shape, include_media_placeholders=include_media_placeholders):
-                key = (record.text, record.top, record.left)
-                if key not in seen:
-                    records.append(record)
-                    seen.add(key)
-        records.sort(key=lambda record: (record.top, record.left))
-        if not any(record.kind == "text" for record in records):
-            blank_slides += 1
-        media_objects += sum(shape_media_count(shape) for shape in slide.shapes)
+        for idx, slide in enumerate(prs.slides, start=1):
+            records = []
+            seen = set()
+            for shape in slide.shapes:
+                for record in iter_shape_records(shape, include_media_placeholders=include_media_placeholders):
+                    key = (record.text, record.top, record.left)
+                    if key not in seen:
+                        records.append(record)
+                        seen.add(key)
+            records.sort(key=lambda record: (record.top, record.left))
+            if not any(record.kind == "text" for record in records):
+                blank_slides += 1
+            media_objects += sum(shape_media_count(shape) for shape in slide.shapes)
 
-        title = slide_title(records) if include_slide_title else None
-        if title:
-            rendered_slides.append(f"## Slide {idx}: {title}")
-        else:
-            rendered_slides.append(f"## Slide {idx}")
-        rendered_slides.append("")
-
-        if records:
-            for record in records:
-                chunk = record.text
-                for line in chunk.splitlines():
-                    line = line.strip()
-                    if line:
-                        rendered_slides.append(f"- {line}")
-        else:
-            rendered_slides.append("- [No visible text extracted]")
-
-        notes = extract_notes(slide)
-        if notes:
+            title = slide_title(records) if include_slide_title else None
+            if title:
+                rendered_slides.append(f"## Slide {idx}: {title}")
+            else:
+                rendered_slides.append(f"## Slide {idx}")
             rendered_slides.append("")
-            rendered_slides.append("### Speaker Notes")
-            for note in notes:
-                for line in note.splitlines():
-                    line = line.strip()
-                    if line:
-                        rendered_slides.append(f"- {line}")
 
-        rendered_slides.append("")
+            if records:
+                for record in records:
+                    chunk = record.text
+                    for line in chunk.splitlines():
+                        line = line.strip()
+                        if line:
+                            rendered_slides.append(f"- {line}")
+            else:
+                rendered_slides.append("- [No visible text extracted]")
 
-    out = extraction_header(
-        path,
-        backend="python-pptx",
-        partial=False,
-        slide_count=len(prs.slides),
-        blank_slides=blank_slides,
-        media_objects=media_objects,
-    )
-    out.extend(rendered_slides)
-    return PptxExtractionResult(
-        markdown="\n".join(out).rstrip() + "\n",
-        backend="python-pptx",
-        partial=False,
-        slide_count=len(prs.slides),
-        blank_slides=blank_slides,
-        media_objects=media_objects,
-    )
+            notes = extract_notes(slide)
+            if notes:
+                rendered_slides.append("")
+                rendered_slides.append("### Speaker Notes")
+                for note in notes:
+                    for line in note.splitlines():
+                        line = line.strip()
+                        if line:
+                            rendered_slides.append(f"- {line}")
+
+            rendered_slides.append("")
+
+        out = extraction_header(
+            path,
+            backend="python-pptx",
+            partial=False,
+            slide_count=len(prs.slides),
+            blank_slides=blank_slides,
+            media_objects=media_objects,
+        )
+        out.extend(rendered_slides)
+        return PptxExtractionResult(
+            markdown="\n".join(out).rstrip() + "\n",
+            backend="python-pptx",
+            partial=False,
+            slide_count=len(prs.slides),
+            blank_slides=blank_slides,
+            media_objects=media_objects,
+        )
+    except Exception as exc:
+        raise PptxExtractionError(path, "PPTX package could not be parsed") from exc
 
 
 def extract_pptx(path: Path, include_media_placeholders: bool = True, include_slide_title: bool = True) -> str:
@@ -339,16 +403,15 @@ def main() -> int:
     parser.add_argument("--no-slide-title", action="store_true", help="Do not add detected slide titles to headings.")
     args = parser.parse_args()
 
-    if not args.pptx.exists():
-        parser.error(f"file does not exist: {args.pptx}")
-    if args.pptx.suffix.lower() != ".pptx":
-        parser.error("input must be a .pptx file")
-
-    md = extract_pptx(
-        args.pptx,
-        include_media_placeholders=not args.no_media_placeholders,
-        include_slide_title=not args.no_slide_title,
-    )
+    try:
+        md = extract_pptx(
+            args.pptx,
+            include_media_placeholders=not args.no_media_placeholders,
+            include_slide_title=not args.no_slide_title,
+        )
+    except PptxExtractionError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
     if args.out:
         try:
             safe_write_text(args.out, md)

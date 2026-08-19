@@ -12,9 +12,14 @@ SCRIPT = SKILL_ROOT / "scripts" / "check_source_coverage.py"
 sys.path.insert(0, str(SKILL_ROOT))
 
 from scripts.check_source_coverage import (  # noqa: E402
+    SourceEntry,
     exact_regular_source_target,
+    page_source_evidence,
     resolve_beneath,
     resolve_note_target,
+    source_boundary_issues,
+    source_files,
+    visible_source_references,
 )
 
 
@@ -32,6 +37,175 @@ def run_checker(*args: str) -> subprocess.CompletedProcess[str]:
 def write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def make_root_shape(tmp_path: Path, label: str, kind: str) -> Path:
+    regular_dir = tmp_path / f"{label}-regular-dir"
+    regular_dir.mkdir()
+    if kind == "regular-dir":
+        return regular_dir
+    if kind == "missing":
+        return tmp_path / f"{label}-missing"
+    regular_file = tmp_path / f"{label}-file"
+    regular_file.write_text("fixture\n", encoding="utf-8")
+    if kind == "file":
+        return regular_file
+    alias = tmp_path / f"{label}-{kind}"
+    if kind == "symlink-dir":
+        alias.symlink_to(regular_dir, target_is_directory=True)
+    elif kind == "symlink-file":
+        alias.symlink_to(regular_file)
+    elif kind == "broken-symlink":
+        alias.symlink_to(tmp_path / f"{label}-missing-target")
+    elif kind == "ancestor-symlink":
+        real_parent = tmp_path / f"{label}-real-parent"
+        nested = real_parent / "nested"
+        nested.mkdir(parents=True)
+        linked_parent = tmp_path / f"{label}-linked-parent"
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+        return linked_parent / "nested"
+    else:
+        raise AssertionError(kind)
+    return alias
+
+
+@pytest.mark.parametrize("option", ("--source-root", "--notes-root"))
+@pytest.mark.parametrize(
+    "kind",
+    ("missing", "file", "symlink-dir", "symlink-file", "broken-symlink", "ancestor-symlink"),
+)
+@pytest.mark.parametrize("strict", (False, True), ids=("mapped", "strict"))
+def test_source_coverage_cli_rejects_invalid_root_shapes_before_scanning(
+    tmp_path: Path,
+    option: str,
+    kind: str,
+    strict: bool,
+) -> None:
+    source_root = make_root_shape(tmp_path, "source", "regular-dir")
+    notes_root = make_root_shape(tmp_path, "notes", "regular-dir")
+    invalid = make_root_shape(tmp_path, option.removeprefix("--"), kind)
+    roots = {"--source-root": source_root, "--notes-root": notes_root}
+    roots[option] = invalid
+    arguments = [
+        "--source-root",
+        str(roots["--source-root"]),
+        "--notes-root",
+        str(roots["--notes-root"]),
+    ]
+    arguments += ["--strict"] if strict else ["--mapping", "course=course"]
+
+    result = run_checker(*arguments)
+
+    issue_kind = "INVALID_SOURCE_ROOT" if option == "--source-root" else "INVALID_NOTES_ROOT"
+    assert result.returncode == 1
+    assert result.stderr == ""
+    assert result.stdout == (
+        f"STRUCTURAL: {issue_kind}: {invalid}: "
+        f"{option} must be an existing directory without symlink components\n"
+    )
+    assert "Traceback" not in result.stdout
+
+
+def test_source_coverage_cli_rejects_completely_empty_scope(tmp_path: Path) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    source_root.mkdir()
+    notes_root.mkdir()
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--strict",
+    )
+
+    assert result.returncode == 1
+    assert result.stderr == ""
+    assert result.stdout == (
+        "STRUCTURAL: EMPTY_COVERAGE_SCOPE: .: source and notes roots are both "
+        "empty; there is no coverage scope to validate\n"
+    )
+
+
+def source_entry(tmp_path: Path) -> SourceEntry:
+    path = tmp_path / "sources" / "course" / "lecture.pdf"
+    return SourceEntry(
+        course_name="course",
+        path=path,
+        course_relative="lecture.pdf",
+        root_relative="course/lecture.pdf",
+        name="lecture.pdf",
+        stem="lecture",
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "对应源资料：`course/lecture.pdf`。\n\n另一来源 page 99。\n",
+        "| source | locator |\n| --- | --- |\n| `course/lecture.pdf` | none |\n| other | page 99 |\n",
+        "- source: `course/lecture.pdf`\n- unrelated: page 99\n",
+        "```text\n`course/lecture.pdf` page 99\n```\n",
+    ],
+    ids=("separate-paragraph", "separate-table-row", "separate-list-item", "code"),
+)
+def test_page_source_evidence_api_rejects_cross_block_locator_borrowing(
+    tmp_path: Path,
+    text: str,
+) -> None:
+    assert page_source_evidence(text, source_entry(tmp_path)) is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "对应源资料：`course/lecture.pdf`，page 3。\n",
+        "对应源资料：`course/lecture.pdf`，\npage 3。\n",
+        "| source | locator |\n| --- | --- |\n| `course/lecture.pdf` | page 3 |\n",
+    ],
+    ids=("same-line", "same-paragraph", "same-table-row"),
+)
+def test_page_source_evidence_api_accepts_associated_locator(
+    tmp_path: Path,
+    text: str,
+) -> None:
+    assert page_source_evidence(text, source_entry(tmp_path)) is True
+
+
+def test_source_coverage_cli_rejects_cross_paragraph_locator_borrowing(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    write(source_root / "course" / "lecture.pdf", "fake pdf")
+    for name in ("source_manifest.md", "99_内容覆盖审查.md"):
+        write(
+            notes_root / "course" / name,
+            "| source | note |\n| --- | --- |\n"
+            "| `course/lecture.pdf` | [[course/01_intro]] |\n",
+        )
+    write(
+        notes_root / "course" / "01_intro.md",
+        "---\nsource_files:\n  - course/lecture.pdf\n---\n\n"
+        "# Intro\n\n"
+        "对应源资料：`course/lecture.pdf`。\n\n"
+        "另一本未声明参考书的定位是 page 99。\n\n"
+        "Worked example with full steps and a concrete conclusion.\n",
+    )
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "course=course",
+        "--strict",
+    )
+
+    assert result.returncode == 1
+    assert "MANUAL_REVIEW_REQUIRED: MISSING_BODY_SOURCE_EVIDENCE" in result.stdout
 
 
 def test_check_source_coverage_passes_with_mapping_and_examples(tmp_path: Path) -> None:
@@ -657,6 +831,62 @@ def test_exact_regular_source_target_rejects_case_traversal_and_symlinks(
         assert exact_regular_source_target(source_root, invalid) is None
 
 
+def test_source_scan_excludes_nonregular_and_all_symlink_shapes(tmp_path: Path) -> None:
+    source_root = tmp_path / "sources"
+    course = source_root / "course"
+    write(course / "real.pdf", "fake pdf")
+    (course / "directory.pdf").mkdir()
+    (course / "alias.pdf").symlink_to("real.pdf")
+    (course / "broken.pdf").symlink_to("missing.pdf")
+    write(course / "real-dir" / "nested.pptx", "fake pptx")
+    (course / "linked-dir").symlink_to("real-dir", target_is_directory=True)
+    outside = tmp_path / "outside.pdf"
+    write(outside, "outside")
+    (course / "external.pdf").symlink_to(outside)
+
+    scanned = [path.relative_to(source_root).as_posix() for path in source_files(source_root)]
+    issues = {(issue.kind, issue.path.name) for issue in source_boundary_issues(source_root)}
+
+    assert scanned == ["course/real-dir/nested.pptx", "course/real.pdf"]
+    assert issues == {
+        ("source_symlink", "alias.pdf"),
+        ("source_symlink", "broken.pdf"),
+        ("source_symlink", "linked-dir"),
+        ("source_symlink_outside_root", "external.pdf"),
+    }
+
+
+def test_source_scan_cli_reports_symlinks_as_structural_issues(tmp_path: Path) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    course = source_root / "course"
+    write(course / "real.pdf", "fake pdf")
+    (course / "directory.pdf").mkdir()
+    (course / "alias.pdf").symlink_to("real.pdf")
+    (course / "broken.pdf").symlink_to("missing.pdf")
+    write(course / "real-dir" / "nested.pptx", "fake pptx")
+    (course / "linked-dir").symlink_to("real-dir", target_is_directory=True)
+    outside = tmp_path / "outside.pdf"
+    write(outside, "outside")
+    (course / "external.pdf").symlink_to(outside)
+    (notes_root / "course").mkdir(parents=True)
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "course=course",
+    )
+
+    assert result.returncode == 1
+    assert "course_source_files 2" in result.stdout
+    assert "STRUCTURAL: SOURCE_SYMLINK:" in result.stdout
+    assert "STRUCTURAL: SOURCE_SYMLINK_OUTSIDE_ROOT:" in result.stdout
+    assert "Traceback" not in result.stderr
+
+
 @pytest.mark.parametrize(
     ("actual", "lookalike"),
     [
@@ -886,6 +1116,181 @@ def write_strict_complete_course(source_root: Path, notes_root: Path) -> None:
         "# Intro\n\n"
         f"对应源资料：`{source}` p.1。源资料例题：例 1（/course/lecture p.1）。\n",
     )
+
+
+def test_strict_source_coverage_rejects_unknown_local_source_refs(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    write_strict_complete_course(source_root, notes_root)
+    for name in ("source_manifest.md", "99_内容覆盖审查.md"):
+        artifact = notes_root / "course" / name
+        artifact.write_text(
+            artifact.read_text(encoding="utf-8")
+            + "| `course/ghost.pdf` | [[course/01_intro]] |\n",
+            encoding="utf-8",
+        )
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "course=course",
+        "--strict",
+    )
+
+    assert result.returncode == 1
+    assert result.stdout.count("STRUCTURAL: UNKNOWN_SOURCE_REF:") == 2
+    assert "course/ghost.pdf" in result.stdout
+
+
+def test_strict_source_coverage_allows_external_url_provenance(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    write_strict_complete_course(source_root, notes_root)
+    for name in ("source_manifest.md", "99_内容覆盖审查.md"):
+        artifact = notes_root / "course" / name
+        artifact.write_text(
+            artifact.read_text(encoding="utf-8")
+            + "External provenance: `https://example.com/paper.pdf`.\n",
+            encoding="utf-8",
+        )
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "course=course",
+        "--strict",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "UNKNOWN_SOURCE_REF" not in result.stdout
+
+
+def test_visible_source_references_keep_semantic_inline_refs_and_mask_code() -> None:
+    text = (
+        "Visible source: `course/real.pdf`.\n\n"
+        "```text\n`course/fenced.pdf`\n```\n\n"
+        "~~~text\n`course/tilde.pdf`\n~~~\n\n"
+        "    `course/indented.pdf`\n\n"
+        "> ```text\n> `course/quote.pdf`\n> ```\n\n"
+        "- ```text\n  `course/list.pdf`\n  ```\n\n"
+        "<!-- `course/html-comment.pdf` -->\n"
+        "%% `course/obsidian-comment.pdf` %%\n"
+    )
+
+    references = visible_source_references(text)
+
+    assert [(line_number, ref) for line_number, ref, _line in references] == [
+        (1, "course/real.pdf")
+    ]
+
+
+def test_strict_source_coverage_rejects_invalid_local_reference_matrix(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    write_strict_complete_course(source_root, notes_root)
+    (source_root / "course" / "directory.pdf").mkdir()
+    (source_root / "course" / "alias.pdf").symlink_to("lecture.pdf")
+    write(tmp_path / "outside.pdf", "outside")
+    visible_rows = (
+        "| `course/missing.pdf` | [[course/01_intro]] |\n"
+        "| `course/directory.pdf` | [[course/01_intro]] |\n"
+        "| `course/alias.pdf` | [[course/01_intro]] |\n"
+        "| `../outside.pdf` | [[course/01_intro]] |\n"
+        "| `C:\\Outside\\paper.pdf` | [[course/01_intro]] |\n"
+        "| `course/LECTURE.pdf` | [[course/01_intro]] |\n"
+        "External provenance: `https://example.com/paper.pdf`.\n"
+    )
+    hidden_rows = (
+        "```text\n`course/fenced-only.pdf`\n```\n"
+        "<!-- `course/comment-only.pdf` -->\n"
+    )
+    for name in ("source_manifest.md", "99_内容覆盖审查.md"):
+        artifact = notes_root / "course" / name
+        artifact.write_text(
+            artifact.read_text(encoding="utf-8") + visible_rows + hidden_rows,
+            encoding="utf-8",
+        )
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "course=course",
+        "--strict",
+    )
+
+    assert result.returncode == 1
+    assert result.stdout.count("STRUCTURAL: UNKNOWN_SOURCE_REF:") == 10
+    assert result.stdout.count("STRUCTURAL: NONCANONICAL_SOURCE_REF:") == 2
+    assert "STRUCTURAL: SOURCE_SYMLINK:" in result.stdout
+    for invalid in (
+        "course/missing.pdf",
+        "course/directory.pdf",
+        "course/alias.pdf",
+        "../outside.pdf",
+        r"C:\\Outside\\paper.pdf",
+    ):
+        assert invalid in result.stdout
+    assert "fenced-only.pdf" not in result.stdout
+    assert "comment-only.pdf" not in result.stdout
+    assert "https://example.com/paper.pdf" not in result.stdout
+    assert "Traceback" not in result.stderr
+
+
+def test_strict_source_coverage_accepts_exact_multi_source_ownership(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    sources = (
+        ("course/alpha.pdf", "course/01_alpha"),
+        ("course/beta.pptx", "course/02_beta"),
+    )
+    rows = ["| source | note |", "|---|---|"]
+    for source, note in sources:
+        write(source_root / source, "fake source")
+        rows.append(f"| `{source}` | [[{note}]] |")
+        note_path = notes_root / f"{note}.md"
+        write(
+            note_path,
+            "---\n"
+            "source_files:\n"
+            f"  - {source}\n"
+            "---\n"
+            f"# {Path(note).name}\n\n"
+            f"对应源资料：`{source}` p.1。源资料例题：例 1（/{Path(source).stem} p.1）。\n",
+        )
+    table = "\n".join(rows) + "\n"
+    write(notes_root / "course" / "source_manifest.md", table)
+    write(notes_root / "course" / "99_内容覆盖审查.md", table)
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "course=course",
+        "--strict",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "course_source_files 2" in result.stdout
+    assert "coverage_evidence_issues 0" in result.stdout
 
 
 @pytest.mark.parametrize("artifact_name", ["source_manifest.md", "99_内容覆盖审查.md"])

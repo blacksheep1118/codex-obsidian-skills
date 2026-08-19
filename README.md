@@ -16,8 +16,9 @@ The project is distributed through GitHub commits, branches, tags, and CI. Do no
 | [`ppt-to-md-for-obsidian`](skill/ppt-to-md-for-obsidian) | The task starts from local PPT, PPTX, PDF courseware, or slide-derived files. | Extracted text, cleaned Markdown input, chapter notes, course maps, review pages, Obsidian links. |
 | [`obsidian-vault-organizer`](skill/obsidian-vault-organizer) | The task starts from an existing Obsidian vault or Markdown note directory. | Link audits, repaired references, merged duplicate notes, navigation pages, vault cleanup reports. |
 | [`notes-to-scientific-ppt`](skill/notes-to-scientific-ppt) | The task starts from Obsidian or Markdown notes and asks for a PPT/PPTX research presentation. | Source inventories, evidence ledgers, scientific claim spines, draft slide backlogs, rigorous PPTX deck plans, speaker-note guidance. |
+| [`algorithm-job-notes-for-obsidian`](skill/algorithm-job-notes-for-obsidian) | The task maintains algorithm-job learning notes, internship/recruiting maps, interview preparation, or direction-aware Obsidian vaults. | Nine-direction taxonomy, route migration, P0/P1/P2 learning plans, DSA/C++17 practice, evidence-backed JD and interview workflows. |
 
-The skills are split so their trigger boundaries stay clear. Use `web-course-notes-for-obsidian` when the task starts from URLs. Use `ppt-to-md-for-obsidian` when the task starts from local slide/courseware files. Use `obsidian-vault-organizer` when the task is vault cleanup. Use `notes-to-scientific-ppt` when the task starts from notes and the desired output is a research PPT.
+The skills are split so their trigger boundaries stay clear. Use `web-course-notes-for-obsidian` when the task starts from URLs. Use `ppt-to-md-for-obsidian` when the task starts from local slide/courseware files. Use `algorithm-job-notes-for-obsidian` when an existing vault needs algorithm-job direction boundaries, migration, interview artifacts, or JD evidence. Use `obsidian-vault-organizer` for generic vault cleanup. Use `notes-to-scientific-ppt` when the task starts from notes and the desired output is a research PPT.
 
 See [Skill Routing](docs/routing.md) for cross-skill boundaries and mixed workflow handoffs.
 
@@ -60,7 +61,7 @@ py scripts\install_skill.py --all --self-check
 
 On Windows, replace `py` with `python` if the Python launcher is not installed.
 
-Installing from a GitHub clone is the normal path. The install and update scripts copy only the skill contents and automatically ignore caches, macOS resource files, Python bytecode, build directories, distribution metadata, and generated `converted_pptx/` outputs. `install_skill.py` never prunes an existing destination; `update_installed_skills.py --dry-run` compares managed files and reports added, changed, unchanged, and stale paths without writing. You do not need to compress the repository before installing.
+Installing from a GitHub clone is the normal path. The install and update scripts copy only the skill contents and automatically ignore caches, macOS resource files, Python bytecode, build directories, distribution metadata, and generated `converted_pptx/` outputs. `install_skill.py` is only for a first install and refuses an existing destination skill directory; use `update_installed_skills.py` explicitly to refresh an existing install. Its `--dry-run` compares managed files and reports added, changed, unchanged, and stale paths without writing. You do not need to compress the repository before installing.
 
 Install only one skill when needed:
 
@@ -69,6 +70,7 @@ python3 scripts/install_skill.py --skill ppt-to-md-for-obsidian --self-check
 python3 scripts/install_skill.py --skill obsidian-vault-organizer --self-check
 python3 scripts/install_skill.py --skill web-course-notes-for-obsidian --self-check
 python3 scripts/install_skill.py --skill notes-to-scientific-ppt --self-check
+python3 scripts/install_skill.py --skill algorithm-job-notes-for-obsidian --self-check
 ```
 
 ```powershell
@@ -76,9 +78,10 @@ py scripts\install_skill.py --skill ppt-to-md-for-obsidian --self-check
 py scripts\install_skill.py --skill obsidian-vault-organizer --self-check
 py scripts\install_skill.py --skill web-course-notes-for-obsidian --self-check
 py scripts\install_skill.py --skill notes-to-scientific-ppt --self-check
+py scripts\install_skill.py --skill algorithm-job-notes-for-obsidian --self-check
 ```
 
-Check what would happen without writing files:
+Check a first install into a fresh destination without writing files. For an existing install, use `update_installed_skills.py --dry-run` instead:
 
 ```bash
 python3 scripts/install_skill.py --all --dry-run --self-check
@@ -146,6 +149,10 @@ Use $obsidian-vault-organizer for this existing vault. Audit links, duplicate st
 Use $notes-to-scientific-ppt for this notes folder. Create a deck brief first, then build an editable scientific PPTX skeleton with claim, formula, evidence, limitations, and appendix slides.
 ```
 
+```text
+Use $algorithm-job-notes-for-obsidian to maintain this algorithm-job vault. Keep only CV, NLP / LLM, 推荐, 搜索, 语音, 机器人, 汽车算法, 具身智能, and AI Infra as top-level directions; migrate useful legacy content, remove obsolete routes, and validate links and JD evidence.
+```
+
 When a task crosses sources, notes, cleanup, and deck creation, follow the handoff examples in [Skill Routing](docs/routing.md).
 
 ## Repository Layout
@@ -187,12 +194,19 @@ When a task crosses sources, notes, cleanup, and deck creation, follow the hando
     │   ├── references/
     │   ├── scripts/
     │   └── tests/
-    └── obsidian-vault-organizer/
+    ├── obsidian-vault-organizer/
         ├── SKILL.md
         ├── LICENSE
         ├── agents/
         ├── references/
         └── scripts/
+    └── algorithm-job-notes-for-obsidian/
+        ├── SKILL.md
+        ├── LICENSE
+        ├── agents/
+        ├── references/
+        ├── scripts/
+        └── tests/
 ```
 
 ## Bundled Tools
@@ -230,13 +244,14 @@ The notes-to-scientific-ppt skill includes:
 
 Root management tools include:
 
-- `install_skill.py`: copy one or all skills into a Codex skills directory, report per-file dry-run differences, and run a self-check without pruning.
+- `install_skill.py`: copy one or all skills into previously absent destination directories, refuse existing skills, report first-install dry-run differences, and run a self-check.
 - `update_installed_skills.py`: refresh installed skill folders from this repository without backups; stale files are retained by the default synchronization and dry-run never writes.
 - `validate_all.py`: run the full CI-style validation suite locally.
 - `check_repo_hygiene.py`: fail if Git tracks cache files, macOS resource files, logs, scratch files, or generated outputs; use `--scan-worktree` for local ignored/untracked cleanup audits.
 - `check_openai_yaml_sync.py`: check `SKILL.md` and `agents/openai.yaml` consistency.
 - `sync_shared_resources.py`: check or rewrite skill-local copies generated from canonical shared scripts and templates.
 - `check_shared_link_checker.py`: compatibility wrapper for the shared-resource synchronization check.
+- `algorithm-job-notes-for-obsidian`: uses the repository validators plus its isolated `scripts/validate_skill.py` to enforce the closed nine-direction contract.
 
 ## Validation
 
@@ -271,12 +286,14 @@ To debug the validation suite, list stable step ids or run one skill only:
 python3 scripts/validate_all.py --list-steps
 python3 scripts/validate_all.py --skill notes
 python3 scripts/validate_all.py --skill notes-to-scientific-ppt
+python3 scripts/validate_all.py --skill algorithm-job-notes-for-obsidian
 ```
 
 ```powershell
 py scripts\validate_all.py --list-steps
 py scripts\validate_all.py --skill notes
 py scripts\validate_all.py --skill notes-to-scientific-ppt
+py scripts\validate_all.py --skill algorithm-job-notes-for-obsidian
 ```
 
 Full validation, including skill tests and sample smoke runs:
@@ -353,6 +370,13 @@ py scripts\validate_skill.py
 
 ```bash
 cd skill/notes-to-scientific-ppt
+python3 -m pip install -r requirements-dev.txt
+python3 -m pytest -q
+python3 scripts/validate_skill.py
+```
+
+```bash
+cd skill/algorithm-job-notes-for-obsidian
 python3 -m pip install -r requirements-dev.txt
 python3 -m pytest -q
 python3 scripts/validate_skill.py

@@ -23,6 +23,16 @@ TRUSTED_TOP_LEVEL_ALIASES = (
 )
 
 
+class InputRootError(ValueError):
+    """Stable public error for an invalid directory scan root."""
+
+    REASON = "root must be an existing directory without symlink components"
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        super().__init__(f"{path}: {self.REASON}")
+
+
 def _absolute_path(path: Path) -> Path:
     return Path(os.path.abspath(path.expanduser()))
 
@@ -200,6 +210,15 @@ def ensure_safe_input_directory(path: Path) -> Path:
     return ensure_safe_directory(path, create=False)
 
 
+def validate_input_root(path: Path) -> Path:
+    """Return a real directory scan root or raise one stable shape error."""
+
+    try:
+        return ensure_safe_input_directory(path)
+    except (OSError, ValueError):
+        raise InputRootError(path) from None
+
+
 def _open_temporary_at(parent_fd: int, candidate: Path) -> tuple[str, int]:
     flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     for _attempt in range(100):
@@ -211,14 +230,23 @@ def _open_temporary_at(parent_fd: int, candidate: Path) -> tuple[str, int]:
     raise FileExistsError(f"could not allocate a unique temporary output beside {candidate}")
 
 
+def _apply_output_mode(descriptor: int, mode: int | None) -> None:
+    if mode is None:
+        return
+    fchmod = getattr(os, "fchmod", None)
+    if fchmod is not None:
+        fchmod(descriptor, mode)
+
+
 @contextmanager
-def atomic_binary_writer(path: Path) -> Iterator[BinaryIO]:
+def atomic_binary_writer(path: Path, *, mode: int | None = None) -> Iterator[BinaryIO]:
     """Yield a binary file and publish it atomically without path traversal."""
 
     candidate = _normalize_top_level_alias(path)
     if not _supports_dir_fd():
         candidate = ensure_safe_output_path(candidate)
         descriptor, temporary_name = tempfile.mkstemp(prefix=f".{candidate.name}.", dir=candidate.parent)
+        _apply_output_mode(descriptor, mode)
         temporary = Path(temporary_name)
         handle = os.fdopen(descriptor, "w+b")
         try:
@@ -244,6 +272,7 @@ def atomic_binary_writer(path: Path) -> Iterator[BinaryIO]:
     try:
         _validate_output_entry(parent_fd, candidate)
         temporary_name, temporary_fd = _open_temporary_at(parent_fd, candidate)
+        _apply_output_mode(temporary_fd, mode)
         handle = os.fdopen(temporary_fd, "w+b")
         yield handle
         handle.flush()
@@ -265,9 +294,15 @@ def atomic_binary_writer(path: Path) -> Iterator[BinaryIO]:
         os.close(parent_fd)
 
 
-def safe_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> Path:
+def safe_write_text(
+    path: Path,
+    text: str,
+    *,
+    encoding: str = "utf-8",
+    mode: int | None = None,
+) -> Path:
     """Write text atomically without following final or ancestor symlinks."""
 
-    with atomic_binary_writer(path) as handle:
+    with atomic_binary_writer(path, mode=mode) as handle:
         handle.write(text.encode(encoding))
     return ensure_safe_output_path(path, create_parent=False)

@@ -7,6 +7,7 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import stat
 import sys
 from urllib.parse import unquote
 
@@ -36,6 +37,17 @@ except ImportError:
                 split_destination_suffix,
                 unescape_markdown_destination,
             )
+
+try:
+    from .safe_io import ensure_safe_input_directory
+except ImportError:
+    try:
+        from .shared.safe_io import ensure_safe_input_directory
+    except ImportError:
+        try:
+            from safe_io import ensure_safe_input_directory
+        except ImportError:
+            from shared.safe_io import ensure_safe_input_directory
 
 WIKI_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
 LINE_ENDING_PATTERN = r"(?:\r\n|\r(?!\n)|(?<!\r)\n)"
@@ -507,6 +519,16 @@ class LinkIssue:
     kind: str
 
 
+class LinkRootError(ValueError):
+    """Stable public error for an invalid vault root."""
+
+    REASON = "root must be an existing directory without symlink components"
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        super().__init__(f"{path}: {self.REASON}")
+
+
 def is_external(target: str) -> bool:
     stripped = target.strip()
     return (
@@ -544,6 +566,32 @@ def is_within_root(root: Path, candidate: Path) -> bool:
     return True
 
 
+def is_regular_file_without_symlink_components(root: Path, path: Path) -> bool:
+    """Require an in-root regular file reached without any symlink component."""
+
+    root = root.resolve()
+    try:
+        root_mode = root.lstat().st_mode
+        relative = path.relative_to(root)
+    except (OSError, ValueError):
+        return False
+    if stat.S_ISLNK(root_mode) or not stat.S_ISDIR(root_mode):
+        return False
+
+    current = root
+    try:
+        for index, component in enumerate(relative.parts):
+            current = current / component
+            mode = current.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                return False
+            if index < len(relative.parts) - 1 and not stat.S_ISDIR(mode):
+                return False
+        return bool(relative.parts) and stat.S_ISREG(mode)
+    except OSError:
+        return False
+
+
 def resolve_target(root: Path, source: Path, raw_target: str, by_stem: dict[str, list[Path]]) -> list[Path]:
     target = clean_target(raw_target)
     if target is None:
@@ -557,30 +605,37 @@ def resolve_target(root: Path, source: Path, raw_target: str, by_stem: dict[str,
     candidates = []
     bases = (root,) if root_relative else (source.parent, root)
     for base in bases:
-        candidate = (base / target).resolve()
+        candidate = base / target
         if is_within_root(root, candidate):
             candidates.append(candidate)
         if not target.endswith(".md"):
-            candidate = (base / f"{target}.md").resolve()
+            candidate = base / f"{target}.md"
             if is_within_root(root, candidate):
                 candidates.append(candidate)
 
     if not root_relative and "/" not in target and target in by_stem:
         candidates.extend(
-            candidate.resolve()
+            candidate
             for candidate in by_stem[target]
-            if is_within_root(root, candidate.resolve())
+            if is_within_root(root, candidate)
         )
 
     resolved = []
     for candidate in candidates:
-        if candidate.exists() and candidate not in resolved:
-            resolved.append(candidate)
+        resolved_candidate = candidate.resolve()
+        if (
+            is_regular_file_without_symlink_components(root, candidate)
+            and resolved_candidate not in resolved
+        ):
+            resolved.append(resolved_candidate)
     return resolved
 
 
 def check_links(root: Path) -> tuple[list[LinkIssue], list[LinkIssue], int]:
-    root = root.resolve()
+    try:
+        root = ensure_safe_input_directory(root)
+    except (OSError, ValueError):
+        raise LinkRootError(root) from None
     files: list[Path] = []
     boundary_issues: list[LinkIssue] = []
     for path in sorted(path for path in root.rglob("*") if ".git" not in path.parts):
@@ -624,9 +679,11 @@ def main() -> int:
     parser.add_argument("--allow-self-links", action="store_true")
     args = parser.parse_args()
 
-    root = args.root.resolve()
-    if not root.exists():
-        parser.error(f"directory does not exist: {root}")
+    try:
+        root = ensure_safe_input_directory(args.root)
+    except (OSError, ValueError):
+        print(f"ERROR: {LinkRootError(args.root)}", file=sys.stderr)
+        return 2
 
     broken, self_links, checked = check_links(root)
     print(f"checked_links {checked}")

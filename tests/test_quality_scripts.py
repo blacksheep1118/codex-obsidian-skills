@@ -24,6 +24,110 @@ def run_command(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+ROOT_SHAPE_CONSUMERS = (
+    "skill/obsidian-vault-organizer/scripts/check_vault_quality.py",
+    "skill/obsidian-vault-organizer/scripts/link_inventory.py",
+    "skill/ppt-to-md-for-obsidian/scripts/check_course_notes.py",
+)
+ROOT_SHAPE_REASON = "root must be an existing directory without symlink components"
+
+
+def write_clean_course(root: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "00_课程总览.md").write_text(
+        "# 总览\n\n[[知识点详细版_含公式]]\n[[知识点精简复习版_含公式]]\n",
+        encoding="utf-8",
+    )
+    (root / "知识点详细版_含公式.md").write_text("# 详细\n\n稳定内容。\n", encoding="utf-8")
+    (root / "知识点精简复习版_含公式.md").write_text("# 精简\n\n稳定内容。\n", encoding="utf-8")
+
+
+def make_quality_root_shape(tmp_path: Path, kind: str) -> tuple[Path, Path]:
+    regular = tmp_path / "regular-root"
+    write_clean_course(regular)
+    if kind == "regular-dir":
+        return regular, regular
+    if kind == "missing":
+        return tmp_path / "missing-root", regular
+
+    regular_file = tmp_path / "root.md"
+    regular_file.write_text("# File\n", encoding="utf-8")
+    if kind == "file":
+        return regular_file, regular
+    alias = tmp_path / kind
+    if kind == "symlink-file":
+        alias.symlink_to(regular_file)
+    elif kind == "leaf-same-inode":
+        alias.symlink_to(regular, target_is_directory=True)
+    elif kind == "ancestor-same-inode":
+        real_parent = tmp_path / "real-parent"
+        nested = real_parent / "nested"
+        write_clean_course(nested)
+        alias.symlink_to(real_parent, target_is_directory=True)
+        return alias / "nested", nested
+    elif kind == "external-leaf":
+        boundary = tmp_path / "empty-boundary"
+        boundary.mkdir()
+        alias = boundary / "external-alias"
+        alias.symlink_to(regular, target_is_directory=True)
+    elif kind == "broken-leaf":
+        alias.symlink_to(tmp_path / "missing-target", target_is_directory=True)
+    elif kind == "broken-ancestor":
+        alias.symlink_to(tmp_path / "missing-parent", target_is_directory=True)
+        return alias / "nested", regular
+    else:
+        raise AssertionError(kind)
+    return alias, regular
+
+
+def regular_tree_snapshot(root: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and not path.is_symlink()
+    }
+
+
+@pytest.mark.parametrize(
+    "entrypoint",
+    ROOT_SHAPE_CONSUMERS,
+    ids=("vault-quality", "link-inventory", "course-notes"),
+)
+@pytest.mark.parametrize(
+    "kind",
+    (
+        "regular-dir",
+        "missing",
+        "file",
+        "symlink-file",
+        "leaf-same-inode",
+        "ancestor-same-inode",
+        "external-leaf",
+        "broken-leaf",
+        "broken-ancestor",
+    ),
+)
+def test_quality_cli_consumers_share_lexical_root_shape_gate(
+    tmp_path: Path,
+    entrypoint: str,
+    kind: str,
+) -> None:
+    root, _target = make_quality_root_shape(tmp_path, kind)
+    before = regular_tree_snapshot(tmp_path)
+
+    result = run_command(entrypoint, str(root))
+
+    if kind == "regular-dir":
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert result.stderr == ""
+    else:
+        assert result.returncode == 2
+        assert result.stdout == ""
+        assert result.stderr == f"ERROR: {root}: {ROOT_SHAPE_REASON}\n"
+        assert "Traceback" not in result.stderr
+    assert regular_tree_snapshot(tmp_path) == before
+
+
 def test_vault_quality_accepts_clean_fixture():
     result = run_command("skill/obsidian-vault-organizer/scripts/check_vault_quality.py", "fixtures/vault-clean")
 

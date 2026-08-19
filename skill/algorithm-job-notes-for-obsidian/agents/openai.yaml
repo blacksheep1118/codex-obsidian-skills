@@ -1,0 +1,6 @@
+interface:
+  display_name: "Algorithm Job Notes"
+  short_description: "Maintain nine-direction algorithm-job Obsidian notes"
+  default_prompt: "Use $algorithm-job-notes-for-obsidian to maintain an algorithm-job Obsidian vault with only the nine canonical directions, executable study artifacts, and evidence-backed JD analysis."
+policy:
+  allow_implicit_invocation: true

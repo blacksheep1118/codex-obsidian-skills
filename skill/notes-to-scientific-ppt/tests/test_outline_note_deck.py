@@ -9,12 +9,20 @@ from zipfile import ZipFile
 import pytest
 from pptx import Presentation
 
-from scripts.build_scientific_deck import build_deck, infer_role, load_or_create_brief
+from scripts.build_scientific_deck import (
+    SlideSpec,
+    build_deck,
+    infer_role,
+    load_or_create_brief,
+    validate_deck_text,
+)
 from scripts.outline_note_deck import (
     build_vault_index,
     collect_linked_markdown_files,
+    localize_brief,
     is_excluded,
     summarize_note,
+    visible_note_text,
 )
 
 
@@ -121,6 +129,242 @@ def test_note_summary_parses_commonmark_links_and_excludes_images(tmp_path: Path
     assert summary.image_count == 1
 
 
+HIDDEN_EVIDENCE_PAYLOAD = "\n".join(
+    [
+        "## Hidden Evidence",
+        "[[Secret]]",
+        "[Fake](https://example.com/markdown)",
+        "| Metric | Value |",
+        "| --- | --- |",
+        "| fake | 99 |",
+        "$$",
+        "fake = 1",
+        "$$",
+        "https://example.com/raw",
+    ]
+)
+
+
+@pytest.mark.parametrize(
+    "hidden_context",
+    [
+        f"```markdown\n{HIDDEN_EVIDENCE_PAYLOAD}\n````",
+        f"~~~markdown\n{HIDDEN_EVIDENCE_PAYLOAD}\n~~~~",
+        f"`{HIDDEN_EVIDENCE_PAYLOAD}`",
+        "\n".join(f"    {line}" for line in HIDDEN_EVIDENCE_PAYLOAD.splitlines()),
+        "> ```markdown\n"
+        + "\n".join(f"> {line}" for line in HIDDEN_EVIDENCE_PAYLOAD.splitlines())
+        + "\n> ```",
+        "- ```markdown\n"
+        + "\n".join(f"  {line}" for line in HIDDEN_EVIDENCE_PAYLOAD.splitlines())
+        + "\n  ```",
+        f"<!--\n{HIDDEN_EVIDENCE_PAYLOAD}\n-->",
+        f"%%\n{HIDDEN_EVIDENCE_PAYLOAD}\n%%",
+        f"<!--\n{HIDDEN_EVIDENCE_PAYLOAD}",
+        f"%%\n{HIDDEN_EVIDENCE_PAYLOAD}",
+        f"<!--\n```markdown\n{HIDDEN_EVIDENCE_PAYLOAD}\n```\n-->",
+    ],
+    ids=(
+        "backtick-fence",
+        "tilde-fence",
+        "inline",
+        "indented",
+        "blockquote-fence",
+        "list-fence",
+        "multiline-html-comment",
+        "obsidian-comment",
+        "unclosed-html-comment",
+        "unclosed-obsidian-comment",
+        "comment-containing-code",
+    ),
+)
+def test_outline_api_excludes_hidden_context_from_inventory_and_follow_links(
+    tmp_path: Path,
+    hidden_context: str,
+) -> None:
+    main = tmp_path / "main.md"
+    secret = tmp_path / "Secret.md"
+    main.write_text(f"# Main\n\n{hidden_context}\n", encoding="utf-8")
+    secret.write_text("# Secret\n\nReal note.\n", encoding="utf-8")
+
+    summary = summarize_note(main)
+    linked = collect_linked_markdown_files([main], tmp_path, max_depth=1)
+
+    assert [heading.text for heading in summary.headings] == ["Main"]
+    assert summary.markdown_links == ()
+    assert summary.wiki_links == ()
+    assert summary.table_count == 0
+    assert summary.math_block_count == 0
+    assert linked == [main]
+
+
+@pytest.mark.parametrize(
+    "comment",
+    [
+        "<!--\n## Hidden\n[[Secret]]\n-->",
+        "%%\n## Hidden\n[[Secret]]\n%%",
+        "<!--\n## Hidden\n[[Secret]]",
+        "%%\n## Hidden\n[[Secret]]",
+    ],
+    ids=("html", "obsidian", "unclosed-html", "unclosed-obsidian"),
+)
+def test_visible_note_text_masks_comments_in_place(comment: str) -> None:
+    source = f"# Visible\n\n{comment}"
+
+    visible = visible_note_text(source)
+
+    assert len(visible) == len(source)
+    assert [index for index, char in enumerate(visible) if char == "\n"] == [
+        index for index, char in enumerate(source) if char == "\n"
+    ]
+    assert visible.startswith("# Visible\n")
+    assert "Hidden" not in visible
+    assert "Secret" not in visible
+
+
+@pytest.mark.parametrize("line_ending", ["\n", "\r\n", "\r"], ids=("lf", "crlf", "cr"))
+@pytest.mark.parametrize("bom", ["", "\ufeff"], ids=("plain", "utf8-bom"))
+def test_visible_note_text_strips_frontmatter_across_line_endings(
+    line_ending: str,
+    bom: str,
+) -> None:
+    source = line_ending.join(
+        [
+            f"{bom}---",
+            "title: Metadata Only",
+            "source: https://example.invalid/frontmatter",
+            "---",
+            "# Visible",
+            "",
+            "Body evidence.",
+        ]
+    )
+
+    visible = visible_note_text(source)
+
+    assert len(visible) == len(source)
+    assert [index for index, char in enumerate(visible) if char in "\r\n"] == [
+        index for index, char in enumerate(source) if char in "\r\n"
+    ]
+    assert visible.splitlines()[4:] == ["# Visible", "", "Body evidence."]
+    assert "Metadata Only" not in visible
+    assert "example.invalid" not in visible
+
+
+def test_visible_note_text_strips_empty_frontmatter() -> None:
+    source = "---\n---\n# Visible\n"
+
+    visible = visible_note_text(source)
+
+    assert len(visible) == len(source)
+    assert visible.splitlines() == ["   ", "   ", "# Visible"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "---\ntitle: Missing close\n# Body\n",
+        "---\ntitle: Spaced close\n--- \n# Body\n",
+        "...\ntitle: Different delimiter\n...\n# Body\n",
+    ],
+    ids=("missing-close", "spaced-close", "different-delimiter"),
+)
+def test_visible_note_text_does_not_generalize_frontmatter_delimiters(source: str) -> None:
+    assert visible_note_text(source) == source
+
+
+def test_visible_note_text_preserves_body_thematic_break_after_frontmatter() -> None:
+    body = "# Visible\r\n\r\n---\r\n\r\nBody evidence.\r\n"
+    source = "---\r\ntitle: Metadata\r\n---\r\n" + body
+
+    visible = visible_note_text(source)
+
+    assert visible.endswith(body)
+    assert visible.count("---") == 1
+    assert visible.splitlines().index("# Visible") == 3
+
+
+def test_outline_keeps_visible_evidence_next_to_comment_decoys(tmp_path: Path) -> None:
+    main = tmp_path / "main.md"
+    hidden = tmp_path / "Secret.md"
+    visible_target = tmp_path / "Visible.md"
+    main.write_text(
+        "# Main\n\n"
+        f"<!--\n{HIDDEN_EVIDENCE_PAYLOAD}\n-->\n\n"
+        "%%\n[[Secret]]\n%%\n\n"
+        "## Visible Evidence\n\n"
+        "[[Visible]]\n\n"
+        "[Visible paper](https://example.com/visible)\n\n"
+        "| Metric | Value |\n| --- | --- |\n| real | 1 |\n\n"
+        "$$\nvisible = 1\n$$\n",
+        encoding="utf-8",
+    )
+    hidden.write_text("# Secret\n\nMust not be followed.\n", encoding="utf-8")
+    visible_target.write_text("# Visible\n\nReal linked evidence.\n", encoding="utf-8")
+
+    summary = summarize_note(main)
+    linked = collect_linked_markdown_files([main], tmp_path, max_depth=1)
+
+    assert [heading.text for heading in summary.headings] == ["Main", "Visible Evidence"]
+    assert summary.wiki_links == ("Visible",)
+    assert summary.markdown_links == ("https://example.com/visible",)
+    assert summary.table_count == 1
+    assert summary.math_block_count == 1
+    assert set(linked) == {main, visible_target}
+    assert hidden not in linked
+
+
+def test_note_summary_counts_only_visible_formula_blocks(tmp_path: Path) -> None:
+    note = tmp_path / "formula-comments.md"
+    note.write_text(
+        "# Formula evidence\n\n"
+        "<!--\n$$\nhtml_hidden = 1\n$$\n-->\n\n"
+        "%%\n$$\nobsidian_hidden = 1\n$$\n%%\n\n"
+        "```markdown\n$$\ncode_hidden = 1\n$$\n```\n\n"
+        "$$\nvisible = 1\n$$\n",
+        encoding="utf-8",
+    )
+
+    assert summarize_note(note).math_block_count == 1
+
+
+def test_outline_cli_masks_code_decoys_but_keeps_adjacent_visible_evidence(
+    tmp_path: Path,
+) -> None:
+    main = tmp_path / "main.md"
+    secret = tmp_path / "Secret.md"
+    brief = tmp_path / "brief.md"
+    main.write_text(
+        "# Main\n\n"
+        f"```markdown\n{HIDDEN_EVIDENCE_PAYLOAD}\n```\n\n"
+        "## Visible Evidence\n\n"
+        "[[Secret]]\n\n"
+        "| Metric | Value |\n| --- | --- |\n| real | 1 |\n\n"
+        "$$\nreal = 1\n$$\n",
+        encoding="utf-8",
+    )
+    secret.write_text("# Secret\n\nReal linked evidence.\n", encoding="utf-8")
+
+    run_script(
+        str(main),
+        "--follow-links",
+        "--vault-root",
+        str(tmp_path),
+        "--max-depth",
+        "1",
+        "--out",
+        str(brief),
+    )
+    output = brief.read_text(encoding="utf-8")
+
+    assert "Hidden Evidence" not in output
+    assert "https://example.com/markdown" not in output
+    assert "https://example.com/raw" not in output
+    assert "Visible Evidence" in output
+    assert "`Secret.md`" in output
+    assert "1 formula block(s), 1 table(s), 1 link(s)" in output
+
+
 def test_outline_note_deck_creates_scientific_brief(tmp_path: Path):
     notes = tmp_path / "notes"
     notes.mkdir()
@@ -187,6 +431,53 @@ def test_outline_note_deck_creates_chinese_brief_for_chinese_notes(tmp_path: Pat
     assert "## 建议科学演示主线" in result.stdout
     assert "演示模式:" in result.stdout
     assert "## 覆盖检查清单" in result.stdout
+
+
+def test_chinese_brief_localization_preserves_source_locator(tmp_path: Path) -> None:
+    note = tmp_path / "Audience:.md"
+    note.write_text(
+        "# 中文研究笔记\n\n这是中文内容，用于触发中文简报并保留原始来源路径。\n",
+        encoding="utf-8",
+    )
+
+    result = run_script(str(note), "--language", "zh")
+
+    assert "Audience:.md" in result.stdout
+    assert "听众:.md" not in result.stdout
+    assert "- 听众: research seminar" in result.stdout
+
+
+def test_chinese_brief_localization_only_changes_visible_template_prose() -> None:
+    source = (
+        "---\n"
+        'title: "Audience:"\n'
+        "Created: 2000-01-01\n"
+        "---\n"
+        "Created: 2026-08-11\n"
+        "## Source Inventory\n"
+        "- Audience: experts `Audience:` [source](https://example.com/Audience:?Style:)\n"
+        "- Deck Mode: paper-reading\n"
+        "[[Audience:]]\n"
+        "[Audience: label](folder/Audience:.md)\n"
+        "`## Source Inventory`\n"
+        "```text\n"
+        "## Source Inventory\n"
+        "- Audience: code-only\n"
+        "```\n"
+    )
+
+    localized = localize_brief(source, "zh")
+
+    assert 'title: "Audience:"' in localized
+    assert "Created: 2000-01-01" in localized
+    assert "创建日期: 2026-08-11" in localized
+    assert "## 来源盘点" in localized
+    assert "- 听众: experts `Audience:`" in localized
+    assert "https://example.com/Audience:?Style:" in localized
+    assert "[[Audience:]]" in localized
+    assert "[Audience: label](folder/Audience:.md)" in localized
+    assert "`## Source Inventory`" in localized
+    assert "```text\n## Source Inventory\n- Audience: code-only\n```" in localized
 
 
 def test_outline_note_deck_counts_wiki_embeds_and_cjk_chars(tmp_path: Path):
@@ -533,6 +824,23 @@ def test_build_scientific_deck_rejects_title_that_cannot_fit_fixed_box(tmp_path:
 
     with pytest.raises(ValueError, match="maximum is 180"):
         build_deck(notes, tmp_path / "too-long.pptx", title="x" * 181)
+
+
+@pytest.mark.parametrize(
+    "title",
+    ["W" * 180, "超" * 80],
+    ids=("wide-latin", "long-cjk"),
+)
+def test_build_scientific_deck_rejects_titles_over_display_width_budget(
+    title: str,
+) -> None:
+    with pytest.raises(ValueError, match="estimated display width"):
+        validate_deck_text(title, [SlideSpec("Short claim", "claim", "proof")])
+
+
+@pytest.mark.parametrize("title", ["Short claim", "i" * 100])
+def test_build_scientific_deck_accepts_short_or_narrow_titles(title: str) -> None:
+    validate_deck_text(title, [SlideSpec("Short claim", "claim", "proof")])
 
 
 def test_build_scientific_deck_respects_max_slides_from_notes_folder(tmp_path: Path):

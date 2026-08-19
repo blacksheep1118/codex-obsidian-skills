@@ -12,7 +12,7 @@ import sys
 from urllib.parse import unquote
 
 try:
-    from .safe_io import safe_write_text
+    from .safe_io import InputRootError, safe_write_text, validate_input_root
     from .markdown_links import MARKDOWN_IMAGE_RE
     from .check_obsidian_links import (
         MARKDOWN_LINK_RE,
@@ -21,8 +21,9 @@ try:
         text_without_code,
         unescape_markdown_destination,
     )
+    from .check_vault_quality import markdown_files as safe_markdown_files
 except ImportError:
-    from safe_io import safe_write_text
+    from safe_io import InputRootError, safe_write_text, validate_input_root
     from markdown_links import MARKDOWN_IMAGE_RE
     from check_obsidian_links import (
         MARKDOWN_LINK_RE,
@@ -31,14 +32,11 @@ except ImportError:
         text_without_code,
         unescape_markdown_destination,
     )
+    from check_vault_quality import markdown_files as safe_markdown_files
 
 
 WIKI_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
 EXTERNAL_URL_RE = re.compile(r"\b(?:https?://|mailto:)[^\s<>\]]+")
-DEFAULT_EXCLUDED_DIRS = frozenset({".git", ".obsidian", ".pytest_cache", ".ruff_cache", "__pycache__", "scripts", "skills", "build", "output"})
-DEFAULT_EXCLUDED_FILES = frozenset({"AGENT.md"})
-
-
 @dataclass(frozen=True)
 class FileInventory:
     file: str
@@ -57,25 +55,9 @@ def configure_output_encoding() -> None:
 
 
 def markdown_files(root: Path, excluded_paths: set[Path] | None = None) -> list[Path]:
-    root = root.resolve()
-    excluded = {path.resolve() for path in (excluded_paths or set())}
-    return sorted(
-        path
-        for path in root.rglob("*.md")
-        if path.name not in DEFAULT_EXCLUDED_FILES
-        and not set(path.relative_to(root).parts) & DEFAULT_EXCLUDED_DIRS
-        and _is_within_root(root, path)
-        and path.is_file()
-        and path.resolve() not in excluded
-    )
-
-
-def _is_within_root(root: Path, path: Path) -> bool:
-    try:
-        path.resolve().relative_to(root)
-    except ValueError:
-        return False
-    return True
+    root = validate_input_root(root)
+    excluded = {path.expanduser().absolute() for path in (excluded_paths or set())}
+    return [path for path in safe_markdown_files(root) if path.absolute() not in excluded]
 
 
 def is_external(target: str) -> bool:
@@ -162,7 +144,7 @@ def inventory_file(root: Path, path: Path) -> FileInventory:
 
 
 def build_inventory(root: Path, excluded_paths: set[Path] | None = None) -> dict:
-    root = root.resolve()
+    root = validate_input_root(root)
     files = [inventory_file(root, path) for path in markdown_files(root, excluded_paths)]
     totals = {
         "files": len(files),
@@ -250,14 +232,12 @@ def main() -> int:
     parser.add_argument("--out", type=Path, help="Output path. Defaults to stdout.")
     args = parser.parse_args()
 
-    root = args.root.resolve()
-    if not root.exists():
-        parser.error(f"directory does not exist: {root}")
-    if not root.is_dir():
-        parser.error(f"root must be a directory: {root}")
-
     excluded_paths = {args.out} if args.out else set()
-    inventory = build_inventory(root, excluded_paths)
+    try:
+        inventory = build_inventory(args.root, excluded_paths)
+    except InputRootError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     if args.format == "json":
         output = json.dumps(inventory, ensure_ascii=False, indent=2) + "\n"
     else:

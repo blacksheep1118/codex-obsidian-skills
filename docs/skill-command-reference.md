@@ -166,4 +166,6 @@ python3 skill/notes-to-scientific-ppt/scripts/verify_pptx.py \
   scientific-deck.pptx
 ```
 
+Add `--render` to render when LibreOffice/Poppler are available. Use `--require-render` when rendering is a blocking gate; it implies `--render` and returns nonzero if the render tools are unavailable or rendering fails.
+
 The brief and verifier support evidence-first construction, but they do not replace slide-by-slide visual review of the rendered deck.

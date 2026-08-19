@@ -660,8 +660,18 @@ def main() -> int:
 
     try:
         ensure_safe_destination_root(destination_root)
+        destinations: list[tuple[str, Path, Path]] = []
         for name, source in skills.items():
-            copy_skill(source, destination_root / name, dry_run=args.dry_run)
+            destination = destination_root / name
+            ensure_safe_destination_tree(destination)
+            if destination.exists():
+                raise UnsafeDestinationError(
+                    f"destination skill directory already exists: {destination}; "
+                    "use scripts/update_installed_skills.py for an explicit update"
+                )
+            destinations.append((name, source, destination))
+        for _name, source, destination in destinations:
+            copy_skill(source, destination, dry_run=args.dry_run)
     except (UnsafeDestinationError, UnsafeSourceError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

@@ -44,6 +44,15 @@ except ImportError:
 SUPPORTED_SUFFIXES = {".ppt", ".pptx", ".pdf"}
 
 
+class PipelineConfigError(ValueError):
+    """Stable user-facing failure for an unreadable or malformed config."""
+
+    def __init__(self, path: Path, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"{path}: {reason}")
+
+
 @dataclass
 class PipelineConfig:
     source: Path
@@ -164,15 +173,59 @@ def load_yaml_config(path: Path) -> dict:
     try:
         import yaml
     except ImportError:
-        raise SystemExit("PyYAML is required for --config. Install dependencies from requirements.txt.")
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        raise PipelineConfigError(path, "PyYAML is required to read config files") from None
+
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        raise PipelineConfigError(path, "config file does not exist") from None
+    except OSError:
+        raise PipelineConfigError(path, "config path cannot be inspected") from None
+    if not stat.S_ISREG(mode):
+        raise PipelineConfigError(path, "config path is not a regular file")
+    try:
+        safe_path = ensure_safe_input_file(path)
+    except (OSError, ValueError):
+        raise PipelineConfigError(
+            path,
+            "config path must not contain symlink components",
+        ) from None
+    try:
+        text = safe_path.read_text(encoding="utf-8")
+    except UnicodeError:
+        raise PipelineConfigError(path, "config file must be valid UTF-8") from None
+    except OSError:
+        raise PipelineConfigError(path, "config file cannot be read") from None
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        raise PipelineConfigError(path, "config contains invalid YAML") from None
+    if not isinstance(data, dict):
+        raise PipelineConfigError(path, "config must be a YAML mapping")
+    return data
+
+
+def config_mapping_section(data: dict, path: Path, name: str) -> dict:
+    value = data.get(name, {})
+    if not isinstance(value, dict):
+        raise PipelineConfigError(
+            path,
+            f"config section {name} must be a YAML mapping",
+        )
+    return value
 
 
 def config_from_args(args: argparse.Namespace) -> PipelineConfig:
-    data = load_yaml_config(args.config) if args.config else {}
-    clean = data.get("clean", {})
-    conversion = data.get("conversion", {})
-    obsidian = data.get("obsidian", {})
+    if args.config:
+        data = load_yaml_config(args.config)
+        clean = config_mapping_section(data, args.config, "clean")
+        conversion = config_mapping_section(data, args.config, "conversion")
+        obsidian = config_mapping_section(data, args.config, "obsidian")
+    else:
+        data = {}
+        clean = {}
+        conversion = {}
+        obsidian = {}
 
     source = Path(args.source or data.get("source", "."))
     output_dir = Path(args.output_dir or data.get("output_dir", "build/obsidian-pipeline"))
@@ -573,9 +626,12 @@ def main() -> int:
     parser.add_argument("--soffice", help="Path to LibreOffice soffice binary")
     args = parser.parse_args()
 
-    config = config_from_args(args)
     try:
+        config = config_from_args(args)
         processed = run(config)
+    except PipelineConfigError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

@@ -20,6 +20,7 @@ PPT_SKILL = ROOT / "skill" / "ppt-to-md-for-obsidian"
 VAULT_SKILL = ROOT / "skill" / "obsidian-vault-organizer"
 WEB_SKILL = ROOT / "skill" / "web-course-notes-for-obsidian"
 NOTES_PPT_SKILL = ROOT / "skill" / "notes-to-scientific-ppt"
+ALGORITHM_JOB_SKILL = ROOT / "skill" / "algorithm-job-notes-for-obsidian"
 DEFAULT_TIMEOUT_SECONDS = int(os.environ.get("VALIDATE_ALL_TIMEOUT_SECONDS", "180"))
 PYTEST_PLUGIN_AUTOLOAD_OVERRIDE = "VALIDATE_ALL_ENABLE_PYTEST_PLUGIN_AUTOLOAD"
 TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -28,6 +29,7 @@ SKILL_ALIASES = {
     "web-course-notes-for-obsidian": "web",
     "obsidian-vault-organizer": "vault",
     "notes-to-scientific-ppt": "notes",
+    "algorithm-job-notes-for-obsidian": "algorithm-job",
 }
 SKILL_ALIAS_TO_FULL = {alias: full_name for full_name, alias in SKILL_ALIASES.items()}
 
@@ -253,6 +255,9 @@ def build_steps(py: str, temp_root: Path) -> list[Step]:
             skill="notes",
             quick=False,
         ),
+        Step("algorithm-job.compile", (compile_command(py, temp_root, cwd=ALGORITHM_JOB_SKILL),), skill="algorithm-job"),
+        Step("algorithm-job.tests", (pytest_command(py, "-q", "tests", cwd=ALGORITHM_JOB_SKILL),), skill="algorithm-job", quick=False),
+        Step("algorithm-job.validator", (CommandSpec([py, "scripts/validate_skill.py"], cwd=ALGORITHM_JOB_SKILL),), skill="algorithm-job"),
     ]
 
 

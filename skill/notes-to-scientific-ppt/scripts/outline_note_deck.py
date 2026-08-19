@@ -14,6 +14,7 @@ import sys
 from urllib.parse import unquote
 
 try:
+    from .check_obsidian_links import COMMENT_SPAN_RE, count_block_math_delimiters, text_without_code
     from .markdown_links import (
         MARKDOWN_IMAGE_RE,
         MARKDOWN_LINK_RE,
@@ -21,6 +22,7 @@ try:
     )
     from .safe_io import safe_write_text
 except ImportError:
+    from check_obsidian_links import COMMENT_SPAN_RE, count_block_math_delimiters, text_without_code
     from markdown_links import (
         MARKDOWN_IMAGE_RE,
         MARKDOWN_LINK_RE,
@@ -32,7 +34,6 @@ except ImportError:
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
 WIKI_LINK_RE = re.compile(r"\[\[([^\]\n]+)\]\]")
 WIKI_EMBED_RE = re.compile(r"!\[\[([^\]\n]+)\]\]")
-MATH_BLOCK_RE = re.compile(r"(?ms)^\s*\$\$\s*$.*?^\s*\$\$\s*$")
 URL_RE = re.compile(r"https?://[^\s)>\]]+")
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 LATIN_WORD_RE = re.compile(r"[A-Za-z0-9_]+")
@@ -284,7 +285,7 @@ def collect_linked_markdown_files(
         path, depth = queue.pop(0)
         if depth >= max_depth:
             continue
-        text = strip_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
+        text = visible_note_text(path.read_text(encoding="utf-8", errors="replace"))
         for raw_target in WIKI_LINK_RE.findall(text):
             if raw_target.startswith("!"):
                 continue
@@ -301,11 +302,29 @@ def collect_linked_markdown_files(
 
 
 def strip_frontmatter(text: str) -> str:
-    if text.startswith("---\n"):
-        end = text.find("\n---\n", 4)
-        if end != -1:
-            return text[end + 5 :]
+    """Mask a leading YAML frontmatter block while preserving source positions."""
+
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].rstrip("\r\n") not in {"---", "\ufeff---"}:
+        return text
+
+    offset = len(lines[0])
+    for line in lines[1:]:
+        offset += len(line)
+        if line.rstrip("\r\n") == "---":
+            return "".join(char if char in "\r\n" else " " for char in text[:offset]) + text[offset:]
     return text
+
+
+def visible_note_text(text: str) -> str:
+    """Return note content with code and HTML/Obsidian comments masked in place."""
+
+    visible = text_without_code(strip_frontmatter(text))
+    assert isinstance(visible, str)
+    return COMMENT_SPAN_RE.sub(
+        lambda match: "".join("\n" if char == "\n" else " " for char in match.group()),
+        visible,
+    )
 
 
 def count_tables(text: str) -> int:
@@ -336,7 +355,7 @@ def classify_wiki_embeds(text: str) -> tuple[int, int]:
 
 
 def summarize_note(path: Path) -> NoteSummary:
-    text = strip_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
+    text = visible_note_text(path.read_text(encoding="utf-8", errors="replace"))
     headings = tuple(Heading(len(mark.group(1)), mark.group(2).strip()) for mark in HEADING_RE.finditer(text))
     title = next((heading.text for heading in headings if heading.level == 1), path.stem)
     markdown_targets = [
@@ -360,7 +379,7 @@ def summarize_note(path: Path) -> NoteSummary:
         image_count=len(MARKDOWN_IMAGE_RE.findall(text)) + image_embeds,
         attachment_count=attachment_embeds,
         table_count=count_tables(text),
-        math_block_count=len(MATH_BLOCK_RE.findall(text)),
+        math_block_count=count_block_math_delimiters(text) // 2,
         word_count=count_words_for_notes(text),
         text=text,
     )
@@ -728,8 +747,7 @@ def detect_language(summaries: list[NoteSummary], requested_language: str) -> st
 def localize_brief(text: str, language: str) -> str:
     if language != "zh":
         return text
-    replacements = {
-        "Created:": "创建日期:",
+    exact_replacements = {
         "This deck brief inventories source notes before building a rigorous scientific PPT. It is a planning artifact, not the final deck.": "本 deck brief 用于在构建科研严谨风 PPT 前盘点来源笔记、证据和缺口；它是规划稿，不是最终 PPT。",
         "## Source Inventory": "## 来源盘点",
         "## Extracted Note Structure": "## 笔记结构提取",
@@ -738,17 +756,55 @@ def localize_brief(text: str, language: str) -> str:
         "## Draft Slide Backlog": "## 草稿幻灯片待办",
         "## Coverage Checklist": "## 覆盖检查清单",
         "## Missing Inputs To Check": "## 待确认输入",
-        "Deck Mode:": "演示模式:",
-        "Audience:": "听众:",
-        "Maximum total slide count:": "最大总幻灯片数量:",
-        "Style:": "风格:",
-        "Use this as a source-grounded backlog for a": "将此作为有来源依据的",
-        "deck. Convert each item into a claim-title slide or appendix item; do not paste note paragraphs directly.": "演示待办。把每项改写成 claim-title 幻灯片或 appendix 项，不要直接粘贴笔记段落。",
-        "## Notes": "## 笔记",
     }
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-    return text
+    visible = text_without_code(text)
+    assert isinstance(visible, str)
+    raw_lines = text.splitlines(keepends=True)
+    visible_lines = visible.splitlines(keepends=True)
+    assert len(raw_lines) == len(visible_lines)
+
+    localized: list[str] = []
+    in_frontmatter = bool(raw_lines and raw_lines[0].rstrip("\r\n") == "---")
+    for index, (raw_line, visible_line) in enumerate(zip(raw_lines, visible_lines)):
+        body = raw_line.rstrip("\r\n")
+        ending = raw_line[len(body) :]
+        visible_body = visible_line.rstrip("\r\n")
+        if in_frontmatter:
+            localized.append(raw_line)
+            if index > 0 and body == "---":
+                in_frontmatter = False
+            continue
+
+        replacement = exact_replacements.get(visible_body)
+        if replacement is not None:
+            localized.append(replacement + ending)
+            continue
+        if re.fullmatch(r"Created: \d{4}-\d{2}-\d{2}", visible_body):
+            localized.append(body.replace("Created:", "创建日期:", 1) + ending)
+            continue
+        prefix_replacements = (
+            ("- Audience: ", "- 听众: "),
+            ("- Deck Mode: ", "- 演示模式: "),
+            ("- Maximum total slide count: ", "- 最大总幻灯片数量: "),
+            ("- Style: ", "- 风格: "),
+        )
+        for old, new in prefix_replacements:
+            if body.startswith(old) and visible_body.lstrip().startswith(old.removeprefix("- ")):
+                body = new + body[len(old) :]
+                break
+        backlog_match = re.fullmatch(
+            r"Use this as a source-grounded backlog for a (`[^`\n]+`) deck\. "
+            r"Convert each item into a claim-title slide or appendix item; "
+            r"do not paste note paragraphs directly\.",
+            body,
+        )
+        if visible_body.startswith("Use this as a source-grounded backlog for a ") and backlog_match:
+            body = (
+                f"将此作为有来源依据的 {backlog_match.group(1)} 演示待办。"
+                "把每项改写成 claim-title 幻灯片或 appendix 项，不要直接粘贴笔记段落。"
+            )
+        localized.append(body + ending)
+    return "".join(localized)
 
 
 def gather_files(

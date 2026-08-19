@@ -6,6 +6,9 @@ import sys
 
 import pytest
 
+from scripts.check_course_notes import find_course_note_issues, linked_note_stems
+from scripts.safe_io import InputRootError
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_course_notes.py"
 
@@ -13,6 +16,30 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_course_notes.p
 def write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize("kind", ("missing", "file", "symlink-dir"))
+def test_find_course_note_issues_api_rejects_invalid_root_shape(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    regular = tmp_path / "regular"
+    write(regular / "note.md", "# Note\n")
+    if kind == "missing":
+        root = tmp_path / "missing"
+    elif kind == "file":
+        root = tmp_path / "root.md"
+        write(root, "# File\n")
+    else:
+        root = tmp_path / "alias"
+        root.symlink_to(regular, target_is_directory=True)
+
+    with pytest.raises(InputRootError) as caught:
+        find_course_note_issues(root)
+
+    assert str(caught.value) == (
+        f"{root}: root must be an existing directory without symlink components"
+    )
 
 
 def write_minimal_course(root: Path, table: str) -> None:
@@ -34,6 +61,52 @@ def run_checker(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         check=False,
     )
+
+
+def write_review_course(root: Path, overview: str) -> None:
+    write(root / "00_课程总览.md", overview)
+    write(root / "知识点详细版_含公式.md", "# 详细版\n\n内容。\n")
+    write(root / "知识点精简复习版_含公式.md", "# 精简版\n\n内容。\n")
+
+
+def test_review_link_api_requires_real_targets_outside_code(tmp_path: Path) -> None:
+    course = tmp_path / "课程"
+    overview = (
+        "# 课程总览\n\n"
+        "纯文本提到知识点详细版_含公式和知识点精简复习版_含公式。\n\n"
+        "```markdown\n"
+        "[[知识点详细版_含公式]]\n"
+        "[精简](知识点精简复习版_含公式.md)\n"
+        "```\n"
+    )
+    write_review_course(course, overview)
+
+    assert linked_note_stems(overview) == set()
+    issues = find_course_note_issues(course)
+    assert sum(issue.kind == "missing_review_link" for issue in issues) == 2
+
+
+def test_review_link_cli_accepts_real_wiki_and_markdown_targets(tmp_path: Path) -> None:
+    course = tmp_path / "课程"
+    write_review_course(
+        course,
+        "# 课程总览\n\n"
+        "纯文本：知识点详细版_含公式、知识点精简复习版_含公式。\n",
+    )
+
+    missing = run_checker(course)
+    assert missing.returncode == 1
+    assert missing.stdout.count("MISSING_REVIEW_LINK") == 2
+
+    write(
+        course / "00_课程总览.md",
+        "# 课程总览\n\n"
+        "- [[知识点详细版_含公式|详细复习]]\n"
+        "- [精简复习](知识点精简复习版_含公式.md)\n",
+    )
+    linked = run_checker(course)
+    assert linked.returncode == 0, linked.stdout + linked.stderr
+    assert "course_note_issues 0" in linked.stdout
 
 
 def test_check_course_notes_reports_broken_markdown_table(tmp_path: Path) -> None:

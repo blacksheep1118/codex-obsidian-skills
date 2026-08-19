@@ -8,6 +8,7 @@ Use this guide when a task could match more than one skill. Route by the user's 
 | --- | --- | --- | --- |
 | URL, webpage course, online book, public reading list, local HTML, or direct PDF/PPT/transcript URL | Collect accessible sources, create `source_manifest.md`, scaffold or write Obsidian web-course notes | `web-course-notes-for-obsidian` | `ppt-to-md-for-obsidian` unless a permitted file has already been downloaded locally |
 | Local PPT/PPTX/PDF lecture files or courseware folders | Extract slide/page text, build source coverage, write course notes and review pages | `ppt-to-md-for-obsidian` | `web-course-notes-for-obsidian` unless the input is still a web page or URL list |
+| Existing algorithm-job Obsidian notes, recruiting maps, interview routes, or direction cleanup | Enforce the nine canonical directions, migrate extra routes, strengthen DSA/C++17/ML evidence, and validate JD mappings | `algorithm-job-notes-for-obsidian` | `obsidian-vault-organizer` as the first route when algorithm-job taxonomy is not in scope |
 | Existing Obsidian vault or Markdown note collection | Repair links, merge duplicates, improve navigation, validate note quality, clean stale files | `obsidian-vault-organizer` | `ppt-to-md-for-obsidian` unless source extraction is still required |
 | Existing Markdown/Obsidian notes or notes folder | Create a scientific deck brief or editable PPTX research deck | `notes-to-scientific-ppt` | Source-collection skills unless the notes do not exist yet |
 
@@ -23,6 +24,10 @@ Use $ppt-to-md-for-obsidian for these local PPT/PPTX/PDF courseware files. Extra
 
 ```text
 Use $obsidian-vault-organizer for this existing vault. Audit links, duplicate stems, navigation, and note quality before editing; keep source files read-only.
+```
+
+```text
+Use $algorithm-job-notes-for-obsidian for this algorithm-job vault. Compare all route, frontmatter, JD, skill, and agent directions with the nine canonical IDs; migrate unique material, delete obsolete route files, and run the full validation suite.
 ```
 
 ```text
@@ -68,9 +73,23 @@ Example:
 Use $obsidian-vault-organizer to clean this finished course-note folder, then use $notes-to-scientific-ppt to turn the cleaned notes into a research-style PPTX deck.
 ```
 
+### Algorithm-job Notes To Generic Vault Cleanup
+
+1. Use `algorithm-job-notes-for-obsidian` first when the task changes algorithm-job direction taxonomy, role maps, JD categories, learning routes, or interview evidence.
+2. Let it migrate unique material and remove obsolete route definitions; technical mentions such as RL or multimodal may remain as mapped topics.
+3. Hand off to `obsidian-vault-organizer` for generic duplicate, link, navigation, or quality cleanup after the direction contract is stable.
+4. If the task starts from local courseware, use `ppt-to-md-for-obsidian` for extraction before either notes-maintenance skill.
+
+Example:
+
+```text
+Use $algorithm-job-notes-for-obsidian to collapse this vault to the nine algorithm-job directions and strengthen the interview evidence. After the taxonomy is stable, use $obsidian-vault-organizer to run the generic link and note-quality checks.
+```
+
 ## Routing Heuristic
 
 - If the input is a web address, route to `web-course-notes-for-obsidian`.
 - If the input is a local slide/PDF courseware file, route to `ppt-to-md-for-obsidian`.
+- If the input is an existing vault and the requested change concerns algorithm-job routes, JD categories, interview maps, or nine-direction migration, route to `algorithm-job-notes-for-obsidian`.
 - If the input is already a vault or note folder and the desired output is still notes, route to `obsidian-vault-organizer`.
 - If the input is already notes and the desired output is a deck, route to `notes-to-scientific-ppt`.

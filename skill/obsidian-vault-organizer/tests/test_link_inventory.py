@@ -3,16 +3,43 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.link_inventory import build_inventory, render_markdown  # noqa: E402
+from scripts.safe_io import InputRootError  # noqa: E402
 
 
 def write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize("kind", ("missing", "file", "symlink-dir"))
+def test_build_inventory_api_rejects_invalid_root_shape(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    regular = tmp_path / "regular"
+    write(regular / "note.md", "# Note\n")
+    if kind == "missing":
+        root = tmp_path / "missing"
+    elif kind == "file":
+        root = tmp_path / "root.md"
+        write(root, "# File\n")
+    else:
+        root = tmp_path / "alias"
+        root.symlink_to(regular, target_is_directory=True)
+
+    with pytest.raises(InputRootError) as caught:
+        build_inventory(root)
+
+    assert str(caught.value) == (
+        f"{root}: root must be an existing directory without symlink components"
+    )
 
 
 def test_link_inventory_counts_links_by_file_and_directory(tmp_path: Path):
@@ -185,6 +212,37 @@ def test_link_inventory_excludes_guidance_tooling_cache_and_external_symlink(tmp
     inventory = build_inventory(tmp_path)
 
     assert [item["file"] for item in inventory["files"]] == ["Actual.md"]
+
+
+def test_link_inventory_uses_quality_scan_symlink_boundary(tmp_path: Path):
+    target = tmp_path / "target.md"
+    nested = tmp_path / "real-dir" / "nested.md"
+    outside_file = tmp_path.parent / "inventory-outside.md"
+    outside_dir = tmp_path.parent / "inventory-outside-dir"
+    write(target, "# Target\n\n[[Other]]\n")
+    write(nested, "# Nested\n")
+    write(outside_file, "# Outside\n\n[[Outside]]\n")
+    write(outside_dir / "outside-nested.md", "# Outside nested\n")
+    (tmp_path / "internal-alias.md").symlink_to(target)
+    (tmp_path / "external-alias.md").symlink_to(outside_file)
+    (tmp_path / "broken-alias.md").symlink_to(tmp_path / "missing.md")
+    (tmp_path / "internal-dir-alias").symlink_to(
+        nested.parent,
+        target_is_directory=True,
+    )
+    (tmp_path / "external-dir-alias").symlink_to(
+        outside_dir,
+        target_is_directory=True,
+    )
+
+    inventory = build_inventory(tmp_path)
+
+    assert [item["file"] for item in inventory["files"]] == [
+        "real-dir/nested.md",
+        "target.md",
+    ]
+    assert inventory["totals"]["files"] == 2
+    assert inventory["totals"]["wiki_links"] == 1
 
 
 def test_link_inventory_obeys_quoted_destination_and_blank_label_boundaries(

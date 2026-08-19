@@ -1,6 +1,6 @@
 ---
 name: obsidian-vault-organizer
-description: Use when the starting point is an existing Obsidian vault or Markdown note collection and the task is cleanup, broken-link repair, duplicate merge, navigation, validation, or note-quality improvement; Chinese triggers include vault整理, 断链修复, 合并重复笔记. Use $ppt-to-md-for-obsidian instead for local courseware extraction, $web-course-notes-for-obsidian for URL collection, and $notes-to-scientific-ppt when the main goal is a PPTX deck.
+description: Use when the starting point is an existing Obsidian vault or Markdown note collection and the task is cleanup, broken-link repair, duplicate merge, navigation, validation, or note-quality improvement; Chinese triggers include vault整理, 断链修复, 合并重复笔记. Use $algorithm-job-notes-for-obsidian when algorithm-job direction taxonomy, JD routes, or interview evidence is in scope; use $ppt-to-md-for-obsidian for local courseware extraction, $web-course-notes-for-obsidian for URL collection, and $notes-to-scientific-ppt when the main goal is a PPTX deck.
 ---
 
 # Obsidian Vault Organizer
@@ -15,7 +15,7 @@ When a target vault follows solvenotes-style conventions, read `references/solve
 
 ## Handoff Boundaries
 
-Use this skill when the task is vault-first: cleanup, repair, merge, navigation, validation, or note-quality improvement. If source extraction from PPT/PPTX/PDF is still the main task, switch to `$ppt-to-md-for-obsidian`; if public web source collection is still required, use `$web-course-notes-for-obsidian` first.
+Use this skill when the task is vault-first: cleanup, repair, merge, navigation, validation, or note-quality improvement. If algorithm-job direction taxonomy, JD categories, or interview routes are being changed, hand off to `$algorithm-job-notes-for-obsidian` first. If source extraction from PPT/PPTX/PDF is still the main task, switch to `$ppt-to-md-for-obsidian`; if public web source collection is still required, use `$web-course-notes-for-obsidian` first.
 
 ## Dry-run Mode
 

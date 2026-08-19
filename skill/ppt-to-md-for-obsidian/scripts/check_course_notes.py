@@ -11,9 +11,23 @@ import stat
 import sys
 
 try:
-    from .check_obsidian_links import count_block_math_delimiters, text_without_code
+    from .check_obsidian_links import (
+        MARKDOWN_LINK_RE,
+        WIKI_LINK_RE,
+        clean_target,
+        count_block_math_delimiters,
+        text_without_code,
+    )
+    from .safe_io import InputRootError, validate_input_root
 except ImportError:
-    from check_obsidian_links import count_block_math_delimiters, text_without_code
+    from check_obsidian_links import (
+        MARKDOWN_LINK_RE,
+        WIKI_LINK_RE,
+        clean_target,
+        count_block_math_delimiters,
+        text_without_code,
+    )
+    from safe_io import InputRootError, validate_input_root
 
 
 OVERVIEW_NAMES = ("00_课程总览.md", "00_学习地图.md")
@@ -133,6 +147,24 @@ def count_nonblank_lines(text: str) -> int:
     return sum(1 for line in text.splitlines() if line.strip())
 
 
+def linked_note_stems(text: str) -> set[str]:
+    """Return actual local Markdown/wiki link targets outside code contexts."""
+
+    visible = text_without_code(text)
+    assert isinstance(visible, str)
+    targets = [target.strip() for target in WIKI_LINK_RE.findall(visible)]
+    targets.extend(
+        cleaned
+        for raw_target in MARKDOWN_LINK_RE.findall(visible)
+        if (cleaned := clean_target(raw_target)) is not None
+    )
+    return {
+        Path(target.replace("\\", "/")).stem
+        for target in targets
+        if target.strip()
+    }
+
+
 def is_exam_review(path: Path) -> bool:
     return bool(EXAM_REVIEW_RE.search(path.stem))
 
@@ -225,6 +257,7 @@ def find_course_note_issues(
     min_detailed_lines: int = 250,
     min_exam_review_lines: int = 250,
 ) -> list[CourseNoteIssue]:
+    root = validate_input_root(root)
     issues = symlink_issues(root, skip_dirs=skip_dirs)
     files = markdown_files(root, skip_dirs=skip_dirs)
 
@@ -288,8 +321,9 @@ def find_course_note_issues(
 
     if overview is not None:
         overview_text = overview.read_text(encoding="utf-8", errors="replace")
+        linked_stems = linked_note_stems(overview_text)
         for target in review_targets:
-            if target.stem not in overview_text:
+            if target.stem not in linked_stems:
                 issues.append(relative_issue(root, overview, "missing_review_link", f"overview should link {target.name}"))
 
     return issues
@@ -308,22 +342,20 @@ def main() -> int:
     parser.add_argument("root", type=Path, help="Course notes directory")
     args = parser.parse_args()
 
-    root = args.root.resolve()
-    if not root.exists():
-        parser.error(f"directory does not exist: {root}")
-    if not root.is_dir():
-        parser.error(f"root must be a directory: {root}")
-
-    issues = find_course_note_issues(
-        root,
-        skip_dirs=set(args.skip_dir),
-        strict_depth=args.strict_depth,
-        allow_exam_review=args.allow_exam_review,
-        require_coverage_audit=args.require_coverage_audit,
-        min_chapter_lines=args.min_chapter_lines,
-        min_detailed_lines=args.min_detailed_lines,
-        min_exam_review_lines=args.min_exam_review_lines,
-    )
+    try:
+        issues = find_course_note_issues(
+            args.root,
+            skip_dirs=set(args.skip_dir),
+            strict_depth=args.strict_depth,
+            allow_exam_review=args.allow_exam_review,
+            require_coverage_audit=args.require_coverage_audit,
+            min_chapter_lines=args.min_chapter_lines,
+            min_detailed_lines=args.min_detailed_lines,
+            min_exam_review_lines=args.min_exam_review_lines,
+        )
+    except InputRootError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     print(f"course_note_issues {len(issues)}")
     for issue in issues:
         print(f"{issue.kind.upper()}: {issue.path}: {issue.message}")

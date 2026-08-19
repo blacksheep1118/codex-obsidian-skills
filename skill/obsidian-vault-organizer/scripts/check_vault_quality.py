@@ -13,8 +13,10 @@ import unicodedata
 
 try:
     from .check_obsidian_links import count_block_math_delimiters, text_without_code
+    from .safe_io import InputRootError, validate_input_root
 except ImportError:
     from check_obsidian_links import count_block_math_delimiters, text_without_code
+    from safe_io import InputRootError, validate_input_root
 
 
 TEMPLATE_RE = re.compile(r"(相关知识链接|TODO|FIXME|TBD|待补|待完善)")
@@ -24,7 +26,16 @@ SOLVENOTES_STUDY_RE = re.compile(
     r"这个公式把项目状态转成可量化的控制指标|若等待图成环，则可能发生死锁|"
     r"关键不是背结论|信息如何进入价格|收益、方差、估值或技术指标)"
 )
-REPORT_NOTE_NAME_RE = re.compile(r"(审查|复查|报告|覆盖审查|一致性严格审查)")
+REPORT_NOTE_NAME_RE = re.compile(
+    r"(?:"
+    r"^99_.*(?:审查|复查|审计|巡检|报告)$|"
+    r"(?:质量|内容覆盖|来源覆盖|一致性|严格).*(?:审查|复查|审计|巡检|报告)$|"
+    r"(?:审计|巡检)(?:报告|记录|台账)?$|"
+    r"(?:审查|复查)(?:报告|记录|台账)$|"
+    r"(?:^|[_ -])(?:audit|coverage_audit|quality_report|review_report|validation_report)(?:$|[_ -])"
+    r")",
+    re.IGNORECASE,
+)
 FORMAL_COVERAGE_AUDIT_NAME = "99_内容覆盖审查.md"
 FORMAL_COVERAGE_NOTE_TYPE_RE = re.compile(
     r'''note_type\s*:\s*(?:coverage_audit|"coverage_audit"|'coverage_audit')\s*'''
@@ -76,7 +87,6 @@ def normalized_skip_dirs(
 ) -> tuple[tuple[str, ...], ...]:
     """Validate exact root-relative directory exclusions and return their parts."""
 
-    root = root.resolve()
     normalized: set[tuple[str, ...]] = set()
     for raw_skip_dir in skip_dirs or []:
         relative = Path(raw_skip_dir)
@@ -127,7 +137,6 @@ def markdown_files(
     root: Path,
     skip_dirs: list[Path] | None = None,
 ) -> list[Path]:
-    root = root.resolve()
     excluded_subtrees = normalized_skip_dirs(root, skip_dirs)
     files: list[Path] = []
     for path in root.rglob("*.md"):
@@ -303,6 +312,7 @@ def find_vault_issues(
     pattern_files: list[Path] | None = None,
     skip_dirs: list[Path] | None = None,
 ) -> list[VaultIssue]:
+    root = validate_input_root(root)
     files = markdown_files(root, skip_dirs=skip_dirs)
     issues: list[VaultIssue] = []
     stems: dict[str, list[Path]] = {}
@@ -326,14 +336,11 @@ def find_vault_issues(
         has_conflict_edges = "<<<<<<<" in text and ">>>>>>>" in text
         lines = text.splitlines()
         masked_lines = masked_text.splitlines()
-        solvenotes_report_type = bool(
-            profile == "solvenotes"
-            and frontmatter_note_types(text) & SOLVENOTES_REPORT_NOTE_TYPES
-        )
+        report_note_type = bool(frontmatter_note_types(text) & SOLVENOTES_REPORT_NOTE_TYPES)
 
         if (
             (forbid_report_notes or profile == "solvenotes")
-            and (REPORT_NOTE_NAME_RE.search(path.stem) or solvenotes_report_type)
+            and (REPORT_NOTE_NAME_RE.search(path.stem) or report_note_type)
             and not (
                 allow_formal_coverage_audits
                 and profile == "generic"
@@ -424,15 +431,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    root = args.root.resolve()
-    if not root.exists():
-        parser.error(f"directory does not exist: {root}")
-    if not root.is_dir():
-        parser.error(f"root must be a directory: {root}")
-
     try:
         issues = find_vault_issues(
-            root,
+            args.root,
             allow_duplicate_stems=args.allow_duplicate_stems,
             strict_study=args.strict_study,
             forbid_report_notes=args.forbid_report_notes,
@@ -441,6 +442,9 @@ def main() -> int:
             pattern_files=args.pattern_file,
             skip_dirs=args.skip_dir,
         )
+    except InputRootError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     print(f"vault_quality_issues {len(issues)}")

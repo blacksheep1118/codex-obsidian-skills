@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.check_vault_quality import find_vault_issues, markdown_files  # noqa: E402
+from scripts.safe_io import InputRootError  # noqa: E402
 
 
 SCRIPT = ROOT / "scripts" / "check_vault_quality.py"
@@ -25,6 +26,30 @@ def write(path: Path, text: str) -> None:
 
 def issue_kinds(issues) -> set[str]:
     return {issue.kind for issue in issues}
+
+
+@pytest.mark.parametrize("kind", ("missing", "file", "symlink-dir"))
+def test_find_vault_issues_api_rejects_invalid_root_shape(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    regular = tmp_path / "regular"
+    write(regular / "note.md", "# Note\n")
+    if kind == "missing":
+        root = tmp_path / "missing"
+    elif kind == "file":
+        root = tmp_path / "root.md"
+        write(root, "# File\n")
+    else:
+        root = tmp_path / "alias"
+        root.symlink_to(regular, target_is_directory=True)
+
+    with pytest.raises(InputRootError) as caught:
+        find_vault_issues(root)
+
+    assert str(caught.value) == (
+        f"{root}: root must be an existing directory without symlink components"
+    )
 
 
 def test_vault_quality_reports_generic_issues_and_duplicate_stems(tmp_path: Path):
@@ -253,6 +278,69 @@ def test_forbid_report_notes_flags_audit_notes(tmp_path: Path):
     issues = find_vault_issues(vault, forbid_report_notes=True)
 
     assert "report_note" in issue_kinds(issues)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ("实验报告写作.md", "审计学导论.md", "质量报告解读.md", "审查起诉制度.md"),
+)
+def test_report_gate_api_keeps_legitimate_study_topics(
+    tmp_path: Path,
+    name: str,
+) -> None:
+    vault = tmp_path / "vault"
+    write(
+        vault / name,
+        "---\nnote_type: chapter\n---\n\n# 课程主题\n\n这是课程正文，不是审计产物。\n",
+    )
+
+    issues = find_vault_issues(
+        vault,
+        profile="solvenotes",
+        forbid_report_notes=True,
+    )
+
+    assert "report_note" not in issue_kinds(issues)
+
+
+def test_report_gate_cli_distinguishes_course_report_topic_from_audit_artifact(
+    tmp_path: Path,
+) -> None:
+    vault = tmp_path / "vault"
+    write(vault / "实验报告写作.md", "# 实验报告写作\n\n课程正文。\n")
+
+    legitimate = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--profile",
+            "solvenotes",
+            "--forbid-report-notes",
+            str(vault),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert legitimate.returncode == 0, legitimate.stdout + legitimate.stderr
+
+    write(vault / "质量审查报告.md", "# 质量审查报告\n\nGenerated audit.\n")
+    audit = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--profile",
+            "solvenotes",
+            "--forbid-report-notes",
+            str(vault),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert audit.returncode == 1
+    assert "REPORT_NOTE: 质量审查报告.md" in audit.stdout
+    assert "REPORT_NOTE: 实验报告写作.md" not in audit.stdout
 
 
 def test_generic_profile_without_report_gate_keeps_default_behavior(tmp_path: Path):

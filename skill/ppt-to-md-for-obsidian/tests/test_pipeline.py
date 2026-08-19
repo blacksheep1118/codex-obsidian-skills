@@ -2,6 +2,8 @@ import hashlib
 import os
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import unicodedata
 
 import pytest
@@ -13,6 +15,125 @@ from scripts.extract_pptx_text import PptxExtractionResult
 from scripts.ppt_to_obsidian_pipeline import PipelineConfig, disambiguated_stem, run
 import scripts.ppt_to_obsidian_pipeline as pipeline
 import scripts.safe_io as safe_io
+
+
+SKILL_ROOT = Path(__file__).resolve().parents[1]
+PIPELINE_SCRIPT = SKILL_ROOT / "scripts" / "ppt_to_obsidian_pipeline.py"
+
+
+def run_pipeline_cli(config: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(PIPELINE_SCRIPT), "--config", str(config)],
+        cwd=SKILL_ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("payload", "reason"),
+    (
+        ("", "config must be a YAML mapping"),
+        ("null\n", "config must be a YAML mapping"),
+        ("- first\n- second\n", "config must be a YAML mapping"),
+        ("42\n", "config must be a YAML mapping"),
+        ("clean: [\n", "config contains invalid YAML"),
+        ("clean: []\n", "config section clean must be a YAML mapping"),
+        ("conversion: 1\n", "config section conversion must be a YAML mapping"),
+        ("obsidian: null\n", "config section obsidian must be a YAML mapping"),
+    ),
+    ids=(
+        "empty",
+        "null",
+        "sequence",
+        "scalar",
+        "malformed-yaml",
+        "clean-not-mapping",
+        "conversion-not-mapping",
+        "obsidian-not-mapping",
+    ),
+)
+def test_pipeline_cli_reports_stable_config_shape_errors(
+    tmp_path: Path,
+    payload: str,
+    reason: str,
+) -> None:
+    config = tmp_path / "pipeline.yaml"
+    config.write_text(payload, encoding="utf-8")
+
+    result = run_pipeline_cli(config)
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == f"ERROR: {config}: {reason}\n"
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("kind", ("missing", "directory"))
+def test_pipeline_cli_reports_stable_config_path_errors(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    config = tmp_path / "pipeline.yaml"
+    if kind == "directory":
+        config.mkdir()
+        reason = "config path is not a regular file"
+    else:
+        reason = "config file does not exist"
+
+    result = run_pipeline_cli(config)
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == f"ERROR: {config}: {reason}\n"
+    assert "Traceback" not in result.stderr
+
+
+def test_pipeline_cli_accepts_valid_mapping_config(tmp_path: Path) -> None:
+    source = SKILL_ROOT / "examples" / "sample-course" / "raw" / "sample_course.pptx"
+    output = tmp_path / "out"
+    config = tmp_path / "pipeline.yaml"
+    config.write_text(
+        f'source: "{source}"\n'
+        f'output_dir: "{output}"\n'
+        "clean: {}\n"
+        "conversion: {}\n"
+        "obsidian: {}\n",
+        encoding="utf-8",
+    )
+
+    result = run_pipeline_cli(config)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stderr == ""
+    assert "processed_sources 1" in result.stdout
+    assert (output / "pipeline_manifest.md").is_file()
+
+
+@pytest.mark.parametrize(
+    "signal",
+    (KeyboardInterrupt(), SystemExit(7)),
+    ids=("keyboard-interrupt", "system-exit"),
+)
+def test_pipeline_main_does_not_hide_config_control_flow_exceptions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    signal: BaseException,
+) -> None:
+    config = tmp_path / "pipeline.yaml"
+    config.write_text("{}\n", encoding="utf-8")
+
+    def stop_config(_path: Path) -> dict:
+        raise signal
+
+    monkeypatch.setattr(pipeline, "load_yaml_config", stop_config)
+    monkeypatch.setattr(sys, "argv", [str(PIPELINE_SCRIPT), "--config", str(config)])
+
+    with pytest.raises(type(signal)):
+        pipeline.main()
 
 
 def test_pipeline_extracts_cleans_and_writes_manifest(tmp_path: Path):

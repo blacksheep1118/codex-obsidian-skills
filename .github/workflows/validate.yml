@@ -73,6 +73,8 @@ jobs:
             validator: scripts/validate_skill_repo.py
           - skill: web-course-notes-for-obsidian
             validator: scripts/validate_skill.py
+          - skill: algorithm-job-notes-for-obsidian
+            validator: scripts/validate_skill.py
 
     steps:
       - name: Checkout

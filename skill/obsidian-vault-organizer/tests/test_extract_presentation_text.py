@@ -38,6 +38,80 @@ def run_extractor(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def regular_tree_snapshot(root: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and not path.is_symlink()
+    }
+
+
+@pytest.mark.parametrize(
+    "kind",
+    (
+        "regular",
+        "missing",
+        "file",
+        "leaf-symlink",
+        "ancestor-symlink",
+        "broken-leaf",
+        "broken-ancestor",
+    ),
+)
+def test_extract_presentation_text_validates_lexical_output_directory_shape(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    source = tmp_path / "source" / "lecture.pptx"
+    write_minimal_pptx(source, "Output root evidence")
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "sentinel.txt").write_text("keep\n", encoding="utf-8")
+
+    if kind == "regular":
+        output_dir = tmp_path / "regular-output"
+        output_dir.mkdir()
+    elif kind == "missing":
+        output_dir = tmp_path / "new-output"
+    elif kind == "file":
+        output_dir = tmp_path / "output-file"
+        output_dir.write_text("not a directory\n", encoding="utf-8")
+    elif kind == "leaf-symlink":
+        output_dir = tmp_path / "output-alias"
+        output_dir.symlink_to(target, target_is_directory=True)
+    elif kind == "ancestor-symlink":
+        ancestor = tmp_path / "ancestor-alias"
+        ancestor.symlink_to(target, target_is_directory=True)
+        output_dir = ancestor / "nested-output"
+    elif kind == "broken-leaf":
+        output_dir = tmp_path / "broken-output"
+        output_dir.symlink_to(tmp_path / "missing-target", target_is_directory=True)
+    else:
+        ancestor = tmp_path / "broken-ancestor"
+        ancestor.symlink_to(tmp_path / "missing-parent", target_is_directory=True)
+        output_dir = ancestor / "nested-output"
+
+    before = regular_tree_snapshot(tmp_path)
+    result = run_extractor(str(source), "--output-dir", str(output_dir))
+
+    if kind in {"regular", "missing"}:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert result.stderr == ""
+        assert (output_dir / "lecture.txt").is_file()
+        assert "Output root evidence" in (output_dir / "lecture.txt").read_text(
+            encoding="utf-8"
+        )
+    else:
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert result.stderr == (
+            f"ERROR: {output_dir}: --output-dir must be a directory without "
+            "symlink components\n"
+        )
+        assert "Traceback" not in result.stderr
+        assert regular_tree_snapshot(tmp_path) == before
+
+
 def test_extract_presentation_text_keeps_unique_basename(tmp_path: Path) -> None:
     source = tmp_path / "source" / "lecture.pptx"
     output_dir = tmp_path / "out"

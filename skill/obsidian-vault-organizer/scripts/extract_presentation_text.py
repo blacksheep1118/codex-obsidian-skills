@@ -17,14 +17,15 @@ import zipfile
 from xml.etree import ElementTree as ET
 
 try:
-    from .safe_io import safe_write_text
+    from .safe_io import ensure_safe_directory, safe_write_text
 except ImportError:
-    from safe_io import safe_write_text
+    from safe_io import ensure_safe_directory, safe_write_text
 
 
 END_OF_CHAIN = -2
 FREE_SECTOR = -1
 NO_STREAM = -1
+OUTPUT_DIR_ERROR_REASON = "--output-dir must be a directory without symlink components"
 
 PLACEHOLDER_RE = re.compile(
     r"^(?:"
@@ -332,7 +333,7 @@ def allocate_output_paths(sources: list[Path], output_dir: Path) -> list[Path]:
 
 
 def ensure_safe_output_path(output_dir: Path, path: Path) -> Path:
-    output_root = output_dir.resolve()
+    output_root = Path(os.path.abspath(output_dir.expanduser()))
     candidate = Path(os.path.abspath(path))
     try:
         relative = candidate.relative_to(output_root)
@@ -363,15 +364,21 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.output_dir:
-        args.output_dir = args.output_dir.expanduser().resolve()
-        args.output_dir.mkdir(parents=True, exist_ok=True)
+        requested_output_dir = args.output_dir.expanduser()
         try:
+            args.output_dir = ensure_safe_directory(
+                requested_output_dir,
+                create=True,
+            )
             output_paths = [
                 ensure_safe_output_path(args.output_dir, path)
                 for path in allocate_output_paths(args.sources, args.output_dir)
             ]
-        except (OSError, ValueError) as exc:
-            print(f"ERROR: unsafe output path: {exc}", file=sys.stderr)
+        except (OSError, ValueError):
+            print(
+                f"ERROR: {requested_output_dir}: {OUTPUT_DIR_ERROR_REASON}",
+                file=sys.stderr,
+            )
             return 1
     else:
         output_paths = [None] * len(args.sources)

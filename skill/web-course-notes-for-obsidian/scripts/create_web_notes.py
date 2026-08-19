@@ -20,6 +20,10 @@ from collect_web_sources import (
     collect_sources,
     title_from_url,
 )
+try:
+    from .safe_io import ensure_safe_input_directory
+except ImportError:
+    from safe_io import ensure_safe_input_directory
 
 
 CATEGORY_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -135,6 +139,28 @@ def existing_dirs(root: Path) -> list[Path]:
     return directories
 
 
+def validated_notes_root(notes_dir: Path, *, allow_missing: bool) -> Path:
+    """Validate every existing root component before any path resolution."""
+
+    root = Path(os.path.abspath(notes_dir.expanduser()))
+    if root.exists() or root.is_symlink():
+        try:
+            return ensure_safe_input_directory(root)
+        except ValueError as exc:
+            raise ValueError(f"unsafe --notes-dir: {exc}") from exc
+
+    ancestor = root.parent
+    while not ancestor.exists() and not ancestor.is_symlink():
+        ancestor = ancestor.parent
+    try:
+        safe_ancestor = ensure_safe_input_directory(ancestor)
+    except ValueError as exc:
+        raise ValueError(f"unsafe --notes-dir ancestor: {exc}") from exc
+    if not allow_missing:
+        raise ValueError(f"--notes-dir must be an existing directory: {notes_dir}")
+    return safe_ancestor / root.relative_to(ancestor)
+
+
 def _relative_beneath(root: Path, path: Path) -> Path:
     root = root.expanduser().resolve()
     candidate = path.expanduser()
@@ -220,10 +246,11 @@ def choose_category_dir(
     *,
     default_root_folder: str = "网络资源",
 ) -> Path:
+    notes_dir = validated_notes_root(notes_dir, allow_missing=True)
     if explicit_category:
         category = Path(explicit_category)
         windows_category = PureWindowsPath(explicit_category)
-        notes_root = notes_dir.resolve()
+        notes_root = notes_dir
         if (
             category.is_absolute()
             or windows_category.drive
@@ -721,11 +748,7 @@ def create_notes(
     map_note_name: str | None = None,
     dry_run: bool = False,
 ) -> CreatedNotes:
-    notes_root = notes_dir.expanduser().resolve()
-    if notes_root.exists() and not notes_root.is_dir():
-        raise ValueError(f"--notes-dir must be an existing directory: {notes_dir}")
-    if not notes_root.exists() and not dry_run:
-        raise ValueError(f"--notes-dir must be an existing directory: {notes_dir}")
+    notes_root = validated_notes_root(notes_dir, allow_missing=dry_run)
     pages = collect_sources(
         sources,
         timeout=timeout,

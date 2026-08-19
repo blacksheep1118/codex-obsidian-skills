@@ -7,7 +7,13 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import pprint
+import stat
 import sys
+
+try:
+    from .shared.safe_io import ensure_safe_output_path, safe_write_text
+except ImportError:
+    from shared.safe_io import ensure_safe_output_path, safe_write_text
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +39,7 @@ STATIC_RESOURCES = (
         targets=(
             ROOT / "skill" / "ppt-to-md-for-obsidian" / "scripts" / "markdown_links.py",
             ROOT / "skill" / "obsidian-vault-organizer" / "scripts" / "markdown_links.py",
+            ROOT / "skill" / "web-course-notes-for-obsidian" / "scripts" / "markdown_links.py",
             ROOT / "skill" / "notes-to-scientific-ppt" / "scripts" / "markdown_links.py",
         ),
     ),
@@ -41,6 +48,8 @@ STATIC_RESOURCES = (
         targets=(
             ROOT / "skill" / "ppt-to-md-for-obsidian" / "scripts" / "check_obsidian_links.py",
             ROOT / "skill" / "obsidian-vault-organizer" / "scripts" / "check_obsidian_links.py",
+            ROOT / "skill" / "web-course-notes-for-obsidian" / "scripts" / "check_obsidian_links.py",
+            ROOT / "skill" / "notes-to-scientific-ppt" / "scripts" / "check_obsidian_links.py",
         ),
     ),
     StaticResource(
@@ -82,6 +91,7 @@ VALIDATORS = (
             "scripts/build_scientific_deck.py",
             "scripts/verify_pptx.py",
             "scripts/outline_note_deck.py",
+            "scripts/check_obsidian_links.py",
             "scripts/markdown_links.py",
             "scripts/safe_io.py",
             "scripts/skill_metadata.py",
@@ -97,8 +107,10 @@ VALIDATORS = (
             "LICENSE",
             "agents/openai.yaml",
             "scripts/collect_web_sources.py",
+            "scripts/check_obsidian_links.py",
             "scripts/check_web_notes.py",
             "scripts/create_web_notes.py",
+            "scripts/markdown_links.py",
             "scripts/safe_io.py",
             "scripts/url_identity.py",
             "scripts/skill_metadata.py",
@@ -167,8 +179,13 @@ def render_validator(resource: ValidatorResource) -> str:
 
 def check_or_write(path: Path, expected: str, write: bool, mismatches: list[str]) -> None:
     if write:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(expected, encoding="utf-8")
+        try:
+            mode = path.lstat().st_mode
+        except FileNotFoundError:
+            output_mode = 0o644
+        else:
+            output_mode = stat.S_IMODE(mode) if stat.S_ISREG(mode) else 0o644
+        safe_write_text(path, expected, mode=output_mode)
         return
     if not path.exists():
         mismatches.append(f"missing: {path.relative_to(ROOT)}")
@@ -177,14 +194,36 @@ def check_or_write(path: Path, expected: str, write: bool, mismatches: list[str]
         mismatches.append(f"out of sync: {path.relative_to(ROOT)}")
 
 
-def sync(write: bool = False) -> list[str]:
-    mismatches: list[str] = []
+def resource_plan() -> list[tuple[Path, str]]:
+    plan: list[tuple[Path, str]] = []
     for resource in STATIC_RESOURCES:
         expected = normalized_text(resource.source)
-        for target in resource.targets:
-            check_or_write(target, expected, write, mismatches)
-    for resource in VALIDATORS:
-        check_or_write(resource.target, render_validator(resource), write, mismatches)
+        plan.extend((target, expected) for target in resource.targets)
+    plan.extend((resource.target, render_validator(resource)) for resource in VALIDATORS)
+    return plan
+
+
+def preflight_write_plan(plan: list[tuple[Path, str]]) -> None:
+    """Validate every output before the first resource is changed."""
+
+    for path, _expected in plan:
+        ensure_safe_output_path(path, create_parent=False)
+
+
+def apply_write_plan(plan: list[tuple[Path, str]]) -> None:
+    preflight_write_plan(plan)
+    for path, expected in plan:
+        check_or_write(path, expected, True, [])
+
+
+def sync(write: bool = False) -> list[str]:
+    mismatches: list[str] = []
+    plan = resource_plan()
+    if write:
+        apply_write_plan(plan)
+        return mismatches
+    for path, expected in plan:
+        check_or_write(path, expected, False, mismatches)
     return mismatches
 
 
@@ -194,7 +233,11 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="check consistency without writing; default when --write is omitted")
     args = parser.parse_args()
 
-    mismatches = sync(write=args.write)
+    try:
+        mismatches = sync(write=args.write)
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: shared resource sync failed: {exc}", file=sys.stderr)
+        return 1
     if args.write:
         print("shared_resource_sync wrote resources")
         return 0
