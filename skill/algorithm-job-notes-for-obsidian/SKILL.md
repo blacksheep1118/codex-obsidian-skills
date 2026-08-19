@@ -213,6 +213,9 @@ perform a deterministic rule scan and report that it is a file-level check.
 - `scripts/algorithm_job_taxonomy.py` and
   `scripts/check_algorithm_job_vault.py`: the single taxonomy and the
   read-only structural scanner for this skill.
+- `scripts/check_cpp_examples.py`: compiles and runs only self-contained C++17
+  blocks preceded by `<!-- runnable: cpp17 -->`; unknown Markdown fences are
+  never executed.
 - `scripts/`: use the repository-level validators and install scripts; do not
   create a second installation mechanism inside this skill.
 - `references/`: read the vault's local profile and validation notes before

@@ -31,6 +31,10 @@ ROUTING_EXPECTATIONS = {
         "positive": ("algorithm-job learning notes", "internship or recruiting maps", "nine directions"),
         "boundary": ("$obsidian-vault-organizer", "$ppt-to-md-for-obsidian"),
     },
+    "solvenotes-vault-maintainer": {
+        "positive": ("repository-wide validation", "clean export packaging", "source-manifest checks"),
+        "boundary": ("$obsidian-vault-organizer", "$algorithm-job-notes-for-obsidian"),
+    },
 }
 FORBIDDEN_SKILL_AUXILIARY_FILES = {
     "readme.md",
@@ -112,7 +116,7 @@ def load_frontmatter(skill_dir: Path) -> dict:
 
 
 def test_all_skills_have_output_contracts_and_validation():
-    assert len(SKILL_DIRS) == 5
+    assert len(SKILL_DIRS) == 6
 
     for skill_dir in SKILL_DIRS:
         text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")

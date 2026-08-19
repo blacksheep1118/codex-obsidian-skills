@@ -1,0 +1,4 @@
+interface:
+  display_name: "Solvenotes Vault Maintainer"
+  short_description: "Validate and maintain the Solvenotes Obsidian vault"
+  default_prompt: "Use $solvenotes-vault-maintainer to validate and maintain the Solvenotes notes vault without placing maintenance code in the vault."

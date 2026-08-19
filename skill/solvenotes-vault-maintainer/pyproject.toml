@@ -1,0 +1,17 @@
+[tool.pytest.ini_options]
+testpaths = ["tests", "scripts/tests"]
+pythonpath = ["scripts"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = ["dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/check_repo_hygiene.py" = ["E402"]
+"scripts/package_vault.py" = ["E402"]

@@ -66,7 +66,7 @@ def test_install_update_and_self_check(tmp_path: Path):
     destination = tmp_path / "skills"
 
     install = run_script("scripts/install_skill.py", "--all", "--destination", str(destination), "--self-check")
-    assert "install_self_check ok skills=5" in install.stdout
+    assert "install_self_check ok skills=6" in install.stdout
     assert (destination / "ppt-to-md-for-obsidian" / "SKILL.md").exists()
     assert (destination / "obsidian-vault-organizer" / "SKILL.md").exists()
     assert (destination / "web-course-notes-for-obsidian" / "SKILL.md").exists()
@@ -82,11 +82,11 @@ def test_install_update_and_self_check(tmp_path: Path):
     assert stale.exists()
 
     update = run_script("scripts/update_installed_skills.py", "--all", "--destination", str(destination), "--prune", "--self-check")
-    assert "install_self_check ok skills=5" in update.stdout
+    assert "install_self_check ok skills=6" in update.stdout
     assert not stale.exists()
 
     self_check = run_script("scripts/install_skill.py", "--all", "--destination", str(destination), "--self-check-only")
-    assert "install_self_check ok skills=5" in self_check.stdout
+    assert "install_self_check ok skills=6" in self_check.stdout
 
 
 def test_install_rejects_existing_skill_and_explicit_update_still_refreshes(tmp_path: Path):

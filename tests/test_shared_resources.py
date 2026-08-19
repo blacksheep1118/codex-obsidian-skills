@@ -172,6 +172,7 @@ def test_all_skills_keep_local_validator_copy():
         "obsidian-vault-organizer": "scripts/validate_skill.py",
         "ppt-to-md-for-obsidian": "scripts/validate_skill_repo.py",
         "algorithm-job-notes-for-obsidian": "scripts/validate_skill.py",
+        "solvenotes-vault-maintainer": "scripts/validate_skill.py",
     }
 
     for skill_name, validator in expected.items():
