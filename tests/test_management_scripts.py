@@ -31,8 +31,16 @@ def run_script(
     timeout: int = SUBPROCESS_TIMEOUT_SECONDS,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
+    command = [sys.executable, *args]
+    platform_level = os.environ.get("SOLVENOTES_TEST_SELF_CHECK_LEVEL", "").strip()
+    if (
+        platform_level
+        and ("--self-check" in args or "--self-check-only" in args)
+        and "--self-check-level" not in args
+    ):
+        command.extend(("--self-check-level", platform_level))
     return subprocess.run(
-        [sys.executable, *args],
+        command,
         cwd=cwd,
         text=True,
         encoding="utf-8",
@@ -580,10 +588,10 @@ def test_validate_all_pytest_steps_disable_external_plugin_autoload(monkeypatch,
 
     assert {command.command[3] for command in pytest_commands} == {"-q"}
     assert pytest_commands
-    assert all(
-        command.env == {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", "PYTHONDONTWRITEBYTECODE": "1"}
-        for command in pytest_commands
-    )
+    base_env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", "PYTHONDONTWRITEBYTECODE": "1"}
+    root_tests = next(step for step in steps if step.step_id == "root.tests").commands[0]
+    assert root_tests.env == {**base_env, "SOLVENOTES_TEST_SELF_CHECK_LEVEL": "runtime"}
+    assert all(command.env == base_env for command in pytest_commands if command is not root_tests)
 
 
 def test_validate_all_pytest_plugin_autoload_override(monkeypatch, tmp_path: Path):
@@ -598,7 +606,10 @@ def test_validate_all_pytest_plugin_autoload_override(monkeypatch, tmp_path: Pat
     ]
 
     assert pytest_commands
-    assert all(command.env == {"PYTHONDONTWRITEBYTECODE": "1"} for command in pytest_commands)
+    base_env = {"PYTHONDONTWRITEBYTECODE": "1"}
+    root_tests = next(step for step in steps if step.step_id == "root.tests").commands[0]
+    assert root_tests.env == {**base_env, "SOLVENOTES_TEST_SELF_CHECK_LEVEL": "runtime"}
+    assert all(command.env == base_env for command in pytest_commands if command is not root_tests)
 
 
 def test_validate_all_quick_runs_root_tests_before_metadata_sync(tmp_path: Path):
@@ -627,10 +638,10 @@ def test_validate_all_ruff_step_uses_root_config(tmp_path: Path):
 
 
 def test_validate_all_timeout_reports_context(monkeypatch, capsys):
-    def raise_timeout(*args, **kwargs):
-        raise subprocess.TimeoutExpired(cmd=kwargs.get("args", args[0]), timeout=7)
+    def return_timeout(*args, **kwargs):
+        return 124
 
-    monkeypatch.setattr(validate_all.subprocess, "run", raise_timeout)
+    monkeypatch.setattr(validate_all, "run_process", return_timeout)
 
     try:
         validate_all.run_command("root.tests", [sys.executable, "-m", "pytest", "-q"], ROOT, timeout=7)
@@ -643,7 +654,48 @@ def test_validate_all_timeout_reports_context(monkeypatch, capsys):
     assert "step: root.tests" in captured.err
     assert f"cwd: {ROOT}" in captured.err
     assert "command:" in captured.err
-    assert "timeout: after 7s" in captured.err
+    assert "return code: 124" in captured.err
+
+
+@pytest.mark.parametrize("level", ["metadata", "runtime", "smoke", "full"])
+def test_install_self_check_levels_are_accepted(tmp_path: Path, level: str) -> None:
+    destination = tmp_path / "skills"
+    result = run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        "ppt-to-md-for-obsidian",
+        "--destination",
+        str(destination),
+        "--self-check-level",
+        level,
+    )
+
+    assert result.returncode == 0
+    assert "install_self_check ok skills=1" in result.stdout
+
+
+def test_update_self_check_level_metadata_avoids_runtime_smoke(tmp_path: Path) -> None:
+    destination = tmp_path / "skills"
+    run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        "ppt-to-md-for-obsidian",
+        "--destination",
+        str(destination),
+    )
+
+    result = run_script(
+        "scripts/update_installed_skills.py",
+        "--skill",
+        "ppt-to-md-for-obsidian",
+        "--destination",
+        str(destination),
+        "--self-check-level",
+        "metadata",
+    )
+
+    assert result.returncode == 0
+    assert "install_self_check ok skills=1" in result.stdout
 
 
 def test_validate_all_skill_alias_selects_same_steps_as_full_name(tmp_path: Path):

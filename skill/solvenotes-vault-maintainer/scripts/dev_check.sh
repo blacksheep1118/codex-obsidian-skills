@@ -65,13 +65,17 @@ trap on_exit EXIT
 
 usage() {
   cat <<'EOF'
-Usage: SOLVENOTES_VAULT_ROOT=/path/to/notes bash scripts/dev_check.sh <quick|full|online|github-ready|gc> [options]
+Usage: SOLVENOTES_VAULT_ROOT=/path/to/notes bash scripts/dev_check.sh <tool-quick|tool-full|vault-quick|vault-full|quick|full|online|github-ready|gc> [options]
 
 Commands:
-  quick         run fast external-vault checks and Skill tests
-  full          run the complete external-vault gate
+  tool-quick    compile and validate the maintenance Skill entry points
+  tool-full     run Skill lint and tests; use this in the Skills repository CI
+  vault-quick   run fast external-vault content checks
+  vault-full    run the complete external-vault content gate
+  quick         compatibility alias for vault-quick
+  full          compatibility alias for vault-full
   online        read-only external URL audit; results/cache stay outside the vault
-  github-ready  full plus repository hygiene, large-file and public checks
+  github-ready  vault-full plus repository hygiene, large-file and public checks
   gc            refuse by default; requires: gc --confirm-prune-now
 EOF
 }
@@ -134,12 +138,22 @@ check_workspace_guidance() {
   fi
 }
 
-quick() {
+tool_quick() {
+  run_skill_python -m compileall "$SKILL_ROOT/scripts"
+  run_skill_python "$SKILL_ROOT/scripts/validate_skill.py"
+}
+
+tool_full() {
+  tool_quick
+  run_skill_python -m ruff check "$SKILL_ROOT/scripts" "$SKILL_ROOT/tests"
+  run_skill_python -m pytest -p no:cacheprovider --durations=20 "$SKILL_ROOT/tests"
+}
+
+vault_quick() {
   require_vault
   check_environment quick
   check_skill_lock
   check_workspace_guidance
-  run_skill_python -m pytest -p no:cacheprovider --durations=20 "$SKILL_ROOT/tests"
   check_script check_guidance.py
   check_script check_algorithm_job_notes.py
   check_script check_links.py
@@ -149,7 +163,7 @@ quick() {
   run_step git -C "$VAULT_ROOT" diff --check
 }
 
-full() {
+vault_full() {
   require_vault
   check_environment full
   check_skill_lock
@@ -189,9 +203,6 @@ full() {
   else
     check_script check_changed_scope.py
   fi
-  run_skill_python -m compileall "$SKILL_ROOT/scripts"
-  run_skill_python -m ruff check --cache-dir "$RUFF_CACHE_DIR" "$SKILL_ROOT/scripts" "$SKILL_ROOT/tests"
-  run_skill_python -m pytest -p no:cacheprovider --durations=20 "$SKILL_ROOT/tests"
   run_step git -C "$VAULT_ROOT" diff --check
   if git -C "$SKILLS_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     run_step git -C "$SKILLS_ROOT" diff --check
@@ -201,7 +212,7 @@ full() {
 }
 
 github_ready() {
-  full
+  vault_full
   require_vault
   check_script check_repo_hygiene.py
   check_script check_large_files.py
@@ -242,8 +253,10 @@ gc_repo() {
 
 command="${1:-}"
 case "$command" in
-  quick) quick ;;
-  full) full ;;
+  tool-quick) tool_quick ;;
+  tool-full) tool_full ;;
+  vault-quick|quick) vault_quick ;;
+  vault-full|full) vault_full ;;
   online) online "$@" ;;
   github-ready) github_ready ;;
   gc) gc_repo "${@:2}" ;;

@@ -89,3 +89,18 @@ def test_full_gate_guards_empty_changed_scope_arguments() -> None:
 
     assert "if ((${#changed_scope_args[@]})); then" in script
     assert "check_script check_changed_scope.py\n  fi" in script
+
+
+def test_tool_and_vault_gates_are_separate_with_compatibility_aliases() -> None:
+    script = DEV_CHECK.read_text(encoding="utf-8")
+
+    assert "tool-quick" in script
+    assert "tool-full" in script
+    assert "vault-quick" in script
+    assert "vault-full" in script
+    assert "vault-full|full) vault_full" in script
+    assert "vault-quick|quick) vault_quick" in script
+
+    vault_section = script.split("vault_full()", 1)[1].split("github_ready()", 1)[0]
+    assert "pytest" not in vault_section
+    assert "ruff" not in vault_section

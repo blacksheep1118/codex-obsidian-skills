@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
 import secrets
 import shutil
 import stat
-import subprocess
 import sys
 import tempfile
 
@@ -27,6 +27,15 @@ from shared.skill_provenance import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_TIMEOUT_HELPER = REPO_ROOT / "skill" / "solvenotes-vault-maintainer" / "scripts" / "run_with_timeout.py"
+_TIMEOUT_SPEC = importlib.util.spec_from_file_location("_solvenotes_timeout_runner_install", _TIMEOUT_HELPER)
+if _TIMEOUT_SPEC is None or _TIMEOUT_SPEC.loader is None:
+    raise ImportError(f"cannot load timeout helper: {_TIMEOUT_HELPER}")
+_TIMEOUT_MODULE = importlib.util.module_from_spec(_TIMEOUT_SPEC)
+_TIMEOUT_SPEC.loader.exec_module(_TIMEOUT_MODULE)
+run_process = _TIMEOUT_MODULE.run
+
+
 SKILL_ROOT = REPO_ROOT / "skill"
 DEPENDENCIES_PATH = SKILL_ROOT / "dependencies.json"
 SKILLS_REPOSITORY = "blacksheep1118/codex-obsidian-skills"
@@ -689,6 +698,9 @@ def _validator_for(skill_dir: Path) -> Path | None:
     return None
 
 
+SELF_CHECK_LEVELS = ("metadata", "runtime", "smoke", "full")
+
+
 def _run_installed_validator(skill_dir: Path) -> list[str]:
     validator = _validator_for(skill_dir)
     if validator is None:
@@ -696,21 +708,15 @@ def _run_installed_validator(skill_dir: Path) -> list[str]:
     with tempfile.TemporaryDirectory(prefix="solvenotes-installed-cwd-") as cwd:
         environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
-        try:
-            result = subprocess.run(
-                [sys.executable, str(validator)],
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=30,
-                env=environment,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            return [f"{skill_dir.name}: installed validator failed to run: {exc}"]
-    if result.returncode:
-        detail = (result.stderr or result.stdout).strip()
-        return [f"{skill_dir.name}: installed validator failed: {detail}"]
+        result = run_process(
+            [sys.executable, str(validator)],
+            30,
+            f"installed validator {skill_dir.name}",
+            cwd=cwd,
+            env=environment,
+        )
+    if result:
+        return [f"{skill_dir.name}: installed validator failed with exit code {result}"]
     return []
 
 
@@ -720,7 +726,7 @@ def _run_installed_smoke(skill_dir: Path, destination_root: Path) -> list[str]:
     if skill_dir.name != "solvenotes-vault-maintainer":
         return []
 
-    fixture = skill_dir / "fixtures" / "solvenotes-mini-vault"
+    fixture = (skill_dir / "fixtures" / "solvenotes-mini-vault").resolve()
     if not fixture.is_dir():
         return [f"{skill_dir.name}: missing installed mini-vault fixture: {fixture}"]
 
@@ -744,10 +750,14 @@ def _run_installed_smoke(skill_dir: Path, destination_root: Path) -> list[str]:
         ),
     )
     environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
-    environment["SOLVENOTES_VAULT_ROOT"] = str(fixture)
+    # Resolve the complete path before placing it in the child environment.
+    # Forward slashes are accepted by Windows path APIs and avoid turning a
+    # drive-qualified value into a drive-relative path in a downstream helper.
+    environment["SOLVENOTES_VAULT_ROOT"] = fixture.as_posix()
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     issues: list[str] = []
     with tempfile.TemporaryDirectory(prefix="solvenotes-installed-smoke-") as cwd:
+        smoke_cwd = Path(cwd).resolve()
         for label, command in commands:
             def unavailable(item: object) -> bool:
                 if not isinstance(item, Path):
@@ -759,25 +769,18 @@ def _run_installed_smoke(skill_dir: Path, destination_root: Path) -> list[str]:
                 missing = next(str(item) for item in command if unavailable(item))
                 issues.append(f"{skill_dir.name}: smoke dependency missing for {label}: {missing}")
                 continue
-            try:
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        *(str(item) if isinstance(item, Path) else item for item in command),
-                    ],
-                    cwd=cwd,
-                    env=environment,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=60,
-                )
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                issues.append(f"{skill_dir.name}: installed {label} smoke failed: {exc}")
-                continue
-            if result.returncode:
-                detail = (result.stderr or result.stdout).strip()
-                issues.append(f"{skill_dir.name}: installed {label} smoke failed: {detail}")
+            result = run_process(
+                [
+                    sys.executable,
+                    *(str(item) if isinstance(item, Path) else item for item in command),
+                ],
+                60,
+                f"installed {skill_dir.name} {label} smoke",
+                cwd=smoke_cwd,
+                env=environment,
+            )
+            if result:
+                issues.append(f"{skill_dir.name}: installed {label} smoke failed with exit code {result}")
     return issues
 
 
@@ -799,7 +802,14 @@ def self_check_sources(skills: dict[str, Path]) -> int:
     return report_self_check("source_self_check", issues, len(skills))
 
 
-def self_check_selected(destination_root: Path, skills: dict[str, Path]) -> int:
+def self_check_selected(
+    destination_root: Path,
+    skills: dict[str, Path],
+    *,
+    level: str = "smoke",
+) -> int:
+    if level not in SELF_CHECK_LEVELS:
+        raise ValueError(f"unknown self-check level: {level}")
     issues: list[str] = []
     try:
         ensure_safe_destination_root(destination_root)
@@ -839,8 +849,10 @@ def self_check_selected(destination_root: Path, skills: dict[str, Path]) -> int:
                         f"required Skill not installed: {dependency}; "
                         f"install with: python scripts/install_skill.py --skill {name!s}"
                     )
-        issues.extend(_run_installed_validator(installed_dir))
-        issues.extend(_run_installed_smoke(installed_dir, destination_root))
+        if level in {"runtime", "smoke", "full"}:
+            issues.extend(_run_installed_validator(installed_dir))
+        if level in {"smoke", "full"}:
+            issues.extend(_run_installed_smoke(installed_dir, destination_root))
 
     return report_self_check("install_self_check", issues, len(skills))
 
@@ -858,8 +870,13 @@ def main() -> int:
     )
     parser.add_argument("--codex-home", type=Path, help="Codex home used to derive the destination.")
     parser.add_argument("--dry-run", action="store_true", help="Print actions without writing files.")
-    parser.add_argument("--self-check", action="store_true", help="Validate installed skill metadata after copying.")
+    parser.add_argument("--self-check", action="store_true", help="Validate the installed Skill after copying (defaults to smoke level).")
     parser.add_argument("--self-check-only", action="store_true", help="Validate selected installed skills without copying.")
+    parser.add_argument(
+        "--self-check-level",
+        choices=SELF_CHECK_LEVELS,
+        help="Self-check depth: metadata, runtime, smoke, or full. Implies --self-check.",
+    )
     parser.add_argument(
         "--no-deps",
         action="store_true",
@@ -869,6 +886,8 @@ def main() -> int:
 
     if args.destination and args.codex_home:
         parser.error("--destination and --codex-home are mutually exclusive")
+    if args.self_check_level:
+        args.self_check = True
 
     destination_root = args.destination.expanduser() if args.destination else default_destination(args.codex_home)
     try:
@@ -879,7 +898,7 @@ def main() -> int:
         return 1
 
     if args.self_check_only:
-        return self_check_selected(destination_root, skills)
+        return self_check_selected(destination_root, skills, level=args.self_check_level or "smoke")
 
     try:
         ensure_safe_destination_root(destination_root)
@@ -902,7 +921,7 @@ def main() -> int:
     if args.self_check:
         if args.dry_run:
             return self_check_sources(skills)
-        return self_check_selected(destination_root, skills)
+        return self_check_selected(destination_root, skills, level=args.self_check_level or "smoke")
 
     print(f"installed_skills {len(skills)} destination={destination_root}")
     return 0

@@ -6,15 +6,24 @@ from __future__ import annotations
 import os
 import argparse
 from dataclasses import dataclass
+import importlib.util
 from pathlib import Path
 import shlex
-import subprocess
 import sys
 import tempfile
 from collections.abc import Mapping
 
 
 ROOT = Path(__file__).resolve().parents[1]
+_TIMEOUT_HELPER = ROOT / "skill" / "solvenotes-vault-maintainer" / "scripts" / "run_with_timeout.py"
+_TIMEOUT_SPEC = importlib.util.spec_from_file_location("_solvenotes_timeout_runner_validate", _TIMEOUT_HELPER)
+if _TIMEOUT_SPEC is None or _TIMEOUT_SPEC.loader is None:
+    raise ImportError(f"cannot load timeout helper: {_TIMEOUT_HELPER}")
+_TIMEOUT_MODULE = importlib.util.module_from_spec(_TIMEOUT_SPEC)
+_TIMEOUT_SPEC.loader.exec_module(_TIMEOUT_MODULE)
+run_process = _TIMEOUT_MODULE.run
+
+
 RUFF_CONFIG = ROOT / "pyproject.toml"
 PPT_SKILL = ROOT / "skill" / "ppt-to-md-for-obsidian"
 VAULT_SKILL = ROOT / "skill" / "obsidian-vault-organizer"
@@ -117,8 +126,20 @@ def pytest_env() -> dict[str, str]:
     return env
 
 
-def pytest_command(py: str, *args: str, cwd: Path = ROOT) -> CommandSpec:
-    return CommandSpec([py, "-m", "pytest", *args, "--durations=20", "-p", "no:cacheprovider"], cwd=cwd, env=pytest_env())
+def pytest_command(
+    py: str,
+    *args: str,
+    cwd: Path = ROOT,
+    extra_env: Mapping[str, str] | None = None,
+) -> CommandSpec:
+    env = pytest_env()
+    if extra_env:
+        env.update(extra_env)
+    return CommandSpec(
+        [py, "-m", "pytest", *args, "--durations=20", "-p", "no:cacheprovider"],
+        cwd=cwd,
+        env=env,
+    )
 
 
 def compile_command(py: str, temp_root: Path, cwd: Path = ROOT) -> CommandSpec:
@@ -139,14 +160,16 @@ def run_command(
     print(f"\nstep: {step_id}", flush=True)
     print(f"cwd: {format_cwd(cwd)}", flush=True)
     print(f"command: {format_command(command)}", flush=True)
-    try:
-        subprocess.run(command, cwd=cwd, check=True, timeout=timeout, env=subprocess_env(env))
-    except subprocess.TimeoutExpired as exc:
-        report_failure(step_id, command, cwd, "timeout", timeout=timeout, stdout=exc.stdout, stderr=exc.stderr)
-        raise SystemExit(124) from None
-    except subprocess.CalledProcessError as exc:
-        report_failure(step_id, command, cwd, exc.returncode)
-        raise SystemExit(exc.returncode) from None
+    returncode = run_process(
+        command,
+        timeout,
+        step_id,
+        cwd=cwd,
+        env=subprocess_env(env),
+    )
+    if returncode:
+        report_failure(step_id, command, cwd, returncode)
+        raise SystemExit(returncode)
     print(f"{step_id} ok", flush=True)
 
 
@@ -164,7 +187,10 @@ def build_steps(py: str, temp_root: Path) -> list[Step]:
             ),
         ),
         Step("root.repo_hygiene", (CommandSpec([py, "scripts/check_repo_hygiene.py"]),)),
-        Step("root.tests", (pytest_command(py, "-q"),)),
+        Step(
+            "root.tests",
+            (pytest_command(py, "-q", extra_env={"SOLVENOTES_TEST_SELF_CHECK_LEVEL": "runtime"}),),
+        ),
         Step(
             "metadata.sync",
             (
@@ -175,8 +201,28 @@ def build_steps(py: str, temp_root: Path) -> list[Step]:
         Step(
             "metadata.install",
             (
-                CommandSpec([py, "scripts/install_skill.py", "--all", "--destination", str(install_temp), "--self-check"]),
-                CommandSpec([py, "scripts/update_installed_skills.py", "--all", "--destination", str(install_temp), "--self-check"]),
+                CommandSpec(
+                    [
+                        py,
+                        "scripts/install_skill.py",
+                        "--all",
+                        "--destination",
+                        str(install_temp),
+                        "--self-check-level",
+                        "smoke",
+                    ]
+                ),
+                CommandSpec(
+                    [
+                        py,
+                        "scripts/update_installed_skills.py",
+                        "--all",
+                        "--destination",
+                        str(install_temp),
+                        "--self-check-level",
+                        "metadata",
+                    ]
+                ),
                 CommandSpec([py, "scripts/update_installed_skills.py", "--all", "--destination", str(install_temp), "--dry-run"]),
             ),
             quick=False,

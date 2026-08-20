@@ -19,6 +19,7 @@ from install_skill import (
     selected_skills,
     self_check_selected,
     self_check_sources,
+    SELF_CHECK_LEVELS,
 )
 
 
@@ -36,7 +37,12 @@ def main() -> int:
     parser.add_argument("--codex-home", type=Path, help="Codex home used to derive the destination.")
     parser.add_argument("--dry-run", action="store_true", help="Print actions without writing files.")
     parser.add_argument("--prune", action="store_true", help="Remove files in the installed skill that no longer exist here.")
-    parser.add_argument("--self-check", action="store_true", help="Validate installed skill metadata after updating.")
+    parser.add_argument("--self-check", action="store_true", help="Validate the installed Skill after updating (defaults to smoke level).")
+    parser.add_argument(
+        "--self-check-level",
+        choices=SELF_CHECK_LEVELS,
+        help="Self-check depth: metadata, runtime, smoke, or full. Implies --self-check.",
+    )
     parser.add_argument(
         "--no-deps",
         action="store_true",
@@ -46,6 +52,8 @@ def main() -> int:
 
     if args.destination and args.codex_home:
         parser.error("--destination and --codex-home are mutually exclusive")
+    if args.self_check_level:
+        args.self_check = True
 
     destination_root = args.destination.expanduser() if args.destination else default_destination(args.codex_home)
     try:
@@ -72,7 +80,7 @@ def main() -> int:
         print("Run scripts/install_skill.py first, or pass --dry-run to inspect actions.", file=sys.stderr)
         return 1
     if missing and args.self_check:
-        return self_check_selected(destination_root, skills)
+        return self_check_selected(destination_root, skills, level=args.self_check_level or "smoke")
 
     try:
         for name, source in skills.items():
@@ -82,7 +90,7 @@ def main() -> int:
         return 1
 
     if args.self_check:
-        return self_check_selected(destination_root, skills)
+        return self_check_selected(destination_root, skills, level=args.self_check_level or "smoke")
 
     print(f"updated_skills {len(skills)} destination={destination_root}")
     return 0
