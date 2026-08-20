@@ -38,7 +38,6 @@ def main() -> int:
         SKILL_ROOT / "scripts" / "safe_io.py",
         SKILL_ROOT / "scripts" / "skill_metadata.py",
         SKILL_ROOT / "scripts" / "run_with_timeout.py",
-        SKILL_ROOT / "tests",
     )
     missing = [str(path.relative_to(SKILL_ROOT)) for path in required if not path.exists()]
     if missing:

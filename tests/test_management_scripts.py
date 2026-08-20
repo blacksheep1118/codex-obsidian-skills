@@ -113,6 +113,8 @@ def test_maintainer_install_expands_required_dependency_and_records_provenance(t
 
     assert "install_self_check ok skills=2" in result.stdout
     assert (destination / "algorithm-job-notes-for-obsidian" / "SKILL.md").is_file()
+    assert not (destination / "solvenotes-vault-maintainer" / "tests").exists()
+    assert not (destination / "algorithm-job-notes-for-obsidian" / "tests").exists()
     provenance = json.loads(
         (destination / "solvenotes-vault-maintainer" / ".codex-skill-install.json").read_text(
             encoding="utf-8"
@@ -126,12 +128,13 @@ def test_maintainer_install_expands_required_dependency_and_records_provenance(t
         check=True,
         timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
-    if source_status.stdout.strip():
-        assert provenance["source_commit"] is None
-    else:
-        assert isinstance(provenance["source_commit"], str)
-        assert len(provenance["source_commit"]) == 40
+    assert isinstance(provenance["source_commit"], str)
+    assert len(provenance["source_commit"]) == 40
+    assert provenance["source_dirty"] is bool(source_status.stdout.strip())
     assert provenance["dependencies"] == ["algorithm-job-notes-for-obsidian"]
+    dependency_digest = provenance["dependency_digests"]["algorithm-job-notes-for-obsidian"]
+    assert len(dependency_digest) == 64
+    assert provenance["source_tree_digest"] == provenance["installed_content_digest"]
     assert len(provenance["content_digest"]) == 64
 
 
@@ -672,6 +675,14 @@ def test_install_self_check_levels_are_accepted(tmp_path: Path, level: str) -> N
 
     assert result.returncode == 0
     assert "install_self_check ok skills=1" in result.stdout
+
+
+def test_root_doctor_entrypoint_is_executable() -> None:
+    result = run_script("scripts/doctor.py")
+
+    assert result.returncode == 0
+    assert "doctor_mode vault-quick" in result.stdout
+    assert "python_executable" in result.stdout
 
 
 def test_update_self_check_level_metadata_avoids_runtime_smoke(tmp_path: Path) -> None:

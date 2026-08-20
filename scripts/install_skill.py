@@ -13,11 +13,13 @@ import shutil
 import stat
 import sys
 import tempfile
+import zipfile
 
 from install_ignore import ignore_patterns, should_ignore_relative
 from shared.skill_metadata import MetadataValidationError, load_skill_frontmatter, validate_skill_metadata
 from shared.skill_provenance import (
     PROVENANCE_FILENAME,
+    PROVENANCE_SCHEMA_VERSION,
     build_provenance,
     content_digest,
     file_records,
@@ -39,6 +41,7 @@ run_process = _TIMEOUT_MODULE.run
 SKILL_ROOT = REPO_ROOT / "skill"
 DEPENDENCIES_PATH = SKILL_ROOT / "dependencies.json"
 SKILLS_REPOSITORY = "blacksheep1118/codex-obsidian-skills"
+INSTALL_EXCLUDED_PARTS = {"tests"}
 TRUSTED_TOP_LEVEL_ALIASES = (
     {
         Path("/etc"): Path("/private/etc"),
@@ -52,6 +55,20 @@ TRUSTED_TOP_LEVEL_ALIASES = (
 
 class UnsafeDestinationError(ValueError):
     """Raised when an install target could escape through a symlink."""
+
+
+def should_install_relative(relative: Path) -> bool:
+    """Return whether a source entry belongs to the installed runtime payload."""
+
+    return not should_ignore_relative(relative) and not any(
+        part in INSTALL_EXCLUDED_PARTS for part in relative.parts
+    )
+
+
+def install_ignore_patterns(directory: str, names: list[str]) -> set[str]:
+    ignored = ignore_patterns(directory, names)
+    ignored.update(name for name in names if name in INSTALL_EXCLUDED_PARTS)
+    return ignored
 
 
 class UnsafeSourceError(ValueError):
@@ -268,7 +285,7 @@ def _source_entries(source: Path) -> tuple[list[Path], list[Path]]:
     files: list[Path] = []
     for path in source.rglob("*"):
         relative = path.relative_to(source)
-        if should_ignore_relative(relative):
+        if not should_install_relative(relative):
             continue
         try:
             mode = path.lstat().st_mode
@@ -571,7 +588,7 @@ def managed_files(root: Path) -> dict[Path, Path]:
         for path in root.rglob("*")
         if path.is_file()
         and path.name != PROVENANCE_FILENAME
-        and not should_ignore_relative(path.relative_to(root))
+        and should_install_relative(path.relative_to(root))
     }
 
 
@@ -604,7 +621,7 @@ def prune_paths(source: Path, destination: Path) -> list[Path]:
         path.relative_to(source)
         for path in source.rglob("*")
         if path.name != PROVENANCE_FILENAME
-        and not should_ignore_relative(path.relative_to(source))
+        and should_install_relative(path.relative_to(source))
     }
     return sorted(
         (
@@ -652,7 +669,7 @@ def copy_skill(source: Path, destination: Path, dry_run: bool, prune: bool = Fal
             source,
             destination,
             dirs_exist_ok=True,
-            ignore=ignore_patterns,
+            ignore=install_ignore_patterns,
             symlinks=True,
         )
         ensure_safe_source_tree(source)
@@ -667,13 +684,20 @@ def copy_skill(source: Path, destination: Path, dry_run: bool, prune: bool = Fal
                     path.unlink()
 
     dependencies = load_required_dependencies().get(source.name, ())
+    dependency_digests = {
+        dependency: content_digest(file_records(SKILL_ROOT / dependency))
+        for dependency in dependencies
+    }
     write_provenance(
         destination,
         build_provenance(
             source,
+            installed_root=destination,
+            repository_root=REPO_ROOT,
             skill_name=source.name,
             repository=SKILLS_REPOSITORY,
             dependencies=dependencies,
+            dependency_digests=dependency_digests,
         ),
     )
     return
@@ -784,6 +808,48 @@ def _run_installed_smoke(skill_dir: Path, destination_root: Path) -> list[str]:
     return issues
 
 
+def _run_installed_full(skill_dir: Path, destination_root: Path) -> list[str]:
+    """Extend installed smoke with a clean package built from the runtime fixture."""
+
+    if skill_dir.name != "solvenotes-vault-maintainer":
+        return []
+    issues = _run_installed_smoke(skill_dir, destination_root)
+    if issues:
+        return issues
+    fixture = (skill_dir / "fixtures" / "solvenotes-mini-vault").resolve()
+    package_script = skill_dir / "scripts" / "package_vault.py"
+    if not fixture.is_dir() or not package_script.is_file():
+        return [f"{skill_dir.name}: installed full smoke is missing its fixture or packager"]
+    environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    environment["SOLVENOTES_VAULT_ROOT"] = fixture.as_posix()
+    with tempfile.TemporaryDirectory(prefix="solvenotes-installed-full-") as cwd:
+        output = Path(cwd) / "notes.zip"
+        result = run_process(
+            [
+                sys.executable,
+                str(package_script),
+                "--root",
+                str(fixture),
+                "--output",
+                str(output),
+            ],
+            120,
+            f"installed {skill_dir.name} package smoke",
+            cwd=Path(cwd).resolve(),
+            env=environment,
+        )
+        if result:
+            return [f"{skill_dir.name}: installed package smoke failed with exit code {result}"]
+        try:
+            with zipfile.ZipFile(output) as archive:
+                if archive.testzip() is not None or not archive.namelist():
+                    return [f"{skill_dir.name}: installed package smoke produced an invalid ZIP"]
+        except (OSError, zipfile.BadZipFile) as exc:
+            return [f"{skill_dir.name}: installed package smoke could not read its ZIP: {exc}"]
+    return []
+
+
 def report_self_check(label: str, issues: list[str], skill_count: int) -> int:
     if issues:
         print(f"{label} failed", file=sys.stderr)
@@ -836,12 +902,18 @@ def self_check_selected(
         if provenance is None:
             issues.append(f"{installed_dir}: missing {PROVENANCE_FILENAME}")
         else:
+            if provenance.get("schema_version") != PROVENANCE_SCHEMA_VERSION:
+                issues.append(f"{installed_dir}: unsupported provenance schema")
             if provenance.get("skill") != name:
                 issues.append(f"{installed_dir}: provenance skill does not match {name!r}")
             actual_records = file_records(installed_dir)
             actual_digest = content_digest(actual_records)
-            if provenance.get("content_digest") != actual_digest:
+            if provenance.get("installed_content_digest") != actual_digest:
                 issues.append(f"{installed_dir}: content digest mismatch")
+            if provenance.get("content_digest") != actual_digest:
+                issues.append(f"{installed_dir}: compatibility content digest mismatch")
+            if provenance.get("managed_files") != actual_records:
+                issues.append(f"{installed_dir}: managed file manifest mismatch")
             for dependency in provenance.get("dependencies", []):
                 dependency_dir = destination_root / str(dependency)
                 if not dependency_dir.is_dir():
@@ -849,10 +921,21 @@ def self_check_selected(
                         f"required Skill not installed: {dependency}; "
                         f"install with: python scripts/install_skill.py --skill {name!s}"
                     )
+                    continue
+                actual_dependency_digest = content_digest(file_records(dependency_dir))
+                recorded_dependency_digest = provenance.get("dependency_digests", {}).get(
+                    str(dependency)
+                )
+                if recorded_dependency_digest != actual_dependency_digest:
+                    issues.append(
+                        f"{installed_dir}: dependency digest mismatch for {dependency}"
+                    )
         if level in {"runtime", "smoke", "full"}:
             issues.extend(_run_installed_validator(installed_dir))
-        if level in {"smoke", "full"}:
+        if level == "smoke":
             issues.extend(_run_installed_smoke(installed_dir, destination_root))
+        elif level == "full":
+            issues.extend(_run_installed_full(installed_dir, destination_root))
 
     return report_self_check("install_self_check", issues, len(skills))
 

@@ -15,6 +15,7 @@ from install_ignore import should_ignore_relative
 
 PROVENANCE_FILENAME = ".codex-skill-install.json"
 PROVENANCE_SCHEMA_VERSION = 2
+INSTALL_EXCLUDED_PARTS = {"tests"}
 
 
 def _managed_paths(root: Path) -> list[Path]:
@@ -25,7 +26,11 @@ def _managed_paths(root: Path) -> list[Path]:
         if not path.is_file() or path.is_symlink():
             continue
         relative = path.relative_to(root)
-        if relative.name == PROVENANCE_FILENAME or should_ignore_relative(relative):
+        if (
+            relative.name == PROVENANCE_FILENAME
+            or should_ignore_relative(relative)
+            or any(part in INSTALL_EXCLUDED_PARTS for part in relative.parts)
+        ):
             continue
         paths.append(relative)
     return sorted(paths, key=lambda value: value.as_posix())

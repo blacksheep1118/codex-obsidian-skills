@@ -23,6 +23,7 @@ FULL_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 PROVENANCE_FILENAME = ".codex-skill-install.json"
 PROVENANCE_SCHEMA_VERSION = 2
 EXCLUDED_NAMES = {PROVENANCE_FILENAME, ".DS_Store"}
+INSTALL_EXCLUDED_PARTS = {"tests"}
 LOCK_MATCH_STATUSES = {
     "EXACT_COMMIT_MATCH",
     "CONTENT_MATCH",
@@ -161,7 +162,15 @@ def _managed_records(skill_root: Path) -> list[dict[str, Any]]:
             continue
         relative = path.relative_to(skill_root)
         if relative.name in EXCLUDED_NAMES or any(
-            part in {"__pycache__", ".pytest_cache", ".ruff_cache", "dist", "build"}
+            part
+            in {
+                "__pycache__",
+                ".pytest_cache",
+                ".ruff_cache",
+                "dist",
+                "build",
+                *INSTALL_EXCLUDED_PARTS,
+            }
             for part in relative.parts
         ):
             continue
@@ -265,8 +274,10 @@ def _provenance_schema_issues(
         issues.append("installed provenance source_commit must be null or a full SHA")
     if expected_skill == MAINTAINER_SKILL and manifest.get("contract_version") != expected_contract:
         issues.append("installed provenance contract_version does not match the lock")
-    if not isinstance(manifest.get("source_dirty"), bool):
-        issues.append("installed provenance source_dirty must be a boolean")
+    if manifest.get("source_dirty") is not None and not isinstance(
+        manifest.get("source_dirty"), bool
+    ):
+        issues.append("installed provenance source_dirty must be a boolean or null")
     digest = manifest.get("installed_content_digest")
     if not isinstance(digest, str) or not FULL_DIGEST_RE.fullmatch(digest):
         issues.append("installed provenance installed_content_digest is missing or invalid")
@@ -275,6 +286,25 @@ def _provenance_schema_issues(
         issues.append("installed provenance source_tree_digest is missing or invalid")
     if not isinstance(manifest.get("managed_files"), list):
         issues.append("installed provenance managed_files must be a list")
+    expected_dependencies = (
+        [ALGORITHM_JOB_SKILL] if expected_skill == MAINTAINER_SKILL else []
+    )
+    if manifest.get("dependencies") != expected_dependencies:
+        issues.append(
+            f"installed provenance dependencies do not match {expected_skill}"
+        )
+    dependency_digests = manifest.get("dependency_digests")
+    if not isinstance(dependency_digests, dict):
+        issues.append("installed provenance dependency_digests must be an object")
+    elif set(dependency_digests) != set(expected_dependencies):
+        issues.append(
+            f"installed provenance dependency digests do not match {expected_skill}"
+        )
+    elif any(
+        not isinstance(value, str) or not FULL_DIGEST_RE.fullmatch(value)
+        for value in dependency_digests.values()
+    ):
+        issues.append("installed provenance dependency digest is missing or invalid")
     return issues
 
 
@@ -382,6 +412,27 @@ def validate_checkout(
                 )
                 exact = exact and source_commit == expected_sha and provenance.get("source_dirty") is False
                 content_match = content_match and actual_digest == expected_digest
+            maintainer_dependencies = provenances[MAINTAINER_SKILL].get(
+                "dependency_digests", {}
+            )
+            installed_algorithm_digest = _records_digest(
+                _managed_records(skill_root(skills_root, ALGORITHM_JOB_SKILL))
+            )
+            if maintainer_dependencies.get(ALGORITHM_JOB_SKILL) != installed_algorithm_digest:
+                schema_issues.append(
+                    "installed maintainer dependency digest does not match "
+                    f"{ALGORITHM_JOB_SKILL}"
+                )
+            expected_graph_digest = dependency_graph_digest(
+                {
+                    MAINTAINER_SKILL: [ALGORITHM_JOB_SKILL],
+                    ALGORITHM_JOB_SKILL: [],
+                }
+            )
+            if payload.get("dependency_graph_digest") != expected_graph_digest:
+                schema_issues.append(
+                    "locked dependency graph digest does not match the required closure"
+                )
             issues.extend(schema_issues)
             if schema_issues:
                 status = "MISMATCH"

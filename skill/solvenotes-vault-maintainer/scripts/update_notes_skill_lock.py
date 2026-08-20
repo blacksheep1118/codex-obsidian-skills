@@ -20,6 +20,7 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
+from run_with_timeout import run as run_process
 from vault_contract import (
     ALGORITHM_JOB_SKILL,
     CURRENT_LOCK_SCHEMA_VERSION,
@@ -53,6 +54,7 @@ TARGET_FILES = (
 )
 TARGET_FIXTURE_PREFIX = "skill/solvenotes-vault-maintainer/fixtures/solvenotes-mini-vault/"
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+INSTALL_EXCLUDED_PARTS = {"tests"}
 
 
 def normalize_repository_url(value: str) -> str:
@@ -230,10 +232,13 @@ def target_content_digest(
     for relative in paths:
         if not relative.startswith(prefix) or relative.endswith("/"):
             continue
+        payload_relative = PurePosixPath(relative.removeprefix(prefix))
+        if any(part in INSTALL_EXCLUDED_PARTS for part in payload_relative.parts):
+            continue
         data = target_blob_bytes(skills_root, commit, relative)
         records.append(
             {
-                "path": relative.removeprefix(prefix),
+                "path": payload_relative.as_posix(),
                 "size": len(data),
                 "sha256": hashlib.sha256(data).hexdigest(),
             }
@@ -330,7 +335,7 @@ def verify_target_tree(skills_root: Path, commit: str, *, level: str) -> dict[st
                 raise ValueError(f"target commit {commit} has no install_skill.py for installed smoke")
             destination = Path(temporary) / "installed"
             python_bin = os.fspath(Path(os.environ.get("SOLVENOTES_PYTHON_BIN", sys.executable)))
-            result = subprocess.run(
+            returncode = run_process(
                 [
                     python_bin,
                     str(installer),
@@ -338,33 +343,32 @@ def verify_target_tree(skills_root: Path, commit: str, *, level: str) -> dict[st
                     MAINTAINER_SKILL,
                     "--destination",
                     str(destination),
-                    "--self-check",
+                    "--self-check-level",
+                    "smoke",
                 ],
                 cwd=temporary,
-                capture_output=True,
-                text=True,
-                check=False,
                 timeout=60,
+                label=f"target commit {commit} installed smoke",
                 env={key: value for key, value in os.environ.items() if key != "PYTHONPATH"},
             )
-            if result.returncode:
-                detail = (result.stderr or result.stdout).strip()
-                raise ValueError(f"target commit {commit} install smoke failed: {detail}")
+            if returncode:
+                raise ValueError(
+                    f"target commit {commit} install smoke failed with exit code {returncode}"
+                )
             validator = destination / MAINTAINER_SKILL / "scripts" / "validate_skill.py"
             if not validator.is_file():
                 raise ValueError(f"target commit {commit} did not install its maintainer validator")
-            result = subprocess.run(
+            returncode = run_process(
                 [python_bin, str(validator)],
                 cwd=temporary,
-                capture_output=True,
-                text=True,
-                check=False,
                 timeout=60,
+                label=f"target commit {commit} installed validator smoke",
                 env={key: value for key, value in os.environ.items() if key != "PYTHONPATH"},
             )
-            if result.returncode:
-                detail = (result.stderr or result.stdout).strip()
-                raise ValueError(f"target commit {commit} installed validator smoke failed: {detail}")
+            if returncode:
+                raise ValueError(
+                    f"target commit {commit} installed validator smoke failed with exit code {returncode}"
+                )
     if level == "full":
         with tempfile.TemporaryDirectory(prefix="solvenotes-lock-tests-") as temporary:
             extracted = Path(temporary) / "repo"
@@ -374,18 +378,17 @@ def verify_target_tree(skills_root: Path, commit: str, *, level: str) -> dict[st
             )
             with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
                 safe_extract_tar(tar, extracted)
-            result = subprocess.run(
+            returncode = run_process(
                 [os.fspath(Path(os.environ.get("SOLVENOTES_PYTHON_BIN", sys.executable))), "-m", "pytest", "-q", "tests"],
                 cwd=extracted / "skill" / MAINTAINER_SKILL,
-                capture_output=True,
-                text=True,
-                check=False,
                 timeout=180,
+                label=f"target commit {commit} maintainer tests",
                 env={key: value for key, value in os.environ.items() if key != "PYTHONPATH"},
             )
-            if result.returncode:
-                detail = (result.stderr or result.stdout).strip()
-                raise ValueError(f"target commit {commit} tests failed: {detail}")
+            if returncode:
+                raise ValueError(
+                    f"target commit {commit} tests failed with exit code {returncode}"
+                )
     return report
 
 

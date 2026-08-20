@@ -4,19 +4,17 @@
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import os
 import subprocess
 import sys
-import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
 
+from run_with_timeout import run as run_process
 from update_notes_skill_lock import (
     resolve_commit,
-    safe_extract_tar,
     verify_repository_identity,
     verify_target_tree,
 )
@@ -30,21 +28,35 @@ from vault_contract import (
 def _run(
     command: list[str], *, cwd: Path, env: dict[str, str], timeout: int, label: str
 ) -> None:
-    try:
-        result = subprocess.run(
-            command,
-            cwd=cwd,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ValueError(f"{label} did not complete: {exc}") from exc
+    returncode = run_process(command, timeout, label, cwd=cwd, env=env)
+    if returncode:
+        raise ValueError(f"{label} failed with exit code {returncode}")
+
+
+def _add_detached_worktree(skills_root: Path, checkout: Path, commit: str) -> None:
+    result = subprocess.run(
+        ["git", "-C", str(skills_root), "worktree", "add", "--detach", str(checkout), commit],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
     if result.returncode:
         detail = (result.stderr or result.stdout).strip()
-        raise ValueError(f"{label} failed: {detail}")
+        raise ValueError(f"cannot create candidate Skills worktree: {detail}")
+
+
+def _remove_worktree(skills_root: Path, checkout: Path) -> None:
+    result = subprocess.run(
+        ["git", "-C", str(skills_root), "worktree", "remove", str(checkout)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip()
+        raise ValueError(f"cannot remove candidate Skills worktree: {detail}")
 
 
 def candidate_lock(commit: str, target: dict[str, object]) -> dict[str, object]:
@@ -76,92 +88,90 @@ def validate_candidate(
     with tempfile.TemporaryDirectory(prefix="solvenotes-candidate-") as temporary_raw:
         temporary = Path(temporary_raw)
         checkout = temporary / "source"
-        checkout.mkdir()
-        archive = subprocess.check_output(
-            ["git", "-C", str(skills_root), "archive", commit], timeout=60
-        )
-        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
-            safe_extract_tar(tar, checkout)
+        _add_detached_worktree(skills_root, checkout, commit)
+        try:
+            installed = temporary / "installed"
+            environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+            environment["PYTHONDONTWRITEBYTECODE"] = "1"
+            installer = checkout / "scripts" / "install_skill.py"
+            _run(
+                [
+                    python_bin,
+                    str(installer),
+                    "--skill",
+                    MAINTAINER_SKILL,
+                    "--destination",
+                    str(installed),
+                    "--self-check-level",
+                    "smoke",
+                ],
+                cwd=temporary,
+                env=environment,
+                timeout=180,
+                label="candidate installed smoke",
+            )
 
-        installed = temporary / "installed"
-        environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
-        environment["PYTHONDONTWRITEBYTECODE"] = "1"
-        installer = checkout / "scripts" / "install_skill.py"
-        _run(
-            [
-                python_bin,
-                str(installer),
-                "--skill",
-                MAINTAINER_SKILL,
-                "--destination",
-                str(installed),
-                "--self-check",
-            ],
-            cwd=temporary,
-            env=environment,
-            timeout=180,
-            label="candidate installed smoke",
-        )
+            candidate_lock_path = temporary / "candidate-lock.json"
+            candidate_lock_path.write_text(
+                json.dumps(lock_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            environment.update(
+                {
+                    "SOLVENOTES_VAULT_ROOT": str(notes_root),
+                    "SOLVENOTES_SKILLS_LOCK_OVERRIDE": str(candidate_lock_path),
+                    "SOLVENOTES_PYTHON_BIN": python_bin,
+                }
+            )
+            dev_check = installed / MAINTAINER_SKILL / "scripts" / "dev_check.sh"
+            _run(
+                ["bash", str(dev_check), "vault-full"],
+                cwd=temporary,
+                env=environment,
+                timeout=900,
+                label="candidate real Notes vault-full",
+            )
 
-        candidate_lock_path = temporary / "candidate-lock.json"
-        candidate_lock_path.write_text(
-            json.dumps(lock_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        environment.update(
-            {
-                "SOLVENOTES_VAULT_ROOT": str(notes_root),
-                "SOLVENOTES_SKILLS_LOCK_OVERRIDE": str(candidate_lock_path),
-                "SOLVENOTES_PYTHON_BIN": python_bin,
+            notes_zip = temporary / "notes.zip"
+            package_script = installed / MAINTAINER_SKILL / "scripts" / "package_vault.py"
+            _run(
+                [
+                    python_bin,
+                    str(package_script),
+                    "--root",
+                    str(notes_root),
+                    "--output",
+                    str(notes_zip),
+                ],
+                cwd=temporary,
+                env=environment,
+                timeout=300,
+                label="candidate Notes package",
+            )
+            with zipfile.ZipFile(notes_zip) as package:
+                names = package.namelist()
+                forbidden = [
+                    name
+                    for name in names
+                    if ".git/" in f"/{name}"
+                    or name.startswith("__MACOSX/")
+                    or name.startswith("._")
+                    or name.endswith("workspace.json")
+                    or name.endswith("graph.json")
+                ]
+                if forbidden or package.testzip() is not None:
+                    raise ValueError(f"candidate Notes package is not clean: {forbidden[:10]}")
+            return {
+                "ok": True,
+                "commit": commit,
+                "contract_version": target["contract_version"],
+                "skills": target["skills"],
+                "dependency_graph_digest": target["dependency_graph_digest"],
+                "notes_package_entries": len(names),
+                "formal_lock_modified": False,
             }
-        )
-        dev_check = installed / MAINTAINER_SKILL / "scripts" / "dev_check.sh"
-        _run(
-            ["bash", str(dev_check), "vault-full"],
-            cwd=temporary,
-            env=environment,
-            timeout=900,
-            label="candidate real Notes vault-full",
-        )
-
-        notes_zip = temporary / "notes.zip"
-        package_script = installed / MAINTAINER_SKILL / "scripts" / "package_vault.py"
-        _run(
-            [
-                python_bin,
-                str(package_script),
-                "--root",
-                str(notes_root),
-                "--output",
-                str(notes_zip),
-            ],
-            cwd=temporary,
-            env=environment,
-            timeout=300,
-            label="candidate Notes package",
-        )
-        with zipfile.ZipFile(notes_zip) as package:
-            names = package.namelist()
-            forbidden = [
-                name
-                for name in names
-                if ".git/" in f"/{name}"
-                or name.startswith("__MACOSX/")
-                or name.startswith("._")
-                or name.endswith("workspace.json")
-                or name.endswith("graph.json")
-            ]
-            if forbidden or package.testzip() is not None:
-                raise ValueError(f"candidate Notes package is not clean: {forbidden[:10]}")
-        return {
-            "ok": True,
-            "commit": commit,
-            "contract_version": target["contract_version"],
-            "skills": target["skills"],
-            "dependency_graph_digest": target["dependency_graph_digest"],
-            "notes_package_entries": len(names),
-            "formal_lock_modified": False,
-        }
+        finally:
+            _remove_worktree(skills_root, checkout)
 
 
 def main(argv: list[str] | None = None) -> int:
