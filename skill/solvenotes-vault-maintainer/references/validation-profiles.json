@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "python": {
+    "minimum": "3.9",
+    "primary": "3.11",
+    "validated": ["3.9", "3.11", "3.12"]
+  },
+  "modules": {
+    "pytest": {
+      "import_name": "pytest",
+      "distribution": "pytest",
+      "minimum": "8.0.0",
+      "maximum_exclusive": "9.0.0"
+    },
+    "PyYAML": {
+      "import_name": "yaml",
+      "distribution": "PyYAML",
+      "minimum": "6.0"
+    },
+    "ruff": {
+      "import_name": "ruff",
+      "distribution": "ruff",
+      "minimum": "0.8.0",
+      "maximum_exclusive": "1.0"
+    }
+  },
+  "commands": {
+    "git": ["git"],
+    "compiler": ["g++", "clang++"],
+    "unzip": ["unzip"],
+    "bash": ["bash"]
+  },
+  "profiles": {
+    "tool-quick": {
+      "required_modules": ["pytest", "PyYAML", "ruff"],
+      "required_commands": ["git"],
+      "optional_commands": ["compiler", "unzip", "bash"],
+      "requires_notes_root": false,
+      "requires_skills_root": true,
+      "allows_network": false
+    },
+    "tool-full": {
+      "required_modules": ["pytest", "PyYAML", "ruff"],
+      "required_commands": ["git"],
+      "optional_commands": ["compiler", "unzip", "bash"],
+      "requires_notes_root": false,
+      "requires_skills_root": true,
+      "allows_network": false
+    },
+    "vault-quick": {
+      "required_modules": ["PyYAML"],
+      "required_commands": ["git"],
+      "optional_commands": ["compiler", "unzip", "bash"],
+      "requires_notes_root": true,
+      "requires_skills_root": true,
+      "allows_network": false
+    },
+    "vault-full": {
+      "required_modules": ["PyYAML"],
+      "required_commands": ["git", "compiler"],
+      "optional_commands": ["unzip", "bash"],
+      "requires_notes_root": true,
+      "requires_skills_root": true,
+      "allows_network": false
+    },
+    "online": {
+      "required_modules": ["PyYAML"],
+      "required_commands": ["git"],
+      "optional_commands": ["unzip", "bash"],
+      "requires_notes_root": true,
+      "requires_skills_root": true,
+      "allows_network": true
+    },
+    "package-notes": {
+      "required_modules": [],
+      "required_commands": ["git", "unzip"],
+      "optional_commands": [],
+      "requires_notes_root": true,
+      "requires_skills_root": true,
+      "allows_network": false
+    },
+    "package-workspace": {
+      "required_modules": [],
+      "required_commands": ["git", "unzip"],
+      "optional_commands": [],
+      "requires_notes_root": true,
+      "requires_skills_root": true,
+      "allows_network": false
+    }
+  }
+}

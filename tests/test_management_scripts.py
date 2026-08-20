@@ -542,6 +542,7 @@ def test_validate_all_lists_stable_step_ids():
     steps = result.stdout.splitlines()
 
     for step_id in (
+        "preflight.doctor",
         "root.compile",
         "root.ruff",
         "root.tests",
@@ -559,6 +560,23 @@ def test_validate_all_lists_stable_step_ids():
         "notes.deck",
     ):
         assert step_id in steps
+
+
+def test_validate_all_runs_doctor_before_any_validation_step(
+    monkeypatch,
+) -> None:
+    steps: list[str] = []
+
+    def stop_after_doctor(step_id, *_args, **_kwargs):
+        steps.append(step_id)
+        raise SystemExit(9)
+
+    monkeypatch.setattr(validate_all, "run_command", stop_after_doctor)
+
+    with pytest.raises(SystemExit, match="9"):
+        validate_all.main(["--quick"])
+
+    assert steps == ["preflight.doctor"]
 
 
 def test_validate_all_honors_python_bin_override(monkeypatch, tmp_path: Path):

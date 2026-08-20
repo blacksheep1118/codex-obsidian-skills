@@ -12,10 +12,3 @@ norecursedirs = [
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
-
-[tool.solvenotes]
-# This repository is a Skills source tree rather than an installable package.
-# Keep the CI support contract explicit without inventing package metadata.
-python-min = "3.9"
-python-primary = "3.11"
-python-newest-validated = "3.12"

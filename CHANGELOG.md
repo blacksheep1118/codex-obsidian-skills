@@ -4,6 +4,7 @@ All notable changes to this repository are documented here.
 
 ## Unreleased
 
+- Unified Doctor and validation entry points around one profile contract, added fail-fast dependency preflight, and introduced deterministic Notes-package manifests with independent archive and sidecar verification.
 - Corrected CommonMark inline-link and code-span boundaries across LF, CRLF, and CR; hardened cross-platform root-relative path validation; preserved Windows paths, regexes, and LaTeX in web manifests; and required independent per-resource web-note ownership.
 - Hardened paper-note local source ownership to require exact regular non-symlink files in both frontmatter and body references, and tightened validation of the official `agents/openai.yaml` dependency schema.
 - Moved reusable skill command examples into root-level documentation and removed skill-local README files so installable packages contain only agent-needed resources.

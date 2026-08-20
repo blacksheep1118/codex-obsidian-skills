@@ -279,17 +279,17 @@ Root management tools include:
 - `algorithm-job-notes-for-obsidian`: uses the repository validators plus its isolated `scripts/validate_skill.py` to enforce the closed nine-direction contract.
 
 The repository is a source tree rather than an installable Python package. Its
-compatibility contract is recorded in `[tool.solvenotes]` in `pyproject.toml`:
-Python 3.9 is the minimum, Python 3.11 is the primary validation version, and
-Python 3.12 is the newest version currently validated. Run the project Doctor
-before a long gate to see the selected interpreter, dependency versions, tools,
-paths, and lock contract:
+single execution-profile contract is
+`skill/solvenotes-vault-maintainer/references/validation-profiles.json`.
+That file records the validated Python versions, Python package ranges, system
+tools, network policy, and path requirements for every gate. Run the project
+Doctor against the intended profile before a long gate:
 
 ```bash
 python3 skill/solvenotes-vault-maintainer/scripts/doctor.py \
   --notes-root /path/to/solvenotes/notes \
   --skills-root /path/to/solvenotes/skills \
-  --mode full --strict
+  --profile vault-full --strict
 ```
 
 ## Validation

@@ -2,12 +2,43 @@ from __future__ import annotations
 
 import os
 import stat
+import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
 import notes_utils
 import package_vault as pv
 import pytest
+
+
+def test_package_cli_root_argument_is_honored_without_environment(tmp_path) -> None:
+    root = tmp_path / "vault"
+    root.mkdir()
+    (root / "AGENT.md").write_text("# Rules\n", encoding="utf-8")
+    (root / "note.md").write_text("# Local\n", encoding="utf-8")
+    output = tmp_path / "notes.zip"
+    env = os.environ.copy()
+    env.pop("SOLVENOTES_VAULT_ROOT", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(pv.__file__)),
+            "--root",
+            str(root),
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=20,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert output.is_file()
 
 
 def test_package_does_not_follow_external_symlink_file(tmp_path, monkeypatch) -> None:
@@ -23,7 +54,7 @@ def test_package_does_not_follow_external_symlink_file(tmp_path, monkeypatch) ->
     count, _size = pv.package(output)
 
     with zipfile.ZipFile(output) as archive:
-        assert archive.namelist() == ["note.md"]
+        assert archive.namelist() == ["note.md", pv.MANIFEST_NAME]
     assert count == 1
 
 
@@ -41,7 +72,7 @@ def test_package_does_not_follow_external_symlink_directory(tmp_path, monkeypatc
     count, _size = pv.package(output)
 
     with zipfile.ZipFile(output) as archive:
-        assert archive.namelist() == ["note.md"]
+        assert archive.namelist() == ["note.md", pv.MANIFEST_NAME]
     assert count == 1
 
 
@@ -217,7 +248,7 @@ def test_package_excludes_hidden_ci_infrastructure(tmp_path, monkeypatch) -> Non
     pv.package(output)
 
     with zipfile.ZipFile(output) as archive:
-        assert archive.namelist() == ["note.md"]
+        assert archive.namelist() == ["note.md", pv.MANIFEST_NAME]
 
 
 @pytest.mark.parametrize("relative", ["bundle.zip", "exports/bundle.zip"])
@@ -234,7 +265,7 @@ def test_package_inside_vault_excludes_output_and_atomic_stage(tmp_path, monkeyp
 
     assert count == 1
     with zipfile.ZipFile(output) as archive:
-        assert archive.namelist() == ["note.md"]
+        assert archive.namelist() == ["note.md", pv.MANIFEST_NAME]
         assert not any(".conflict-" in name for name in archive.namelist())
 
 
@@ -367,7 +398,11 @@ def test_package_excludes_tool_caches_and_current_or_legacy_recovery_sidecars(
     count, _size = pv.package(output)
 
     with zipfile.ZipFile(output) as archive:
-        assert archive.namelist() == [".bundle.zip.conflict-not-owned", "note.md"]
+        assert archive.namelist() == [
+            ".bundle.zip.conflict-not-owned",
+            "note.md",
+            pv.MANIFEST_NAME,
+        ]
     assert count == 2
 
 
@@ -380,8 +415,9 @@ def test_package_rejects_corrupt_staged_archive_and_preserves_old_output(tmp_pat
     original_add = pv._add_archive_entry
     monkeypatch.setattr(pv, "ROOT", root)
 
-    def add_then_corrupt(archive: zipfile.ZipFile, path: Path) -> None:
-        original_add(archive, path)
+    def add_then_corrupt(*args, **kwargs) -> None:
+        archive = args[0]
+        original_add(*args, **kwargs)
         assert archive.fp is not None
         end = archive.fp.tell()
         archive.fp.seek(0)

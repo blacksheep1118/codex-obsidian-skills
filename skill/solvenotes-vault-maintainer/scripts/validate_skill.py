@@ -33,11 +33,14 @@ def main() -> int:
         SKILL_ROOT / "scripts" / "validate_notes_candidate.py",
         SKILL_ROOT / "scripts" / "vault_contract.py",
         SKILL_ROOT / "scripts" / "package_vault.py",
+        SKILL_ROOT / "scripts" / "verify_vault_package.py",
         SKILL_ROOT / "scripts" / "package_workspace.py",
         SKILL_ROOT / "scripts" / "verify_workspace_package.py",
+        SKILL_ROOT / "scripts" / "archive_contract.py",
         SKILL_ROOT / "scripts" / "safe_io.py",
         SKILL_ROOT / "scripts" / "skill_metadata.py",
         SKILL_ROOT / "scripts" / "run_with_timeout.py",
+        SKILL_ROOT / "references" / "validation-profiles.json",
     )
     missing = [str(path.relative_to(SKILL_ROOT)) for path in required if not path.exists()]
     if missing:

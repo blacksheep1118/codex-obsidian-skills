@@ -53,9 +53,10 @@ supports it.
 The scripts accept `--root` where documented, but the environment variable is
 the stable interface used by the full gate and by agents. The skill must fail
 clearly rather than silently treating its own `skill/` directory as a vault.
-Run `scripts/doctor.py --strict` before a long gate when the environment is
-uncertain; it reports the selected interpreter, dependency versions, system
-tools, vault path, and Skills path without using machine-specific fallbacks.
+Run `scripts/doctor.py --profile PROFILE --strict` before a long gate when the
+environment is uncertain. It reads the shared validation-profile contract and
+reports the selected interpreter, dependency versions, system tools, vault
+path, and Skills path without using machine-specific fallbacks.
 
 ## Quick Start
 
@@ -99,7 +100,13 @@ SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
   --changed-only --max-urls 100 --timeout 10 --total-timeout 300
 
 python3 skill/solvenotes-vault-maintainer/scripts/package_vault.py \
-  --root /absolute/path/to/notes --output /tmp/solvenotes-notes-clean.zip
+  --root /absolute/path/to/notes \
+  --output /tmp/solvenotes-notes-clean.zip \
+  --manifest-output /tmp/solvenotes-notes-PACKAGE-MANIFEST.json
+
+python3 skill/solvenotes-vault-maintainer/scripts/verify_vault_package.py \
+  /tmp/solvenotes-notes-clean.zip \
+  --sidecar /tmp/solvenotes-notes-PACKAGE-MANIFEST.json
 
 python3 skill/solvenotes-vault-maintainer/scripts/package_workspace.py \
   --root /path/to/solvenotes \
@@ -118,10 +125,11 @@ location, runs `vault-full` against the real Notes vault through an override
 lock, packages the vault, and leaves the formal lock unchanged. Only then use
 `update_notes_skill_lock.py --write`.
 
-The Notes learning package excludes Git metadata, macOS sidecar files, Obsidian
-local workspace/graph state, hidden CI infrastructure, caches, compiled files,
-and previous exports. The workspace diagnostic package intentionally keeps only
-the necessary hidden CI files under `notes/.github/`.
+The Notes learning package embeds a deterministic file manifest and excludes
+Git metadata, macOS sidecar files, Obsidian local workspace/graph state, hidden
+CI infrastructure, caches, compiled files, and previous exports. Verify it
+without extraction before delivery. The workspace diagnostic package
+intentionally keeps only the necessary hidden CI files under `notes/.github/`.
 It must not write an archive into the vault by default.
 
 `package_workspace.py` is a separate maintainer diagnostic package for the

@@ -8,8 +8,11 @@ import hashlib
 import json
 import re
 import zipfile
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from io import BytesIO
+from pathlib import Path, PurePosixPath
 
+from archive_contract import is_symlink_entry, records_digest, safe_entry
+from safe_io import ensure_safe_input_file, read_bytes_no_follow
 from vault_contract import (
     CURRENT_LOCK_SCHEMA_VERSION,
     INSTALL_EXCLUDED_PARTS,
@@ -17,29 +20,10 @@ from vault_contract import (
     dependency_graph_digest,
 )
 
-FORBIDDEN_PARTS = {".git", "__MACOSX", "__pycache__", ".pytest_cache", ".ruff_cache"}
-FORBIDDEN_NAMES = {"workspace.json", "graph.json", ".DS_Store"}
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 EXPECTED_REPOSITORY = "blacksheep1118/codex-obsidian-skills"
 EXPECTED_MAINTAINER = "solvenotes-vault-maintainer"
-
-
-def safe_entry(name: str) -> bool:
-    path = PurePosixPath(name)
-    windows_path = PureWindowsPath(name)
-    return bool(name) and "\\" not in name and not path.is_absolute() and not windows_path.is_absolute() and not windows_path.drive and ".." not in path.parts and not any(
-        part in FORBIDDEN_PARTS or part.startswith("._") or part in FORBIDDEN_NAMES
-        for part in path.parts
-    )
-
-
-def records_digest(records: list[dict[str, object]]) -> str:
-    canonical = json.dumps(
-        records, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
-
-
+ALLOWED_TOP_LEVEL = {"agent", "notes", "skills"}
 def _skill_digest_from_manifest(files: list[dict[str, object]], name: str) -> str:
     prefix = f"skills/skill/{name}/"
     records = []
@@ -62,8 +46,9 @@ def _skill_digest_from_manifest(files: list[dict[str, object]], name: str) -> st
 
 def verify(archive_path: Path, sidecar_path: Path | None = None) -> dict[str, object]:
     issues: list[str] = []
-    archive_sha256 = hashlib.sha256(archive_path.read_bytes()).hexdigest()
-    with zipfile.ZipFile(archive_path, "r") as archive:
+    archive_bytes = read_bytes_no_follow(ensure_safe_input_file(archive_path))
+    archive_sha256 = hashlib.sha256(archive_bytes).hexdigest()
+    with zipfile.ZipFile(BytesIO(archive_bytes), "r") as archive:
         infos = archive.infolist()
         names = [info.filename for info in infos]
         if len(names) != len(set(names)):
@@ -71,10 +56,15 @@ def verify(archive_path: Path, sidecar_path: Path | None = None) -> dict[str, ob
         for info in infos:
             if not safe_entry(info.filename):
                 issues.append(f"unsafe ZIP entry: {info.filename}")
+            path = PurePosixPath(info.filename)
+            if (
+                info.filename not in {"AGENT.md", "BUILD-MANIFEST.json"}
+                and (not path.parts or path.parts[0] not in ALLOWED_TOP_LEVEL)
+            ):
+                issues.append(f"unexpected workspace top-level entry: {info.filename}")
             if info.is_dir():
                 issues.append(f"directory ZIP entry is not allowed: {info.filename}")
-            mode = (info.external_attr >> 16) & 0xFFFF
-            if mode and (mode & 0o170000) == 0o120000:
+            if is_symlink_entry(info):
                 issues.append(f"symbolic-link ZIP entry: {info.filename}")
         try:
             manifest = json.loads(archive.read("BUILD-MANIFEST.json").decode("utf-8"))
@@ -110,6 +100,8 @@ def verify(archive_path: Path, sidecar_path: Path | None = None) -> dict[str, ob
                     digest = hashlib.sha256(archive.read(name)).hexdigest()
                     if digest != item.get("sha256"):
                         issues.append(f"manifest digest mismatch: {name}")
+                    if len(archive.read(name)) != item.get("size"):
+                        issues.append(f"manifest size mismatch: {name}")
                 if manifest.get("content_digest") != records_digest(files):
                     issues.append("manifest content_digest does not match file records")
 
@@ -163,7 +155,8 @@ def verify(archive_path: Path, sidecar_path: Path | None = None) -> dict[str, ob
                 issues.append("package is not a coherent locked workspace")
     if sidecar_path is not None:
         try:
-            sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+            sidecar_bytes = read_bytes_no_follow(ensure_safe_input_file(sidecar_path))
+            sidecar = json.loads(sidecar_bytes.decode("utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             issues.append(f"invalid sidecar manifest: {exc}")
             sidecar = None

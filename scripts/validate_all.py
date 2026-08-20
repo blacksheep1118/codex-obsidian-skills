@@ -370,9 +370,27 @@ def main(argv: list[str] | None = None) -> int:
         steps = build_steps(py, Path(temporary))
 
         if args.list_steps:
+            print("preflight.doctor")
             for step in steps:
                 print(step.step_id)
             return 0
+
+        profile = "tool-quick" if args.quick else "tool-full"
+        run_command(
+            "preflight.doctor",
+            [
+                py,
+                str(ROOT / "scripts" / "doctor.py"),
+                "--python-bin",
+                py,
+                "--skills-root",
+                str(ROOT),
+                "--profile",
+                profile,
+                "--strict",
+            ],
+            ROOT,
+        )
 
         for step in selected_steps(steps, quick=args.quick, skill=skill):
             for command in step.commands:

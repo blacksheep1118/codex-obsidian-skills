@@ -5,11 +5,6 @@ import pytest
 
 
 def test_doctor_reads_central_python_support_contract(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        '[tool.solvenotes]\npython-min = "3.9"\npython-primary = "3.11"\npython-newest-validated = "3.12"\n',
-        encoding="utf-8",
-    )
-
     assert doctor.python_support(tmp_path) == {
         "python-min": "3.9",
         "python-primary": "3.11",
@@ -22,8 +17,11 @@ def test_doctor_reads_central_python_support_contract(tmp_path: Path) -> None:
     [
         ("vault-quick", {"PyYAML"}),
         ("vault-full", {"PyYAML"}),
-        ("tool-quick", {"PyYAML"}),
+        ("tool-quick", {"PyYAML", "pytest", "ruff"}),
         ("tool-full", {"PyYAML", "pytest", "ruff"}),
+        ("online", {"PyYAML"}),
+        ("package-notes", set()),
+        ("package-workspace", set()),
     ],
 )
 def test_doctor_modes_only_require_their_own_python_tools(
@@ -40,20 +38,54 @@ def test_doctor_modes_only_require_their_own_python_tools(
     monkeypatch.setattr(
         doctor,
         "module_versions",
-        lambda _python: ({"pytest": "MISSING", "PyYAML": "MISSING", "ruff": "MISSING"}, None),
+        lambda _python, _contract: (
+            {"pytest": "MISSING", "PyYAML": "MISSING", "ruff": "MISSING"},
+            None,
+        ),
     )
-    monkeypatch.setattr(doctor, "python_support", lambda _root: {})
     monkeypatch.setattr(doctor, "command_version", lambda command: f"/usr/bin/{command}")
-    monkeypatch.setattr(doctor.shutil, "which", lambda command: f"/usr/bin/{command}")
 
     values, missing = doctor.report(
         python_bin="/tmp/python",
         notes_root=None,
         skills_root=tmp_path,
-        mode=mode,
+        profile=mode,
     )
 
-    assert set(missing) == required
+    missing_modules = {item.split(">=", 1)[0] for item in missing}
+    assert required <= missing_modules
     for distribution in {"pytest", "PyYAML", "ruff"}:
         expected = "MISSING" if distribution in required else "OPTIONAL_MISSING"
         assert values[f"status_{distribution}"] == expected
+
+
+def test_doctor_reports_unvalidated_python_and_required_module_version(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        doctor,
+        "python_probe",
+        lambda _python: ({"executable": "/tmp/python", "version": "3.13.1"}, None),
+    )
+    monkeypatch.setattr(
+        doctor,
+        "module_versions",
+        lambda _python, _contract: (
+            {"pytest": "9.0.0", "PyYAML": "6.0.3", "ruff": "0.16.4"},
+            None,
+        ),
+    )
+    monkeypatch.setattr(doctor, "command_version", lambda command: f"/usr/bin/{command}")
+
+    values, issues = doctor.report(
+        python_bin="/tmp/python",
+        notes_root=None,
+        skills_root=tmp_path,
+        profile="tool-quick",
+    )
+
+    assert values["status_python"] == "UNTESTED"
+    assert values["status_pytest"] == "VERSION_MISMATCH"
+    assert any("validated set" in issue for issue in issues)
+    assert any("pytest>=8.0.0,<9.0.0" in issue for issue in issues)

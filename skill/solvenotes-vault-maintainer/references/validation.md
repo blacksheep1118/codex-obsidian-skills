@@ -19,6 +19,11 @@ bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-full
 bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh github-ready
 ```
 
+The requirements for these profiles have one machine-readable source:
+`references/validation-profiles.json`. `doctor.py --profile PROFILE --strict`
+reads that contract, and every expensive root or vault entry point runs the
+corresponding preflight first.
+
 The tool gates validate the Skill implementation; the vault gates validate
 external learning content without rerunning the Skill test suite. Compatibility
 aliases `quick` and `full` map to `vault-quick` and `vault-full`. `vault-full`
@@ -58,11 +63,16 @@ Create a package outside the vault:
 ```bash
 python3 skill/solvenotes-vault-maintainer/scripts/package_vault.py \
   --root "$SOLVENOTES_VAULT_ROOT" \
-  --output /tmp/solvenotes-notes-clean.zip
+  --output /tmp/solvenotes-notes-clean.zip \
+  --manifest-output /tmp/solvenotes-notes-PACKAGE-MANIFEST.json
+
+python3 skill/solvenotes-vault-maintainer/scripts/verify_vault_package.py \
+  /tmp/solvenotes-notes-clean.zip \
+  --sidecar /tmp/solvenotes-notes-PACKAGE-MANIFEST.json
 ```
 
 The package excludes `.git`, caches, `__MACOSX`, `.DS_Store`, `._*`, compiled
 files, `.obsidian/workspace.json`, `.obsidian/graph.json`, and prior exports.
-Inspect the archive itself after creation; a successful package command is not
-proof that a stale local workspace reference was absent unless the archive is
-listed.
+The verifier rejects duplicate, absolute, traversing, symlink, cache, and local
+workspace entries, then recomputes every recorded size and digest. A successful
+package command alone is not delivery evidence; the verifier must also pass.

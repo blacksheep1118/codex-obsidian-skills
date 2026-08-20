@@ -40,13 +40,18 @@ fi
 printf 'python_bin %s\n' "$PYTHON_BIN"
 
 check_environment() {
-  local mode="${1:-quick}"
-  run_step "$PYTHON_BIN" "$SKILL_ROOT/scripts/doctor.py" \
+  local mode="${1:-vault-quick}"
+  local -a doctor_args=( \
+    "$SKILL_ROOT/scripts/doctor.py" \
     --python-bin "$PYTHON_BIN" \
-    --notes-root "$VAULT_ROOT" \
     --skills-root "$SKILLS_ROOT" \
-    --mode "$mode" \
-    --strict
+    --profile "$mode" \
+    --strict \
+  )
+  if [[ -n "$VAULT_ROOT" ]]; then
+    doctor_args+=(--notes-root "$VAULT_ROOT")
+  fi
+  run_step "$PYTHON_BIN" "${doctor_args[@]}"
 }
 
 CURRENT_STEP=""
@@ -89,6 +94,7 @@ require_vault() {
     printf 'invalid SOLVENOTES_VAULT_ROOT: %s\n' "$VAULT_ROOT" >&2
     exit 2
   fi
+  VAULT_ROOT="$(cd "$VAULT_ROOT" && pwd -P)"
   export SOLVENOTES_VAULT_ROOT="$VAULT_ROOT"
 }
 
@@ -139,12 +145,24 @@ check_workspace_guidance() {
 }
 
 tool_quick() {
+  if [[ -f "$SKILLS_ROOT/scripts/validate_all.py" ]]; then
+    run_step env -u SOLVENOTES_VAULT_ROOT \
+      SOLVENOTES_PYTHON_BIN="$PYTHON_BIN" \
+      "$PYTHON_BIN" "$SKILLS_ROOT/scripts/validate_all.py" --quick
+    return
+  fi
   check_environment tool-quick
   run_skill_python -m compileall "$SKILL_ROOT/scripts"
   run_skill_python "$SKILL_ROOT/scripts/validate_skill.py"
 }
 
 tool_full() {
+  if [[ -f "$SKILLS_ROOT/scripts/validate_all.py" ]]; then
+    run_step env -u SOLVENOTES_VAULT_ROOT \
+      SOLVENOTES_PYTHON_BIN="$PYTHON_BIN" \
+      "$PYTHON_BIN" "$SKILLS_ROOT/scripts/validate_all.py"
+    return
+  fi
   check_environment tool-full
   run_skill_python -m compileall "$SKILL_ROOT/scripts"
   run_skill_python "$SKILL_ROOT/scripts/validate_skill.py"
@@ -225,6 +243,7 @@ github_ready() {
 
 online() {
   require_vault
+  check_environment online
   local -a extra_args=("${@:2}")
   local has_json_out=0
   local argument
