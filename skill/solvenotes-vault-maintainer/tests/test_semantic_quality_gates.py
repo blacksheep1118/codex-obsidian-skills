@@ -1,4 +1,6 @@
-from analyze_example_quality import _compact, grade, mask_inline_code
+from pathlib import Path
+
+from analyze_example_quality import Example, _compact, grade, mask_inline_code, semantic_category
 from check_examples import generic_prompt
 from check_paper_notes import paper_contract_gaps
 
@@ -46,6 +48,22 @@ def test_worked_example_reaches_grade_a() -> None:
 def test_generic_steps_and_result_do_not_reach_grade_b() -> None:
     line = "解析：首先读取输入数据，然后执行算法步骤，接着更新状态，最后输出结果，因此得到最终结果并说明计算完成。"
     assert grade(line) == "C"
+
+
+def test_example_report_categories_explain_quality_without_letter_grades() -> None:
+    source = Example(
+        Path("course.md"),
+        10,
+        "table",
+        "轮转调度",
+        "| 轮转调度 | 已知三个进程到达时间均为0，服务时间为3、2、1，课件例题要求计算周转时间。"
+        "解析：先按到达顺序建立队列，再逐个时间片更新剩余时间，最终完成时刻为6、5、3，"
+        "平均周转时间为14/3；边界是未结束进程必须重新入队。 | 来源 |",
+    )
+    missing = Example(Path("course.md"), 20, "narrative", "练习", "题目：给定三个进程，请计算周转时间。")
+
+    assert semantic_category(source) == "source_example"
+    assert semantic_category(missing) == "missing_answer"
 
 
 def test_commonmark_code_span_with_shorter_inner_ticks_is_ignored() -> None:

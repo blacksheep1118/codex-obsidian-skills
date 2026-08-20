@@ -13,8 +13,16 @@ import argparse
 import json
 import re
 from collections import Counter, defaultdict
+from pathlib import Path
 
-from notes_utils import markdown_files, read_text, rel, strip_frontmatter, text_without_code
+from notes_utils import (
+    frontmatter_note_type,
+    markdown_files,
+    read_text,
+    rel,
+    strip_frontmatter,
+    text_without_code,
+)
 
 PLACEHOLDER_RE = re.compile(r"(?:在此填写|TODO|FIXME|待补充|<待填写>)", re.I)
 BOILERPLATE_PATTERNS = (
@@ -37,6 +45,21 @@ FENCE_RE = re.compile(r"^\s*(\x60{3}|~~~)")
 HTML_COMMENT_RE = re.compile(r"^\s*<!--.*-->\s*$")
 LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+] |\d+[.)]\s+)(.+?)\s*$")
 MIN_PARAGRAPH_LENGTH = 24
+EXCLUDED_NOTE_TYPES = {"template", "source_manifest", "agent_rule"}
+CITATION_RE = re.compile(r"^(?:\[[^]]+\]\(https?://|https?://|DOI[:：]|arXiv[:：])", re.I)
+
+
+def should_scan(path: Path, text: str) -> bool:
+    relative = rel(path)
+    if path.name in {"README.md", "AGENT.md", "source_manifest.md"}:
+        return False
+    if "/.obsidian/templates/" in f"/{relative}":
+        return False
+    return frontmatter_note_type(text) not in EXCLUDED_NOTE_TYPES
+
+
+def intentional_heading_schema(relative: str) -> bool:
+    return relative.startswith("学习路径/") or relative.startswith("游戏数值策划/表格样例/")
 
 
 def normalized_paragraphs(text: str) -> list[tuple[int, str]]:
@@ -129,6 +152,8 @@ def normalized_list_items(text: str) -> list[tuple[int, str]]:
             continue
         if item.startswith(("http://", "https://", "[[")) or item.startswith(chr(96)):
             continue
+        if CITATION_RE.match(item):
+            continue
         if not re.search(r"[，。！？：:；;,]", item):
             continue
         items.append((line_number, item))
@@ -142,13 +167,18 @@ def scan() -> dict[str, object]:
     list_locations: dict[str, list[tuple[str, int]]] = defaultdict(list)
     opening_locations: dict[str, list[tuple[str, int]]] = defaultdict(list)
     heading_groups: dict[tuple[str, tuple[str, ...]], list[str]] = defaultdict(list)
+    intentional_heading_groups: list[dict[str, object]] = []
     repeated_section_counts: Counter[str] = Counter()
     repeated_section_files: dict[str, set[str]] = defaultdict(set)
-    note_files = markdown_files()
+    all_files = markdown_files()
+    note_files = []
 
-    for path in note_files:
+    for path in all_files:
         relative = rel(path)
         text = read_text(path)
+        if not should_scan(path, text):
+            continue
+        note_files.append(path)
         prose = text_without_code(strip_frontmatter(text))
         for line_number, line in enumerate(prose.splitlines(), 1):
             if PLACEHOLDER_RE.search(line):
@@ -235,16 +265,20 @@ def scan() -> dict[str, object]:
 
     for (_directory, sequence), locations in heading_groups.items():
         if len(locations) >= 4:
-            review_candidates.append(
-                {
-                    "path": locations[0],
-                    "line": 1,
-                    "kind": "repeated_h2_skeleton",
-                    "count": len(locations),
-                    "files": sorted(locations),
-                    "context": " / ".join(sequence[:8]),
-                }
-            )
+            candidate = {
+                "path": locations[0],
+                "line": 1,
+                "kind": "intentional_heading_schema"
+                if all(intentional_heading_schema(path) for path in locations)
+                else "structure_reuse",
+                "count": len(locations),
+                "files": sorted(locations),
+                "context": " / ".join(sequence[:8]),
+            }
+            if candidate["kind"] == "intentional_heading_schema":
+                intentional_heading_groups.append(candidate)
+            else:
+                review_candidates.append(candidate)
 
     for heading, count in repeated_section_counts.items():
         if count >= 6:
@@ -272,10 +306,12 @@ def scan() -> dict[str, object]:
             group_files.update(str(path) for path in item.get("files", []))
     return {
         "files_checked": len(note_files),
+        "files_excluded": len(all_files) - len(note_files),
         "naturalness_high_confidence": len(high_confidence),
         "naturalness_review_candidates": len(review_candidates),
-        "high_confidence": high_confidence[:100],
-        "review_candidates": review_candidates[:200],
+        "high_confidence": high_confidence,
+        "review_candidates": review_candidates,
+        "intentional_structure": intentional_heading_groups,
         "review_groups": {
             kind: {"count": int(value["count"]), "files": sorted(value["files"])}
             for kind, value in sorted(review_groups.items())

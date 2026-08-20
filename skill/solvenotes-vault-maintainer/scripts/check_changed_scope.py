@@ -12,6 +12,16 @@ from pathlib import Path
 
 from notes_utils import ROOT
 
+CHECK_REGISTRY = {
+    "links": {"owner": "maintainer", "script": "scripts/check_links.py", "arguments": []},
+    "frontmatter": {"owner": "maintainer", "script": "scripts/check_frontmatter.py", "arguments": []},
+    "source_manifest": {"owner": "maintainer", "script": "scripts/normalize_source_manifests.py", "arguments": ["--check"]},
+    "algorithm_job": {"owner": "maintainer", "script": "scripts/check_algorithm_job_notes.py", "arguments": []},
+    "cpp17": {"owner": "algorithm-job", "script": "scripts/check_cpp_examples.py", "arguments": ["--root", "${SOLVENOTES_VAULT_ROOT}"]},
+    "naturalness": {"owner": "maintainer", "script": "scripts/check_naturalness.py", "arguments": ["--strict"]},
+    "package": {"owner": "maintainer", "script": "scripts/package_vault.py", "arguments": ["--root", "${SOLVENOTES_VAULT_ROOT}"]},
+}
+
 
 def _git_lines(command: list[str], *, allow_failure: bool = False) -> list[str]:
     is_path_listing = "--name-only" in command or "--others" in command
@@ -108,7 +118,13 @@ def suggested_checks(files: list[str]) -> list[str]:
             checks.add("cpp17")
         if path.endswith(".md") and ("学习路径" in path or "算法岗" in path):
             checks.add("naturalness")
+        if path in {".gitignore", ".gitattributes", "notes.base"} or path.startswith(".github/"):
+            checks.add("package")
     return sorted(checks)
+
+
+def command_records(checks: list[str]) -> list[dict[str, object]]:
+    return [{"id": check, **CHECK_REGISTRY[check]} for check in checks]
 
 
 def main() -> int:
@@ -138,6 +154,7 @@ def main() -> int:
         "changed_file_count": len(files),
         "affected_courses": courses,
         "suggested_checks": suggested,
+        "suggested_commands": command_records(suggested),
     }
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -149,6 +166,12 @@ def main() -> int:
             print(f"COURSE {course}")
         for check in suggested:
             print(f"CHECK {check}")
+            record = CHECK_REGISTRY[check]
+            arguments = " ".join(str(item) for item in record["arguments"])
+            print(
+                f"COMMAND {check} owner={record['owner']} script={record['script']}"
+                + (f" args={arguments}" if arguments else "")
+            )
     return 0
 
 

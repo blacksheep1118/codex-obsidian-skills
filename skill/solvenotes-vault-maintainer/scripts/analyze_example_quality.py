@@ -356,6 +356,7 @@ def _has_result(text: str, kind: str) -> bool:
         "总计",
         "参数量",
         "风险暴露值",
+        "源资料给出",
     ]
     if bool(re.search(r"\b(?:assert|print|return|expected|output|result)\b", text, re.I)):
         return True
@@ -423,6 +424,35 @@ def _requires_solution(example: Example) -> bool:
     return bool(STRONG_PROBLEM_RE.search(example.text))
 
 
+def semantic_category(example: Example) -> str:
+    """Classify the candidate by its teaching role instead of an opaque grade."""
+
+    if re.search(r"(?:索引|入口|参见|详见)", example.title):
+        return "index_reference"
+    if re.search(r"(?:自检维度|评分标准|评分要点)", example.title):
+        return "not_an_example"
+    needs_solution = _requires_solution(example)
+    current_grade = grade(example.text, example.kind)
+    has_result = _has_result(example.text, example.kind)
+    if needs_solution:
+        if not has_result:
+            return "missing_answer"
+        if current_grade in {"C", "D"}:
+            return "insufficient_conditions"
+        if re.search(r"(?:自编|原创|生成)", example.text):
+            return "original_exercise"
+        if re.search(r"(?:课件|PPT|源资料|来源)", example.text, re.I):
+            return "source_example"
+        return "worked_example"
+    if example.kind == "code":
+        return "code_demonstration"
+    if has_result and not STRONG_PROBLEM_RE.search(example.text):
+        return "answer_only"
+    if re.search(r"示例|例子|案例|Demo|Sample", example.title, re.I):
+        return "concept_illustration"
+    return "not_an_example"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
@@ -431,38 +461,42 @@ def main() -> int:
 
     type_counts: Counter[str] = Counter()
     kind_counts: Counter[str] = Counter()
-    grade_counts: Counter[str] = Counter()
-    low_grade: list[str] = []
-    worked_grade_counts: Counter[str] = Counter()
-    non_worked_grade_counts: Counter[str] = Counter()
+    category_counts: Counter[str] = Counter()
+    category_paths: dict[str, list[str]] = {}
+    failures: list[str] = []
     total = 0
     required_total = 0
     for example in iter_examples():
         total += 1
         kind_counts[example.kind] += 1
         type_counts[example_type(example.text, example.kind)] += 1
-        current_grade = grade(example.text, example.kind)
-        grade_counts[current_grade] += 1
-        if _requires_solution(example):
+        category = semantic_category(example)
+        category_counts[category] += 1
+        category_paths.setdefault(category, []).append(
+            f"{rel(example.path)}:{example.line} | {example.kind} | {example.title}"
+        )
+        if category in {"worked_example", "source_example", "original_exercise"}:
             required_total += 1
-            worked_grade_counts[current_grade] += 1
-            if current_grade in {"C", "D"}:
-                low_grade.append(f"{rel(example.path)}:{example.line} | {example.kind} | {example.title} | {current_grade}")
-        else:
-            non_worked_grade_counts[current_grade] += 1
+        elif category in {"missing_answer", "insufficient_conditions"}:
+            required_total += 1
+            failures.append(
+                f"{rel(example.path)}:{example.line} | {example.kind} | {example.title} | {category}"
+            )
 
     payload = {
         "examples_analyzed": total,
         "worked_candidates": required_total,
-        "worked_example_count": required_total,
+        "worked_example_count": sum(
+            category_counts[name]
+            for name in ("worked_example", "source_example", "original_exercise")
+        ),
         "non_worked_candidates": total - required_total,
         "kind_counts": dict(sorted(kind_counts.items())),
         "type_counts": dict(sorted(type_counts.items())),
-        "grade_counts": dict(sorted(grade_counts.items())),
-        "worked_grade_counts": dict(sorted(worked_grade_counts.items())),
-        "non_worked_grade_counts": dict(sorted(non_worked_grade_counts.items())),
-        "low_grade_examples": low_grade[:100],
-        "low_grade_count": len(low_grade),
+        "category_counts": dict(sorted(category_counts.items())),
+        "category_paths": {key: value for key, value in sorted(category_paths.items())},
+        "gate_failures": failures,
+        "gate_failure_count": len(failures),
     }
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -475,16 +509,12 @@ def main() -> int:
             print(f"kind_{key} {value}")
         for key, value in sorted(type_counts.items()):
             print(f"type_{key} {value}")
-        for key, value in sorted(grade_counts.items()):
-            print(f"grade_{key} {value}")
-        for key, value in sorted(worked_grade_counts.items()):
-            print(f"worked_grade_{key} {value}")
-        for key, value in sorted(non_worked_grade_counts.items()):
-            print(f"non_worked_grade_{key} {value}")
-        print(f"low_grade_count {len(low_grade)}")
-        for item in low_grade[:30]:
-            print(f"LOW {item}")
-    return 1 if args.strict and low_grade else 0
+        for key, value in sorted(category_counts.items()):
+            print(f"category_{key} {value}")
+        print(f"gate_failure_count {len(failures)}")
+        for item in failures[:30]:
+            print(f"FAIL {item}")
+    return 1 if args.strict and failures else 0
 
 
 if __name__ == "__main__":
