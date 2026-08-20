@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 
 import pytest
-import vault_contract
 import update_notes_skill_lock
+import vault_contract
 from validate_notes_candidate import candidate_lock
 from vault_contract import (
     CURRENT_LOCK_SCHEMA_VERSION,
