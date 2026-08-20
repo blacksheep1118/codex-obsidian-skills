@@ -19,6 +19,7 @@ from scripts.sync_shared_resources import apply_write_plan
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SUBPROCESS_TIMEOUT_SECONDS = 60
 LINK_CHECKER_ENTRYPOINTS = (
     "scripts/check_obsidian_links.py",
     "skill/notes-to-scientific-ppt/scripts/check_obsidian_links.py",
@@ -159,6 +160,7 @@ def test_shared_resources_are_in_sync():
         encoding="utf-8",
         errors="replace",
         capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -196,6 +198,7 @@ def test_shared_link_checker_rejects_markdown_symlink_outside_root(tmp_path: Pat
         encoding="utf-8",
         errors="replace",
         capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert result.returncode == 1
@@ -217,6 +220,7 @@ def test_shared_link_checker_keeps_list_continuations_but_masks_top_level_code(t
         encoding="utf-8",
         errors="replace",
         capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert result.returncode == 1
@@ -270,6 +274,7 @@ def test_all_shared_link_checker_clis_validate_root_shape(
         encoding="utf-8",
         errors="replace",
         capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     if root_kind == "regular-dir":
@@ -356,6 +361,7 @@ def test_shared_link_checker_cli_rejects_nonregular_and_symlink_targets(
         encoding="utf-8",
         errors="replace",
         capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert result.returncode == 1

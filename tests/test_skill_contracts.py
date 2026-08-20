@@ -7,6 +7,7 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SUBPROCESS_TIMEOUT_SECONDS = 60
 SKILL_ROOT = ROOT / "skill"
 SKILL_DIRS = sorted(path for path in SKILL_ROOT.iterdir() if (path / "SKILL.md").exists())
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.S)
@@ -79,6 +80,7 @@ def test_root_command_reference_uses_supported_notes_to_ppt_mode(tmp_path: Path)
         encoding="utf-8",
         errors="replace",
         capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert result.returncode == 0, result.stdout + result.stderr

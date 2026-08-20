@@ -11,6 +11,7 @@ from scripts.safe_io import InputRootError
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_course_notes.py"
+SUBPROCESS_TIMEOUT_SECONDS = 60
 
 
 def write(path: Path, text: str) -> None:
@@ -60,6 +61,7 @@ def run_checker(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
         errors="replace",
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 

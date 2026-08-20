@@ -20,6 +20,11 @@ orchestrator for a learning vault; it does not replace the reusable
   use `note_type: template`; they are not learning notes or navigation targets.
 - Temporary reports, extracted inventories, and package files belong under
   `/tmp` or another explicitly external output directory.
+- The public Skills repository must remain self-contained: its CI uses source
+  code and non-sensitive fixtures only, and never checks out a private Notes
+  vault. The real-vault quick/full gate belongs to the Notes repository's
+  hidden `.github/workflows/vault-quality.yml`, which pins this source skill to
+  a commit. Do not make the two repositories follow floating `main` branches.
 - Never modify an installed skill copy directly. Edit this source repository,
   validate it, then use the repository installation scripts to synchronize the
   mirror.
@@ -75,7 +80,8 @@ python3 skill/solvenotes-vault-maintainer/scripts/package_vault.py \
 ```
 
 The package command excludes Git metadata, macOS sidecar files, Obsidian
-local workspace/graph state, caches, compiled files, and previous exports.
+local workspace/graph state, hidden CI infrastructure, caches, compiled files,
+and previous exports.
 It must not write an archive into the vault by default.
 
 `online` is an explicit, read-only external URL audit. It is separate from

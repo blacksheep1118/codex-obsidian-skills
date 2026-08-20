@@ -34,6 +34,38 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1 || ! "$PYTHON_BIN" -c 'import pyte
 fi
 printf 'python_bin %s\n' "$PYTHON_BIN"
 
+check_environment() {
+  local mode="${1:-quick}"
+  "$PYTHON_BIN" - "$mode" <<'PY'
+import importlib.util
+import platform
+import shutil
+import subprocess
+import sys
+
+mode = sys.argv[1]
+required_modules = {"pytest": "pytest", "yaml": "PyYAML", "ruff": "ruff"}
+missing = [package for module, package in required_modules.items() if importlib.util.find_spec(module) is None]
+print(f"python_version {platform.python_version()}")
+for command in ("git", "g++" if mode == "full" else None):
+    if command is None:
+        continue
+    resolved = shutil.which(command)
+    print(f"{command}_path {resolved or 'MISSING'}")
+    if resolved is None:
+        missing.append(command)
+for module, package in required_modules.items():
+    if module not in {"pytest", "yaml", "ruff"}:
+        continue
+    if importlib.util.find_spec(module) is not None:
+        print(f"{package}_available yes")
+if missing:
+    print("missing_dependencies " + ",".join(missing), file=sys.stderr)
+    print("install_hint python -m pip install -r skill/solvenotes-vault-maintainer/requirements-dev.txt", file=sys.stderr)
+    raise SystemExit(2)
+PY
+}
+
 CURRENT_STEP=""
 
 on_exit() {
@@ -98,7 +130,8 @@ check_script() {
 
 quick() {
   require_vault
-  run_skill_python -m pytest -p no:cacheprovider "$SKILL_ROOT/tests"
+  check_environment quick
+  run_skill_python -m pytest -p no:cacheprovider --durations=20 "$SKILL_ROOT/tests"
   check_script check_guidance.py
   check_script check_algorithm_job_notes.py
   check_script check_links.py
@@ -110,6 +143,7 @@ quick() {
 
 full() {
   require_vault
+  check_environment full
   check_script check_all_notes.py
   check_script check_algorithm_job_notes.py
   check_script check_guidance.py
@@ -133,7 +167,7 @@ full() {
   check_script check_changed_scope.py --base origin/main
   run_skill_python -m compileall "$SKILL_ROOT/scripts"
   run_skill_python -m ruff check --cache-dir "$RUFF_CACHE_DIR" "$SKILL_ROOT/scripts" "$SKILL_ROOT/tests"
-  run_skill_python -m pytest -p no:cacheprovider "$SKILL_ROOT/tests"
+  run_skill_python -m pytest -p no:cacheprovider --durations=20 "$SKILL_ROOT/tests"
   run_step git -C "$VAULT_ROOT" diff --check
   if git -C "$SKILLS_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     run_step git -C "$SKILLS_ROOT" diff --check

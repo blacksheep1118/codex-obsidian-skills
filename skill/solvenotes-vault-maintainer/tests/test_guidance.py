@@ -5,6 +5,8 @@ from pathlib import Path
 
 from check_guidance import collect_guidance_report, guidance_boundary_issues, guidance_files
 
+SUBPROCESS_TIMEOUT_SECONDS = 60
+
 HEADER = """---
 course: "仓库规则"
 note_type: "agent_rule"
@@ -24,8 +26,8 @@ def write_repo(root: Path) -> None:
         + "\n# 规则\n\n提交和推送必须有用户明确授权。\n",
         encoding="utf-8",
     )
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    subprocess.run(["git", "add", "AGENT.md"], cwd=root, check=True)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True, timeout=SUBPROCESS_TIMEOUT_SECONDS)
+    subprocess.run(["git", "add", "AGENT.md"], cwd=root, check=True, timeout=SUBPROCESS_TIMEOUT_SECONDS)
 
 
 def test_valid_external_vault_guidance_passes(tmp_path: Path) -> None:

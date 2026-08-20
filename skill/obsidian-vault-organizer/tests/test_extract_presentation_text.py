@@ -12,6 +12,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "extract_presentation_text.py"
+SUBPROCESS_TIMEOUT_SECONDS = 60
 sys.path.insert(0, str(ROOT))
 
 from scripts import extract_presentation_text  # noqa: E402
@@ -35,6 +36,7 @@ def run_extractor(*args: str) -> subprocess.CompletedProcess[str]:
         errors="replace",
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 

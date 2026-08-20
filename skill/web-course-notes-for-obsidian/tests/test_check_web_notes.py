@@ -11,6 +11,7 @@ from scripts.check_web_notes import load_manifest_rows
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check_web_notes.py"
+SUBPROCESS_TIMEOUT_SECONDS = 60
 
 
 def run_checker(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -21,6 +22,7 @@ def run_checker(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
         errors="replace",
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 

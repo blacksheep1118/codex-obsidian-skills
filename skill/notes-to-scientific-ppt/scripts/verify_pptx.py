@@ -382,6 +382,7 @@ def render_pptx(path: Path, output_dir: Path, expected_slides: int | None, requi
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                timeout=180,
             )
         output_dir = revalidate_render_directory(
             render_root,
@@ -398,6 +399,7 @@ def render_pptx(path: Path, output_dir: Path, expected_slides: int | None, requi
             text=True,
             encoding="utf-8",
             errors="replace",
+            timeout=30,
         )
         output_dir = revalidate_render_directory(
             render_root,
@@ -418,6 +420,7 @@ def render_pptx(path: Path, output_dir: Path, expected_slides: int | None, requi
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            timeout=180,
         )
         output_dir = revalidate_render_directory(
             render_root,

@@ -10,6 +10,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SUBPROCESS_TIMEOUT_SECONDS = 60
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
@@ -30,6 +31,7 @@ def run_script(*args: str) -> subprocess.CompletedProcess[str]:
         errors="replace",
         capture_output=True,
         check=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
         env={**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"},
     )
 
@@ -45,6 +47,7 @@ def run_script_unchecked(*args: str) -> subprocess.CompletedProcess[str]:
         errors="replace",
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
         env={**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"},
     )
 
@@ -65,6 +68,7 @@ def run_script_raw(*args: str) -> subprocess.CompletedProcess[str]:
         errors="replace",
         capture_output=True,
         check=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
         env={**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"},
     )
 

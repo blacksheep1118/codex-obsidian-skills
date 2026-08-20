@@ -469,6 +469,23 @@ def test_validate_all_lists_stable_step_ids():
         assert step_id in steps
 
 
+def test_validate_all_honors_python_bin_override(monkeypatch, tmp_path: Path):
+    interpreter = tmp_path / "python"
+    interpreter.write_text("#!/bin/sh\n", encoding="utf-8")
+    interpreter.chmod(0o755)
+    monkeypatch.setenv(validate_all.PYTHON_BIN_OVERRIDE, str(interpreter))
+
+    assert validate_all.validation_python() == str(interpreter)
+
+
+def test_validate_all_rejects_missing_python_bin_override(monkeypatch, tmp_path: Path):
+    missing = tmp_path / "missing-python"
+    monkeypatch.setenv(validate_all.PYTHON_BIN_OVERRIDE, str(missing))
+
+    with pytest.raises(SystemExit, match="is not a file"):
+        validate_all.validation_python()
+
+
 def test_validate_all_pytest_steps_disable_external_plugin_autoload(monkeypatch, tmp_path: Path):
     monkeypatch.delenv(validate_all.PYTEST_PLUGIN_AUTOLOAD_OVERRIDE, raising=False)
 

@@ -11,6 +11,7 @@ from scripts.shared.markdown_links import MARKDOWN_IMAGE_RE, MARKDOWN_LINK_RE
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SUBPROCESS_TIMEOUT_SECONDS = 60
 
 
 def run_command(*args: str) -> subprocess.CompletedProcess[str]:
@@ -21,6 +22,7 @@ def run_command(*args: str) -> subprocess.CompletedProcess[str]:
         encoding="utf-8",
         errors="replace",
         capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 

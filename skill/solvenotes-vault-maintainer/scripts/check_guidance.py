@@ -57,6 +57,7 @@ def git_paths(root: Path, *arguments: str) -> tuple[set[str], str | None]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
+        timeout=30,
     )
     if result.returncode:
         detail = result.stderr.decode("utf-8", errors="replace").strip()

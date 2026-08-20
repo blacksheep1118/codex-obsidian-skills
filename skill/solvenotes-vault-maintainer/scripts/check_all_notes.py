@@ -187,7 +187,9 @@ def main() -> int:
                 self_links += 1
                 issues.append(f"{rel(path)}: self link [[{raw}]]")
 
-    diff_check = subprocess.run(["git", "diff", "--check"], cwd=ROOT, text=True, capture_output=True)
+    diff_check = subprocess.run(
+        ["git", "diff", "--check"], cwd=ROOT, text=True, capture_output=True, timeout=30
+    )
     if diff_check.returncode:
         issues.append("git diff --check failed")
 

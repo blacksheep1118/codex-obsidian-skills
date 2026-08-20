@@ -21,6 +21,7 @@ def run_git(args: list[str], *, input_text: str | None = None, binary: bool = Fa
         input=input_text,
         capture_output=True,
         text=not binary,
+        timeout=30,
     )
     if result.returncode:
         stderr = result.stderr.decode("utf-8", errors="replace") if isinstance(result.stderr, bytes) else result.stderr

@@ -34,6 +34,16 @@ See [Skill Routing](docs/routing.md) for cross-skill boundaries and mixed workfl
 - Validate Markdown links, Obsidian wiki links, and self-links.
 - Respect source-file boundaries: courseware, papers, and datasets stay read-only unless the user explicitly asks otherwise.
 
+## CI boundary
+
+The public Skills repository validates only its own source, tests, metadata, and
+non-sensitive fixtures. Its Actions do not checkout or depend on a private
+Solvenotes Notes vault. The real-vault `quick`/`full` gate and clean export run
+from the Notes repository's hidden `.github/workflows/vault-quality.yml`, which
+pins the Skills source to an explicit commit. This keeps public pull requests
+reproducible without exposing private note paths or requiring cross-repository
+secrets.
+
 ## Install
 
 Clone the repository, then install one or all skill folders into the Codex skills directory. The destination folder name must match the `name` field in that skill's `SKILL.md`.
@@ -201,10 +211,18 @@ When a task crosses sources, notes, cleanup, and deck creation, follow the hando
         ├── agents/
         ├── references/
         └── scripts/
-    └── algorithm-job-notes-for-obsidian/
+    ├── algorithm-job-notes-for-obsidian/
         ├── SKILL.md
         ├── LICENSE
         ├── agents/
+        ├── references/
+        ├── scripts/
+        └── tests/
+    └── solvenotes-vault-maintainer/
+        ├── SKILL.md
+        ├── agents/
+        ├── assets/
+        ├── fixtures/
         ├── references/
         ├── scripts/
         └── tests/
@@ -276,6 +294,8 @@ py scripts\validate_all.py --quick
 The root `python -m pytest` entry point is the fast repository check and only collects tests from the root `tests/` directory. Disable external pytest plugin autoload for the most stable local root run. `scripts/validate_all.py --quick` runs compile, repo hygiene, root tests, metadata sync, and skill validators without sample pipeline or deck smoke runs.
 
 `validate_all.py` runs its pytest subprocesses with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` so unrelated globally installed pytest plugins do not change local or CI validation behavior. Set `VALIDATE_ALL_ENABLE_PYTEST_PLUGIN_AUTOLOAD=1` only when intentionally debugging with external pytest plugins.
+
+If `python3` points to an interpreter without the repository's development dependencies, select the validated interpreter explicitly, for example `SOLVENOTES_PYTHON_BIN=/path/to/python3 python3 scripts/validate_all.py --quick`. The override is checked before any child validation command runs.
 
 `scripts/check_repo_hygiene.py` checks Git-tracked files by default, which is the right mode for CI and pre-push validation. Run `python3 scripts/check_repo_hygiene.py --scan-worktree` when you want a local deep-clean check that also reports ignored or untracked caches, logs, scratch files, and generated outputs.
 

@@ -80,14 +80,16 @@ def markdown_paths(root: Path, *, changed_only: bool = False) -> list[Path]:
             check=False,
             capture_output=True,
             text=True,
+            timeout=30,
         ).stdout.splitlines()
         untracked = subprocess.run(
             ["git", "-C", str(root), "ls-files", "--others", "--exclude-standard", "--", "*.md"],
             check=False,
             capture_output=True,
             text=True,
+            timeout=30,
         ).stdout.splitlines()
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return []
     paths: list[Path] = []
     for name in sorted(set(changed + untracked)):

@@ -43,6 +43,7 @@ def run_git(root: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
+        timeout=30,
     )
 
 

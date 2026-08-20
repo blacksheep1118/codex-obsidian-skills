@@ -17,6 +17,7 @@ from scripts.extract_pptx_text import (
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "extract_pptx_text.py"
 PIPELINE_SCRIPT = ROOT / "scripts" / "ppt_to_obsidian_pipeline.py"
+SUBPROCESS_TIMEOUT_SECONDS = 60
 
 
 def write_required_package(
@@ -51,6 +52,7 @@ def run_extractor(path: Path) -> subprocess.CompletedProcess[str]:
         errors="replace",
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 
@@ -134,6 +136,7 @@ def test_pipeline_reuses_structured_pptx_error_boundary(tmp_path: Path) -> None:
         errors="replace",
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert result.returncode == 1

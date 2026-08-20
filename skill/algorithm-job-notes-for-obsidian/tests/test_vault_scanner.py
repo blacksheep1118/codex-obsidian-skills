@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCANNER = ROOT / "scripts" / "check_algorithm_job_vault.py"
+SUBPROCESS_TIMEOUT_SECONDS = 60
 KEY_FILES = (
     "00_算法岗学习地图.md",
     "01_岗位地图与学习方法.md",
@@ -50,6 +51,7 @@ def run_scan(vault: Path) -> tuple[int, dict]:
         capture_output=True,
         text=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
     return result.returncode, json.loads(result.stdout)
 

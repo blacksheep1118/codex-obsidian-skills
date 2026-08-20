@@ -11,6 +11,7 @@ jobs:
   root:
     name: Root validation (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -38,7 +39,7 @@ jobs:
       - name: Install root validation dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "pytest>=8.0.0,<9.0.0" "PyYAML>=6.0" "ruff>=0.8.0,<1.0"
+          python -m pip install -r requirements-dev.txt
 
       - name: Check repository hygiene
         run: python scripts/check_repo_hygiene.py
@@ -50,7 +51,7 @@ jobs:
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python -m pytest -q
+        run: python -m pytest -q --durations=20
 
       - name: Check shared metadata
         run: |
@@ -61,6 +62,7 @@ jobs:
   skill:
     name: Skill validation (${{ matrix.skill }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -74,6 +76,8 @@ jobs:
           - skill: web-course-notes-for-obsidian
             validator: scripts/validate_skill.py
           - skill: algorithm-job-notes-for-obsidian
+            validator: scripts/validate_skill.py
+          - skill: solvenotes-vault-maintainer
             validator: scripts/validate_skill.py
 
     steps:
@@ -92,6 +96,8 @@ jobs:
 
       - name: Compile skill scripts
         working-directory: skill/${{ matrix.skill }}
+        env:
+          PYTHONPYCACHEPREFIX: ${{ runner.temp }}/codex-skill-pycache
         run: python -m compileall scripts
 
       - name: Run skill tests
@@ -99,7 +105,7 @@ jobs:
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python -m pytest -q tests
+        run: python -m pytest -q --durations=20 -p no:cacheprovider tests
 
       - name: Validate skill metadata
         working-directory: skill/${{ matrix.skill }}

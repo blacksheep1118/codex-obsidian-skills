@@ -19,6 +19,7 @@ import scripts.safe_io as safe_io
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 PIPELINE_SCRIPT = SKILL_ROOT / "scripts" / "ppt_to_obsidian_pipeline.py"
+SUBPROCESS_TIMEOUT_SECONDS = 60
 
 
 def run_pipeline_cli(config: Path) -> subprocess.CompletedProcess[str]:
@@ -30,6 +31,7 @@ def run_pipeline_cli(config: Path) -> subprocess.CompletedProcess[str]:
         errors="replace",
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 

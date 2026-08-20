@@ -22,7 +22,15 @@ from notes_utils import (
 )
 
 DEFAULT_OUTPUT = Path(os.environ.get("SOLVENOTES_VAULT_EXPORT", "/tmp/solvenotes-notes-clean.zip"))
-EXCLUDE_DIRS = {".git", ".pytest_cache", ".ruff_cache", "__MACOSX", "__pycache__", "dist"}
+EXCLUDE_DIRS = {
+    ".git",
+    ".github",
+    ".pytest_cache",
+    ".ruff_cache",
+    "__MACOSX",
+    "__pycache__",
+    "dist",
+}
 EXCLUDE_FILE_NAMES = {".DS_Store", ".DS_store", "workspace.json", "graph.json"}
 EXCLUDE_SUFFIXES = {".pyc"}
 RECOVERY_SIDECAR_RE = re.compile(r"^\..+\.conflict-\d+-(?:[0-9a-f]{16}|[0-9a-f]{32})$")

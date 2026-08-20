@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEV_CHECK = ROOT / "scripts" / "dev_check.sh"
+SUBPROCESS_TIMEOUT_SECONDS = 60
 
 
 def installed_skill_root() -> Path:
@@ -39,6 +40,7 @@ def run_gc(tmp_path: Path, *args: str) -> tuple[subprocess.CompletedProcess[str]
         text=True,
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
     return result, log
 

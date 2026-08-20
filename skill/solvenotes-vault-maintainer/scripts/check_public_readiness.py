@@ -62,6 +62,7 @@ def git_files() -> list[str]:
         ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=ROOT,
         capture_output=True,
+        timeout=30,
     )
     if result.returncode:
         stderr = result.stderr.decode("utf-8", errors="replace")

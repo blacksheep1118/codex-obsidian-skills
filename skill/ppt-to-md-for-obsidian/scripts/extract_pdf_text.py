@@ -96,8 +96,9 @@ def extract_with_pdftotext(path: Path) -> list[str]:
             text=True,
             encoding="utf-8",
             errors="replace",
+            timeout=60,
         )
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return []
 
     pages = result.stdout.split("\f")

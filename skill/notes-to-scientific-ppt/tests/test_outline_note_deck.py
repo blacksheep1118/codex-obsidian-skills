@@ -27,6 +27,7 @@ from scripts.outline_note_deck import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SUBPROCESS_TIMEOUT_SECONDS = 180
 
 
 @pytest.mark.parametrize(
@@ -62,6 +63,7 @@ def run_script(*args: str) -> subprocess.CompletedProcess[str]:
         errors="replace",
         capture_output=True,
         check=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 
@@ -74,6 +76,7 @@ def run_script_unchecked(*args: str) -> subprocess.CompletedProcess[str]:
         errors="replace",
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 
@@ -86,6 +89,7 @@ def run_build_script(*args: str) -> subprocess.CompletedProcess[str]:
         errors="replace",
         capture_output=True,
         check=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 
@@ -98,6 +102,7 @@ def run_build_script_unchecked(*args: str) -> subprocess.CompletedProcess[str]:
         errors="replace",
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 
@@ -780,6 +785,7 @@ def test_outline_note_deck_fails_without_markdown(tmp_path: Path):
         encoding="utf-8",
         errors="replace",
         capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert result.returncode == 1

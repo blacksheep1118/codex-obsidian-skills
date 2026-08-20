@@ -103,7 +103,7 @@ def convert_one(path: Path, out_dir: Path, soffice: str) -> Path:
             str(staging_dir),
             str(path),
         ]
-        result = subprocess.run(cmd, text=True, capture_output=True, check=False)
+        result = subprocess.run(cmd, text=True, capture_output=True, check=False, timeout=180)
         if result.returncode != 0:
             raise RuntimeError(
                 "LibreOffice conversion failed\n"

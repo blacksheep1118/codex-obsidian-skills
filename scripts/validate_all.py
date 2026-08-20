@@ -23,6 +23,7 @@ NOTES_PPT_SKILL = ROOT / "skill" / "notes-to-scientific-ppt"
 ALGORITHM_JOB_SKILL = ROOT / "skill" / "algorithm-job-notes-for-obsidian"
 SOLVENOTES_VAULT_SKILL = ROOT / "skill" / "solvenotes-vault-maintainer"
 DEFAULT_TIMEOUT_SECONDS = int(os.environ.get("VALIDATE_ALL_TIMEOUT_SECONDS", "180"))
+PYTHON_BIN_OVERRIDE = "SOLVENOTES_PYTHON_BIN"
 PYTEST_PLUGIN_AUTOLOAD_OVERRIDE = "VALIDATE_ALL_ENABLE_PYTEST_PLUGIN_AUTOLOAD"
 TRUE_VALUES = {"1", "true", "yes", "on"}
 SKILL_ALIASES = {
@@ -76,7 +77,15 @@ def format_cwd(cwd: Path) -> str:
         return str(cwd)
 
 
-def report_failure(step_id: str, command: list[str], cwd: Path, returncode: int | str, timeout: int | None = None) -> None:
+def report_failure(
+    step_id: str,
+    command: list[str],
+    cwd: Path,
+    returncode: int | str,
+    timeout: int | None = None,
+    stdout: str | bytes | None = None,
+    stderr: str | bytes | None = None,
+) -> None:
     print("\nvalidation command failed", file=sys.stderr, flush=True)
     print(f"step: {step_id}", file=sys.stderr, flush=True)
     print(f"cwd: {cwd}", file=sys.stderr, flush=True)
@@ -84,6 +93,11 @@ def report_failure(step_id: str, command: list[str], cwd: Path, returncode: int 
     print(f"return code: {returncode}", file=sys.stderr, flush=True)
     if timeout is not None:
         print(f"timeout: after {timeout}s", file=sys.stderr, flush=True)
+    for label, output in (("stdout", stdout), ("stderr", stderr)):
+        if output:
+            if isinstance(output, bytes):
+                output = output.decode("utf-8", errors="replace")
+            print(f"{label}:\n{output.rstrip()}", file=sys.stderr, flush=True)
 
 
 def subprocess_env(extra: Mapping[str, str] | None) -> dict[str, str]:
@@ -104,7 +118,7 @@ def pytest_env() -> dict[str, str]:
 
 
 def pytest_command(py: str, *args: str, cwd: Path = ROOT) -> CommandSpec:
-    return CommandSpec([py, "-m", "pytest", *args, "-p", "no:cacheprovider"], cwd=cwd, env=pytest_env())
+    return CommandSpec([py, "-m", "pytest", *args, "--durations=20", "-p", "no:cacheprovider"], cwd=cwd, env=pytest_env())
 
 
 def compile_command(py: str, temp_root: Path, cwd: Path = ROOT) -> CommandSpec:
@@ -127,8 +141,8 @@ def run_command(
     print(f"command: {format_command(command)}", flush=True)
     try:
         subprocess.run(command, cwd=cwd, check=True, timeout=timeout, env=subprocess_env(env))
-    except subprocess.TimeoutExpired:
-        report_failure(step_id, command, cwd, "timeout", timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        report_failure(step_id, command, cwd, "timeout", timeout=timeout, stdout=exc.stdout, stderr=exc.stderr)
         raise SystemExit(124) from None
     except subprocess.CalledProcessError as exc:
         report_failure(step_id, command, cwd, exc.returncode)
@@ -273,6 +287,19 @@ def selected_steps(steps: list[Step], quick: bool, skill: str | None) -> list[St
     return [step for step in steps if step.quick or not quick]
 
 
+def validation_python() -> str:
+    """Choose the interpreter used by child validation commands."""
+    override = os.environ.get(PYTHON_BIN_OVERRIDE, "").strip()
+    if not override:
+        return sys.executable
+    candidate = Path(override).expanduser()
+    if not candidate.is_file():
+        raise SystemExit(f"{PYTHON_BIN_OVERRIDE} is not a file: {candidate}")
+    if not os.access(candidate, os.X_OK):
+        raise SystemExit(f"{PYTHON_BIN_OVERRIDE} is not executable: {candidate}")
+    return str(candidate)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -292,7 +319,7 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         parser.error(str(exc))
 
-    py = sys.executable
+    py = validation_python()
     with tempfile.TemporaryDirectory(prefix="codex-obsidian-skills-validate-") as temporary:
         steps = build_steps(py, Path(temporary))
 

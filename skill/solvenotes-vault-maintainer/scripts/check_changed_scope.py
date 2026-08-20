@@ -21,7 +21,7 @@ def changed_files(base: str) -> list[str]:
     ]
     files: set[str] = set()
     for cmd in commands:
-        result = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True)
+        result = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True, timeout=30)
         if result.returncode == 0:
             files.update(line for line in result.stdout.splitlines() if line.strip())
     return sorted(files)

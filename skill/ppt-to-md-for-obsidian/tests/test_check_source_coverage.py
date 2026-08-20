@@ -9,6 +9,7 @@ import pytest
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = SKILL_ROOT / "scripts" / "check_source_coverage.py"
+SUBPROCESS_TIMEOUT_SECONDS = 60
 sys.path.insert(0, str(SKILL_ROOT))
 
 from scripts.check_source_coverage import (  # noqa: E402
@@ -31,6 +32,7 @@ def run_checker(*args: str) -> subprocess.CompletedProcess[str]:
         errors="replace",
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
 

@@ -204,6 +204,22 @@ def test_package_preserves_executable_input_mode(tmp_path, monkeypatch) -> None:
     assert stat.S_IMODE(archived_mode) == 0o755
 
 
+def test_package_excludes_hidden_ci_infrastructure(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "vault"
+    root.mkdir()
+    (root / "note.md").write_text("# Local\n", encoding="utf-8")
+    workflow = root / ".github" / "workflows" / "quality.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text("name: quality\n", encoding="utf-8")
+    output = tmp_path / "output.zip"
+    monkeypatch.setattr(pv, "ROOT", root)
+
+    pv.package(output)
+
+    with zipfile.ZipFile(output) as archive:
+        assert archive.namelist() == ["note.md"]
+
+
 @pytest.mark.parametrize("relative", ["bundle.zip", "exports/bundle.zip"])
 def test_package_inside_vault_excludes_output_and_atomic_stage(tmp_path, monkeypatch, relative: str) -> None:
     root = tmp_path / "vault"

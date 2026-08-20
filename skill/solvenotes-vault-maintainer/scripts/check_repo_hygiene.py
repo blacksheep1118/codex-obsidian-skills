@@ -45,6 +45,7 @@ def run_git(args: list[str], *, check: bool = False) -> subprocess.CompletedProc
         text=True,
         capture_output=True,
         check=check,
+        timeout=30,
     )
 
 

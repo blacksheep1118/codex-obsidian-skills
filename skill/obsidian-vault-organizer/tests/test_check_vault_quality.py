@@ -17,6 +17,7 @@ from scripts.safe_io import InputRootError  # noqa: E402
 
 
 SCRIPT = ROOT / "scripts" / "check_vault_quality.py"
+SUBPROCESS_TIMEOUT_SECONDS = 60
 
 
 def write(path: Path, text: str) -> None:
@@ -321,6 +322,7 @@ def test_report_gate_cli_distinguishes_course_report_topic_from_audit_artifact(
         text=True,
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
     assert legitimate.returncode == 0, legitimate.stdout + legitimate.stderr
 
@@ -337,6 +339,7 @@ def test_report_gate_cli_distinguishes_course_report_topic_from_audit_artifact(
         text=True,
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
     assert audit.returncode == 1
     assert "REPORT_NOTE: 质量审查报告.md" in audit.stdout
@@ -411,6 +414,7 @@ def test_solvenotes_profile_alone_rejects_formal_coverage_audit_in_cli(tmp_path:
         text=True,
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert result.returncode == 1
@@ -553,6 +557,7 @@ def test_formal_coverage_manifest_directory_is_report_note_cli_failure(tmp_path:
         text=True,
         capture_output=True,
         check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert result.returncode == 1
@@ -703,6 +708,7 @@ def test_cli_skip_dir_is_repeatable_and_nested_topic_is_checked_separately(tmp_p
         [sys.executable, str(SCRIPT), str(parent)],
         text=True,
         capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
     with_repeated_skip = subprocess.run(
         [
@@ -716,11 +722,13 @@ def test_cli_skip_dir_is_repeatable_and_nested_topic_is_checked_separately(tmp_p
         ],
         text=True,
         capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
     nested_result = subprocess.run(
         [sys.executable, str(SCRIPT), str(nested)],
         text=True,
         capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert without_skip.returncode == 1
@@ -741,6 +749,7 @@ def test_cli_skip_dir_rejects_symlink_and_noncanonical_aliases(tmp_path: Path):
         [sys.executable, str(SCRIPT), "--skip-dir", "alias", str(vault)],
         text=True,
         capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
     case_result = subprocess.run(
         [
@@ -752,6 +761,7 @@ def test_cli_skip_dir_rejects_symlink_and_noncanonical_aliases(tmp_path: Path):
         ],
         text=True,
         capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
     canonical_result = subprocess.run(
         [
@@ -763,6 +773,7 @@ def test_cli_skip_dir_rejects_symlink_and_noncanonical_aliases(tmp_path: Path):
         ],
         text=True,
         capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert symlink_result.returncode == 2
