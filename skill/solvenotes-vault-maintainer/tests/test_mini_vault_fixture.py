@@ -7,10 +7,25 @@ import sys
 from pathlib import Path
 
 import pytest
+from conftest import BUNDLED_TEST_VAULT, configure_test_vault
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = SKILL_ROOT / "fixtures" / "solvenotes-mini-vault"
 CASE_ROOT = SKILL_ROOT / "fixtures" / "solvenotes-mini-vault-cases"
+
+
+def test_test_vault_defaults_to_bundled_fixture() -> None:
+    env: dict[str, str] = {}
+
+    assert configure_test_vault(env) == BUNDLED_TEST_VAULT
+    assert env["SOLVENOTES_VAULT_ROOT"] == str(BUNDLED_TEST_VAULT)
+
+
+def test_test_vault_honors_explicit_override(tmp_path: Path) -> None:
+    env = {"SOLVENOTES_VAULT_ROOT": str(tmp_path)}
+
+    assert configure_test_vault(env) == tmp_path
+    assert env["SOLVENOTES_VAULT_ROOT"] == str(tmp_path)
 
 
 def run_script(script: str, *args: str, root: Path = FIXTURE_ROOT) -> subprocess.CompletedProcess[str]:

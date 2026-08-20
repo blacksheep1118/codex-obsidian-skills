@@ -1,14 +1,27 @@
-"""Test the external-vault maintenance package against a real or fixture vault."""
+"""Configure deterministic, standalone tests for the vault maintainer."""
 
 from __future__ import annotations
 
 import os
 import sys
+from collections.abc import MutableMapping
 from pathlib import Path
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_VAULT = SKILL_ROOT.parents[2] / "notes"
-os.environ.setdefault("SOLVENOTES_VAULT_ROOT", str(DEFAULT_VAULT))
+BUNDLED_TEST_VAULT = SKILL_ROOT / "fixtures" / "solvenotes-mini-vault"
+
+
+def configure_test_vault(environ: MutableMapping[str, str]) -> Path:
+    """Use an explicit vault override or the bundled non-sensitive fixture."""
+
+    configured = environ.get("SOLVENOTES_VAULT_ROOT", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    environ["SOLVENOTES_VAULT_ROOT"] = str(BUNDLED_TEST_VAULT)
+    return BUNDLED_TEST_VAULT
+
+
+TEST_VAULT = configure_test_vault(os.environ)
 ALGORITHM_SKILL_ROOT = SKILL_ROOT.parent / "algorithm-job-notes-for-obsidian"
 if not ALGORITHM_SKILL_ROOT.is_dir():
     installed_parent = SKILL_ROOT.parent

@@ -410,6 +410,13 @@ python3 -m pytest -q
 python3 scripts/validate_skill.py
 ```
 
+```powershell
+cd skill\notes-to-scientific-ppt
+py -m pip install -r requirements-dev.txt
+py -m pytest -q
+py scripts\validate_skill.py
+```
+
 ```bash
 cd skill/algorithm-job-notes-for-obsidian
 python3 -m pip install -r requirements-dev.txt
@@ -418,11 +425,30 @@ python3 scripts/validate_skill.py
 ```
 
 ```powershell
-cd skill\notes-to-scientific-ppt
+cd skill\algorithm-job-notes-for-obsidian
 py -m pip install -r requirements-dev.txt
 py -m pytest -q
 py scripts\validate_skill.py
 ```
+
+```bash
+cd skill/solvenotes-vault-maintainer
+python3 -m pip install -r requirements-dev.txt
+python3 -m pytest -q
+python3 scripts/validate_skill.py
+```
+
+```powershell
+cd skill\solvenotes-vault-maintainer
+py -m pip install -r requirements-dev.txt
+py -m pytest -q
+py scripts\validate_skill.py
+```
+
+The Solvenotes maintainer tests use the bundled non-sensitive mini vault by
+default so a fresh GitHub checkout is self-contained. Set
+`SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes` only when intentionally running
+the test suite against a real vault.
 
 ## Documentation
 

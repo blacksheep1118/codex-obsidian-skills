@@ -23,6 +23,19 @@ Markdown-only learning tree. `quick` is appropriate for a local iteration;
 example, language, algorithm-job, and C++ checks; `github-ready` adds hygiene,
 large-file, public-readiness, and Git-status checks.
 
+The skill-local pytest suite is standalone and uses
+`fixtures/solvenotes-mini-vault` by default, matching public GitHub CI. To run
+the same tests against a real vault, opt in explicitly:
+
+```bash
+cd skill/solvenotes-vault-maintainer
+python3 -m pytest -q
+SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes python3 -m pytest -q
+```
+
+The default must never probe a sibling `notes/` directory; otherwise a local
+workspace can hide a missing public test fixture.
+
 Only code blocks immediately preceded by `<!-- runnable: cpp17 -->` are
 compiled. Python fences are parsed for syntax; unknown code blocks are never
 executed by the gate.

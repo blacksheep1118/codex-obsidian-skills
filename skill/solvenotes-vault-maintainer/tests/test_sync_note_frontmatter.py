@@ -70,9 +70,17 @@ def test_sync_does_not_write_through_external_markdown_symlink(tmp_path: Path, m
     assert outside.read_text(encoding="utf-8") == original
 
 
-def test_normalized_text_is_idempotent(monkeypatch) -> None:
-    path = snf.ROOT / Path("算法岗学习笔记/98_网络资源与原始论文索引.md")
-    source_map = snf.source_mapping()
+def test_normalized_text_is_idempotent(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "vault"
+    path = root / Path("算法岗学习笔记/98_网络资源与原始论文索引.md")
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        '---\nlast_checked: "2026-08-19"\n---\n\n# 网络资源与原始论文索引\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(notes_utils, "ROOT", root)
+    monkeypatch.setattr(snf, "ROOT", root)
+    source_map = {"算法岗学习笔记/98_网络资源与原始论文索引.md": []}
     first = snf.normalized_text(path, None, source_map)
     original_read_text = snf.read_text
 
