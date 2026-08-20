@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from vault_contract import (
     CURRENT_LOCK_SCHEMA_VERSION,
+    INSTALL_EXCLUDED_PARTS,
     REQUIRED_SKILLS,
     dependency_graph_digest,
 )
@@ -47,7 +48,11 @@ def _skill_digest_from_manifest(files: list[dict[str, object]], name: str) -> st
         if not isinstance(path, str) or not path.startswith(prefix):
             continue
         relative = path.removeprefix(prefix)
-        if relative == ".codex-skill-install.json":
+        relative_path = PurePosixPath(relative)
+        if (
+            relative == ".codex-skill-install.json"
+            or any(part in INSTALL_EXCLUDED_PARTS for part in relative_path.parts)
+        ):
             continue
         records.append(
             {"path": relative, "size": item.get("size"), "sha256": item.get("sha256")}

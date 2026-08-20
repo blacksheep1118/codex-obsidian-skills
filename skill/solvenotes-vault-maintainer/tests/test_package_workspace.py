@@ -165,6 +165,41 @@ def test_workspace_verifier_checks_sidecar_archive_digest(tmp_path: Path) -> Non
     assert any("sidecar archive_sha256" in issue for issue in payload["issues"])
 
 
+def test_workspace_verifier_uses_runtime_skill_payload_digest() -> None:
+    import verify_workspace_package as verifier
+
+    runtime = b"runtime"
+    development_test = b"not installed"
+    files = [
+        {
+            "path": "skills/skill/solvenotes-vault-maintainer/scripts/run.py",
+            "size": len(runtime),
+            "sha256": hashlib.sha256(runtime).hexdigest(),
+        },
+        {
+            "path": "skills/skill/solvenotes-vault-maintainer/tests/test_run.py",
+            "size": len(development_test),
+            "sha256": hashlib.sha256(development_test).hexdigest(),
+        },
+    ]
+    expected = verifier.records_digest(
+        [
+            {
+                "path": "scripts/run.py",
+                "size": len(runtime),
+                "sha256": hashlib.sha256(runtime).hexdigest(),
+            }
+        ]
+    )
+
+    assert (
+        verifier._skill_digest_from_manifest(
+            files, "solvenotes-vault-maintainer"
+        )
+        == expected
+    )
+
+
 def test_verify_workspace_package_rejects_unsafe_zip_entry(tmp_path: Path) -> None:
     import verify_workspace_package as verifier
 
