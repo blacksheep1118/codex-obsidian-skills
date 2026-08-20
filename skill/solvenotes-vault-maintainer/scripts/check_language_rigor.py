@@ -100,20 +100,36 @@ def visible_wikilink_text(line: str) -> str:
 TECHNICAL_COMPLETE = re.compile(
     r"(?:完全(?:图|二叉树|匹配|平方|积分|连接|随机|背包|独立|可观测|竞争|限定|数据|序列|码|相同|一致|错位|均匀|没有|不用|基于|关闭|覆盖|重写|交互|一样|丢掉|错误|真实|可用|稳定|正确率)|shape\s*完全正确)",
 )
-NEGATION_OR_BOUNDARY = re.compile(
-    r"(?:不(?:一定|必然|能|会|等于|可|代表|保证|成立|在|意味着|自动|构成|单独|表示|等同|具备|支持)|不是|并不是|没有|无须|未必|并非|尚未|无法|不能|不可|避免|除非|只有|若|如果|当|在[^。！？\n]{0,30}(?:条件|假设|设置|实验|数据|范围|约束|场景)[^。！？\n]{0,30}(?:时|下|中|内)|条件是|前提是|取决于|之一|通常|一般|可能|有助于|倾向于|往往|部分)",
+NEGATED_CONTEXT = re.compile(
+    r"(?:不(?:一定|必然|能|会|等于|可|代表|保证|提供|再保证|成立|在|意味着|自动|构成|单独|表示|等同|具备|支持|受保证)|"
+    r"不是|并不是|没有|无须|未必|并非|尚未|无法|不能|不可|未提供|不提供|不足以|并无|不受保证|无保证|只保证|"
+    r"非(?:充分|必要)|而非|不承诺|通常|一般|可能|有助于|往往|部分|仅)",
+)
+CONDITIONAL_CONTEXT = re.compile(
+    r"(?:在[^。！？\n]{0,60}(?:条件|前提|假设|设置|场景|范围|约束|数据|参数|环境)[^。！？\n]{0,40}(?:下|中|时|内)|"
+    r"(?:若|如果|当|只要|除非|只有)[^。！？\n]{1,100}|"
+    r"(?:满足|给定|基于|依赖(?:于)?|取决于)[^。！？\n]{0,60}(?:则|时|下|中|可以|能够|保证|成立|有效)|"
+    r"(?:非负|有界|有限|无环|可终止|允许重开|满足[^。！？\n]{0,30}(?:约束|条件)|"
+    r"(?:[<>=≤≥]|不等于|等于)[^。！？\n]{0,80}(?:则|可保证|能够保证))[^。！？\n]{0,60}(?:保证|可|能够|成立|有效)|"
+    r"(?:才能|必须[^。！？\n]{0,20}保证)[^。！？\n]{0,100}(?:正确|成立|一致|有效|完成|成功|回放|保证)|"
+    r"(?:条件是|前提是|取决于|依赖于))",
 )
 QUESTION_CONTEXT = re.compile(r"(?:[?？]|是否|能否|可否|为什么|为何|如何|怎样|吗(?:[，。！？]|$))")
-FORMAL_CONTEXT = re.compile(
+FORMAL_CATEGORY_CONTEXT = re.compile(
     r"(?:定理|证明|推论|公理|定义|恒等|等式|正确性|不变量|充分条件|必要条件|"
-    r"构造|判定|闭包|状态图|停机|非负权|模型|协议|规范|线性化|串行化|"
-    r"上下界|有界法|威胁假设|形式化|算法|规则|约束|证明题|可判定|等价性|"
-    r"合取|析取|量词|无损连接|故障恢复|系统故障|安全性质|向后兼容|"
-    r"必须|需要|需|应当|保证级别|框架|实现|代码|公式|数学|概率|语义|收敛|"
-    r"无偏|最坏|正值|至少|只保证|隔离)"
+    r"协议|规范|线性化|串行化|形式化|可判定|等价性|安全性质|数学|公式|收敛|"
+    r"无损连接|故障恢复|停机|威胁假设|下界|最小解|抽屉原理|DFA|分母|分子|"
+    r"归一化|概率|求和|积分|最短路|PSD|内积|Softmax|softmax|mask|barrier|"
+    r"内存可见性|按序交付|事务补偿|交换性|calibration|KKT|Slater|量化|差分隐私|"
+    r"相邻数据集|输出分布|任意合法|合法实例|抽屉原理|最小代价|相等|最优性|"
+    r"容量|元素数量|iterator|引用|生命周期|原子性|线程|内存|正确状态|可行域|"
+    r"无损|最坏情况|最小可行|token序列|合法 token|padding|embedding|失效|shape|dim|"
+    r"正值|正数|scale|Bernoulli|硬约束|算法结束|答案正确|自动机|状态集|初态|"
+    r"bitwise|exactly-once|checkpoint|读写顺序|写写顺序|WAW|WAR|\\sum|w\(i,j\)|"
+    r"路径合法|合法性|候选边|邻接关系)",
 )
 FORMAL_NOUN = re.compile(
-    r"(?:质量|安全|一致性|可靠性|可用性|性能|责任|服务水平|风险|形式化|协议|保证程度)保证"
+    r"(?:质量|安全|一致性|可靠性|可用性|性能|责任|服务水平|风险|形式化|协议|保证程度|保证级别|最优性)保证"
 )
 BROADER_SOLUTION_RE = re.compile(
     r"(?:完全|彻底|根本|有效|成功|彻底地|无条件|一劳永逸|"
@@ -128,12 +144,6 @@ EVIDENCE_RE = re.compile(
     r"(?:实验|结果|指标|数据|样本|对比|消融|报告|统计|百分点|%|PSNR|SSIM|AUC|p\s*[<=>]|论文|作者|参考|引用|doi|https?://|\[[^\]]+\]\()",
     re.I,
 )
-SOLUTION_OBJECT_RE = re.compile(
-    r"解决[^。！？\n]{0,24}(?:问题|瓶颈|接口|任务|需求|流程|冲突|差距|退化|错误|困难|缺陷|风险|痛点|效率|一致性|性能|成本|约束|空间|恢复|分割|分类|共享|表示|domain|框|token|排序|优先级|访问|同步|目标|难题|数据|信息|知识|回归|生产者|消费者|外碎片|地址|语义|感受野|模型|能力|系统|工具|误差|泛化)",
-    re.I,
-)
-
-
 @dataclass(frozen=True)
 class Issue:
     file: str
@@ -143,6 +153,7 @@ class Issue:
     suggestion: str
     high_confidence: bool
     confidence: str
+    category: str
 
 
 def deduplicate_issues(issues: list[Issue]) -> list[Issue]:
@@ -167,13 +178,23 @@ def _sentence(text: str, start: int, end: int) -> str:
     return text[left + 1 : right + 1].strip()
 
 
-def _suggestion(term: str) -> str:
+def _suggestion(term: str, category: str = "ENGINEERING_PROMISE") -> str:
+    if category == "QUESTION_OR_QUOTE":
+        return "这是问题或引文语境；不应把其中的绝对措辞当成作者断言。"
+    if category == "NEGATED_GUARANTEE":
+        return "句子已经明确否定或限制该断言；保留原边界，并确认否定对象指向清楚。"
+    if category == "CONDITIONAL_GUARANTEE":
+        return "保留条件、前提和适用范围；若条件并不充分，应补充失败边界或验证方式。"
+    if category == "FORMAL_GUARANTEE":
+        return "这是定义、定理、协议或公式语境；保留形式化结论，并明确成立前提，不要改写成经验性表述。"
+    if category == "POLICY_OR_LEGAL_CLAIM":
+        return "补充适用地区、生效时间和官方依据，避免把政策性结论写成无条件的普遍事实。"
     return {
         "首次提出": "改为“论文将……作为一种方法/在本文中提出”，并附原论文或引用；只有可核查文献证据时才保留“首次”。",
         "必然": "补充成立条件和适用范围，或改为“通常/可能/在该条件下”。",
         "完全": "说明是定义性术语还是性能断言；性能表述可改为“在给定设置下较充分/仍有边界”。",
         "解决": "改为“缓解/有助于处理/在该设置下改善”，并写明未覆盖的失败条件。",
-        "保证": "改为“提高……一致性/降低……风险”，同时列出验证或前提条件。",
+        "保证": "说明保证的对象、成立前提和验证方式；若只是设计目标，改为“用于/旨在”，不要用泛化措辞掩盖边界。",
         "显著提升": "给出数据集、指标和对照；缺少统计证据时改为“在该实验设置下提升”。",
     }[term]
 
@@ -182,6 +203,8 @@ def _high_confidence(term: str, sentence: str) -> bool:
     """Identify only claims that should block a strict delivery gate."""
 
     if "?" in sentence or "？" in sentence:
+        return False
+    if NEGATED_CONTEXT.search(sentence) or CONDITIONAL_CONTEXT.search(sentence):
         return False
     if term in {"首次提出", "显著提升"}:
         return not EVIDENCE_RE.search(sentence)
@@ -204,6 +227,32 @@ def _high_confidence(term: str, sentence: str) -> bool:
     return False
 
 
+def classify_claim(term: str, sentence: str) -> str:
+    """Classify a candidate without treating every categorical word alike."""
+
+    if QUESTION_CONTEXT.search(sentence) or re.search(r"[“‘\"'].*[”’\"']", sentence):
+        return "QUESTION_OR_QUOTE"
+    if NEGATED_CONTEXT.search(sentence):
+        return "NEGATED_GUARANTEE"
+    if CONDITIONAL_CONTEXT.search(sentence):
+        return "CONDITIONAL_GUARANTEE"
+    if (
+        FORMAL_CATEGORY_CONTEXT.search(sentence)
+        or FORMAL_NOUN.search(sentence)
+        or DEFINITIONAL_CERTAINTY.search(sentence)
+    ):
+        return "FORMAL_GUARANTEE"
+    if re.search(r"(?:条件|前提|假设|设置|场景|范围|依赖|取决于)", sentence):
+        return "CONDITIONAL_GUARANTEE"
+    if re.search(r"(?:法律|法规|政策|监管|合规|法定)", sentence):
+        return "POLICY_OR_LEGAL_CLAIM"
+    if term in {"首次提出", "显著提升"}:
+        return "EMPIRICAL_OVERCLAIM"
+    if term in {"解决", "保证", "完全", "必然"}:
+        return "ENGINEERING_PROMISE"
+    return "MANUAL_REVIEW"
+
+
 def audit_line(line: str, line_number: int, relative_file: str) -> list[Issue]:
     """Audit one prose line; exported for focused regression tests."""
 
@@ -222,19 +271,22 @@ def audit_line(line: str, line_number: int, relative_file: str) -> list[Issue]:
         if term == "完全" and TECHNICAL_COMPLETE.search(prose[max(0, match.start() - 20) : match.end() + 16]):
             continue
         sentence = _sentence(prose, match.start(), match.end())
-        if QUESTION_CONTEXT.search(sentence):
+        category = classify_claim(term, sentence)
+        if category == "QUESTION_OR_QUOTE":
+            continue
+        # Imperative/prescriptive phrases state a requirement or procedure;
+        # they do not claim that the requirement has already been satisfied.
+        if term == "保证" and re.search(r"(?:先|应|需|必须|要|为|以|只|至少)\s*$", prefix):
             continue
         if term == "保证" and FORMAL_NOUN.search(sentence):
             continue
-        if term in {"保证", "必然", "完全", "解决"} and FORMAL_CONTEXT.search(sentence):
-            # A theorem, construction, protocol, or explicit model statement
-            # can use a categorical word correctly.  Leave broad claims in
-            # ordinary explanatory prose as review candidates instead.
-            if term != "解决" or re.search(r"(?:问题|困难|风险|性能|全部|任何|所有|一切)", sentence) is None:
-                continue
         if term == "必然" and DEFINITIONAL_CERTAINTY.search(sentence):
             continue
-        if NEGATION_OR_BOUNDARY.search(sentence):
+        if category in {
+            "NEGATED_GUARANTEE",
+            "CONDITIONAL_GUARANTEE",
+            "FORMAL_GUARANTEE",
+        }:
             continue
         if term == "解决":
             # Headings and problem statements describe the target, not a
@@ -258,15 +310,17 @@ def audit_line(line: str, line_number: int, relative_file: str) -> list[Issue]:
         if term == "显著提升" and EVIDENCE_RE.search(sentence):
             continue
         high_confidence = _high_confidence(term, sentence)
+        category = classify_claim(term, sentence)
         issues.append(
             Issue(
                 relative_file,
                 line_number,
                 term,
                 sentence,
-                _suggestion(term),
+                _suggestion(term, category),
                 high_confidence,
                 "high" if high_confidence else "review",
+                category,
             )
         )
     return issues
@@ -301,6 +355,10 @@ def main() -> int:
         "issues": [asdict(issue) for issue in issues],
         "issue_count": len(issues),
         "high_confidence_count": sum(issue.high_confidence for issue in issues),
+        "category_counts": {
+            category: sum(issue.category == category for issue in issues)
+            for category in sorted({issue.category for issue in issues})
+        },
     }
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -309,7 +367,7 @@ def main() -> int:
         print(f"language_high_confidence {sum(issue.high_confidence for issue in issues)}")
         for issue in issues[:100]:
             label = "HIGH" if issue.high_confidence else "REVIEW"
-            print(f"{label} {issue.file}:{issue.line} [{issue.term}] {issue.sentence}")
+            print(f"{label} {issue.file}:{issue.line} [{issue.term}/{issue.category}] {issue.sentence}")
             print(f"  SUGGEST {issue.suggestion}")
     return 1 if args.strict and any(issue.high_confidence for issue in issues) else 0
 

@@ -272,6 +272,20 @@ Root management tools include:
 - `check_shared_link_checker.py`: compatibility wrapper for the shared-resource synchronization check.
 - `algorithm-job-notes-for-obsidian`: uses the repository validators plus its isolated `scripts/validate_skill.py` to enforce the closed nine-direction contract.
 
+The repository is a source tree rather than an installable Python package. Its
+compatibility contract is recorded in `[tool.solvenotes]` in `pyproject.toml`:
+Python 3.9 is the minimum, Python 3.11 is the primary validation version, and
+Python 3.12 is the newest version currently validated. Run the project Doctor
+before a long gate to see the selected interpreter, dependency versions, tools,
+paths, and lock contract:
+
+```bash
+python3 skill/solvenotes-vault-maintainer/scripts/doctor.py \
+  --notes-root /path/to/solvenotes/notes \
+  --skills-root /path/to/solvenotes/skills \
+  --mode full --strict
+```
+
 ## Validation
 
 GitHub Actions runs repository hygiene and root tests across Ubuntu, macOS, and Windows. Skill-local tests run in a separate matrix where each job installs only that skill's own `requirements-dev.txt`, so missing skill dependencies are not hidden by another skill's requirements.

@@ -1,5 +1,6 @@
 from check_language_rigor import (
     audit_line,
+    classify_claim,
     deduplicate_issues,
     mask_inline_code,
     visible_wikilink_text,
@@ -10,6 +11,7 @@ def test_unqualified_absolute_claim_is_reported() -> None:
     issues = audit_line("BatchNorm解决梯度消失。", 1, "demo.md")
     assert [issue.term for issue in issues] == ["解决"]
     assert "缓解" in issues[0].suggestion
+    assert issues[0].category == "ENGINEERING_PROMISE"
 
 
 def test_negated_and_conditional_claims_are_allowed() -> None:
@@ -40,6 +42,24 @@ def test_unconditional_universal_guarantee_is_high_confidence() -> None:
     issues = audit_line("该系统保证所有请求成功。", 7, "demo.md")
     assert [issue.term for issue in issues] == ["保证"]
     assert issues[0].high_confidence is True
+    assert issues[0].category == "ENGINEERING_PROMISE"
+
+
+def test_claim_categories_keep_formal_and_negated_context_distinct() -> None:
+    assert classify_claim("保证", "该算法保证所有请求成功。") == "ENGINEERING_PROMISE"
+    assert classify_claim("保证", "该措施并不自动保证安全。") == "NEGATED_GUARANTEE"
+    assert classify_claim("保证", "该策略通常保证较稳定的训练过程。") == "NEGATED_GUARANTEE"
+    assert classify_claim("保证", "在给定条件下保证最短路正确。") == "CONDITIONAL_GUARANTEE"
+    assert classify_claim("必然", "定理证明该结论必然成立。") == "FORMAL_GUARANTEE"
+    assert classify_claim("首次提出", "该论文首次提出统一框架。") == "EMPIRICAL_OVERCLAIM"
+
+
+def test_claim_categories_cover_math_and_reporting_boundaries() -> None:
+    assert classify_claim("保证", "满足下界条件时可找到存在的最小解图。") == "CONDITIONAL_GUARANTEE"
+    assert classify_claim("保证", "DP 是对相邻数据集输出分布的量化保证。") == "FORMAL_GUARANTEE"
+    assert classify_claim("保证", "实施则明确“未提供 DP 保证”。") == "QUESTION_OR_QUOTE"
+    assert classify_claim("显著提升", "结果显示该方法显著提升性能。") == "EMPIRICAL_OVERCLAIM"
+    assert classify_claim("保证", "该工程保证所有请求成功。") == "ENGINEERING_PROMISE"
 
 
 def test_definition_and_financial_compound_are_not_absolute_claims() -> None:
@@ -49,6 +69,8 @@ def test_definition_and_financial_compound_are_not_absolute_claims() -> None:
     assert audit_line("该协议保证消息按序交付。", 11, "demo.md") == []
     assert audit_line("该措施并不自动保证安全。", 12, "demo.md") == []
     assert audit_line("这个方法是否能解决分布漂移？", 13, "demo.md") == []
+    assert audit_line("满足下界条件时可找到存在的最小解图。", 14, "demo.md") == []
+    assert audit_line("实施则明确“未提供 DP 保证”。", 15, "demo.md") == []
 
 
 def test_wikilink_alias_audits_only_visible_label() -> None:

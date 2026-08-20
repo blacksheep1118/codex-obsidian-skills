@@ -19,51 +19,29 @@ export PYTHONUNBUFFERED=1
 export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-/tmp/solvenotes-pycache}"
 export RUFF_CACHE_DIR="${RUFF_CACHE_DIR:-/tmp/solvenotes-ruff-cache}"
 export PYTHONPATH="$ALGORITHM_SCRIPTS:$SKILL_ROOT/scripts${PYTHONPATH:+:$PYTHONPATH}"
+STEP_TIMEOUT="${SOLVENOTES_STEP_TIMEOUT:-180}"
 
-# Prefer an explicitly selected interpreter or a local Python with the
-# repository's development dependencies. The vault itself remains a pure
-# notes tree; pytest and ruff run from this external Skill.
-PYTHON_BIN="${SOLVENOTES_PYTHON_BIN:-python3}"
-if ! command -v "$PYTHON_BIN" >/dev/null 2>&1 || ! "$PYTHON_BIN" -c 'import pytest, ruff' >/dev/null 2>&1; then
-  for candidate in /opt/anaconda3/bin/python3 /opt/homebrew/bin/python3; do
-    if [[ -x "$candidate" ]] && "$candidate" -c 'import pytest, ruff' >/dev/null 2>&1; then
-      PYTHON_BIN="$candidate"
-      break
-    fi
-  done
+# Prefer an explicitly selected interpreter, otherwise use the interpreter
+# visible on PATH. The vault itself remains a pure notes tree; pytest and ruff
+# run from this external Skill.
+PYTHON_BIN="${SOLVENOTES_PYTHON_BIN:-}"
+if [[ -z "$PYTHON_BIN" ]]; then
+  PYTHON_BIN="$(command -v python3 || command -v python || true)"
+fi
+if [[ -z "$PYTHON_BIN" || ! -x "$PYTHON_BIN" ]]; then
+  printf '%s\n' 'No Python interpreter found. Set SOLVENOTES_PYTHON_BIN or activate a virtual environment.' >&2
+  exit 2
 fi
 printf 'python_bin %s\n' "$PYTHON_BIN"
 
 check_environment() {
   local mode="${1:-quick}"
-  "$PYTHON_BIN" - "$mode" <<'PY'
-import importlib.util
-import platform
-import shutil
-import subprocess
-import sys
-
-mode = sys.argv[1]
-required_modules = {"pytest": "pytest", "yaml": "PyYAML", "ruff": "ruff"}
-missing = [package for module, package in required_modules.items() if importlib.util.find_spec(module) is None]
-print(f"python_version {platform.python_version()}")
-for command in ("git", "g++" if mode == "full" else None):
-    if command is None:
-        continue
-    resolved = shutil.which(command)
-    print(f"{command}_path {resolved or 'MISSING'}")
-    if resolved is None:
-        missing.append(command)
-for module, package in required_modules.items():
-    if module not in {"pytest", "yaml", "ruff"}:
-        continue
-    if importlib.util.find_spec(module) is not None:
-        print(f"{package}_available yes")
-if missing:
-    print("missing_dependencies " + ",".join(missing), file=sys.stderr)
-    print("install_hint python -m pip install -r skill/solvenotes-vault-maintainer/requirements-dev.txt", file=sys.stderr)
-    raise SystemExit(2)
-PY
+  run_step "$PYTHON_BIN" "$SKILL_ROOT/scripts/doctor.py" \
+    --python-bin "$PYTHON_BIN" \
+    --notes-root "$VAULT_ROOT" \
+    --skills-root "$SKILLS_ROOT" \
+    --mode "$mode" \
+    --strict
 }
 
 CURRENT_STEP=""
@@ -108,7 +86,8 @@ require_vault() {
 run_step() {
   CURRENT_STEP="$*"
   printf '\n==> %s\n' "$CURRENT_STEP"
-  "$@"
+  "$PYTHON_BIN" "$SKILL_ROOT/scripts/run_with_timeout.py" \
+    --timeout "$STEP_TIMEOUT" --label "$CURRENT_STEP" -- "$@"
   CURRENT_STEP=""
 }
 
@@ -128,9 +107,33 @@ check_script() {
   run_vault_python "$SKILL_ROOT/scripts/$1" "${@:2}"
 }
 
+check_skill_lock() {
+  local -a lock_args=(check_skills_lock.py --notes-root "$VAULT_ROOT" --skills-root "$SKILLS_ROOT")
+  if git -C "$SKILLS_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    check_script "${lock_args[@]}"
+  else
+    check_script "${lock_args[@]}" --allow-no-git
+  fi
+}
+
+check_workspace_guidance() {
+  local workspace_root="${SOLVENOTES_WORKSPACE_ROOT:-}"
+  if [[ -z "$workspace_root" && -f "$SKILLS_ROOT/../AGENT.md" && -d "$SKILLS_ROOT/../agent" ]]; then
+    workspace_root="$(cd "$SKILLS_ROOT/.." && pwd)"
+  fi
+  if [[ -n "$workspace_root" && -f "$workspace_root/AGENT.md" && -d "$workspace_root/agent" ]]; then
+    check_script check_workspace_guidance.py --workspace-root "$workspace_root"
+    check_script check_documented_commands.py --workspace-root "$workspace_root" --skills-root "$SKILLS_ROOT" --strict
+  else
+    printf 'workspace_guidance skipped (workspace-level AGENT.md and agent/ are not available)\n'
+  fi
+}
+
 quick() {
   require_vault
   check_environment quick
+  check_skill_lock
+  check_workspace_guidance
   run_skill_python -m pytest -p no:cacheprovider --durations=20 "$SKILL_ROOT/tests"
   check_script check_guidance.py
   check_script check_algorithm_job_notes.py
@@ -144,6 +147,8 @@ quick() {
 full() {
   require_vault
   check_environment full
+  check_skill_lock
+  check_workspace_guidance
   check_script check_all_notes.py
   check_script check_algorithm_job_notes.py
   check_script check_guidance.py

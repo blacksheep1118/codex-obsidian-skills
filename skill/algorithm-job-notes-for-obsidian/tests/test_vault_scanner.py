@@ -3,6 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from algorithm_job_taxonomy import DIRECTIONS as CANONICAL_DIRECTIONS
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCANNER = ROOT / "scripts" / "check_algorithm_job_vault.py"
@@ -15,7 +17,7 @@ KEY_FILES = (
     "算法岗知识点精简复习版_含公式.md",
     "算法岗知识点详细版_含公式.md",
 )
-DIRECTIONS = ("CV", "NLP / LLM", "推荐", "搜索", "语音", "机器人", "汽车算法", "具身智能", "AI Infra")
+DIRECTIONS = tuple(direction.label for direction in CANONICAL_DIRECTIONS)
 ENTRIES = (
     "37_CV_视觉基础模型视频与部署.md",
     "35_NLP_LLM_训练对齐Agent与评测.md",

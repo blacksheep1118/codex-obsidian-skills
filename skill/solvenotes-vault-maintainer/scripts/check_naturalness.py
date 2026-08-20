@@ -117,9 +117,9 @@ def scan() -> dict[str, object]:
     heading_groups: dict[tuple[str, tuple[str, ...]], list[str]] = defaultdict(list)
     repeated_section_counts: Counter[str] = Counter()
     repeated_section_files: dict[str, set[str]] = defaultdict(set)
-    files = markdown_files()
+    note_files = markdown_files()
 
-    for path in files:
+    for path in note_files:
         relative = rel(path)
         text = read_text(path)
         prose = text_without_code(strip_frontmatter(text))
@@ -219,12 +219,25 @@ def scan() -> dict[str, object]:
 
     high_confidence.sort(key=lambda item: (str(item["path"]), int(item["line"])))
     review_candidates.sort(key=lambda item: (str(item["path"]), int(item["line"]), str(item["kind"])))
+    review_groups: dict[str, dict[str, object]] = {}
+    for item in review_candidates:
+        kind = str(item["kind"])
+        group = review_groups.setdefault(kind, {"count": 0, "files": set()})
+        group["count"] = int(group["count"]) + 1
+        group_files = group["files"]
+        if isinstance(group_files, set):
+            group_files.add(str(item["path"]))
+            group_files.update(str(path) for path in item.get("files", []))
     return {
-        "files_checked": len(files),
+        "files_checked": len(note_files),
         "naturalness_high_confidence": len(high_confidence),
         "naturalness_review_candidates": len(review_candidates),
         "high_confidence": high_confidence[:100],
         "review_candidates": review_candidates[:200],
+        "review_groups": {
+            kind: {"count": int(value["count"]), "files": sorted(value["files"])}
+            for kind, value in sorted(review_groups.items())
+        },
     }
 
 
@@ -244,6 +257,8 @@ def main() -> int:
             print(f"HIGH {issue['path']}:{issue['line']} [{issue['kind']}] {issue['context']}")
         for issue in payload["review_candidates"]:
             print(f"REVIEW {issue['path']}:{issue['line']} [{issue['kind']}] {issue['context']}")
+        for kind, group in payload["review_groups"].items():
+            print(f"REVIEW_GROUP {kind} candidates={group['count']} files={len(group['files'])}")
     return 1 if args.strict and payload["naturalness_high_confidence"] else 0
 
 

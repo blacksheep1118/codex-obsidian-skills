@@ -164,11 +164,13 @@ skill mirror changed when only the source repository was edited.
 ## Validate before finishing
 
 Run the local commands appropriate to the repositories in scope. For the
-Solvenotes vault, prefer `bash scripts/dev_check.sh quick` first and
-`bash scripts/dev_check.sh full` last, plus targeted checks such as
-`python3 scripts/check_frontmatter.py`, `python3 scripts/check_links.py`,
-`python3 scripts/check_examples.py`, `python3 scripts/check_formulas.py`, and
-`git diff --check`. Use the repository's own `scripts/` and `tests/` rather
+Solvenotes vault, prefer the project maintainer from the Skills repository
+root: `bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh quick`
+first and `bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh full`
+last. Use the maintainer's targeted checks for frontmatter, links, examples,
+and formulas; use this Skill's own
+`skill/algorithm-job-notes-for-obsidian/scripts/check_cpp_examples.py` for
+marked C++ blocks. Use the repository's own `scripts/` and `tests/` rather
 than inventing a parallel validator. Use `references/` for project-specific
 rules and validation details.
 

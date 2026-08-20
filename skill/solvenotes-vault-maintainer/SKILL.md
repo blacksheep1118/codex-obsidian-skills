@@ -28,6 +28,12 @@ orchestrator for a learning vault; it does not replace the reusable
 - Never modify an installed skill copy directly. Edit this source repository,
   validate it, then use the repository installation scripts to synchronize the
   mirror.
+- A real Notes vault pins the exact Skills source in
+  `notes/.github/solvenotes-skills.lock.json`. The lock stores one full 40-byte
+  commit SHA and `contract_version`; do not copy a floating branch or a second
+  SHA into another document. Validate it with `check_skills_lock.py` before a
+  full gate. Use `update_notes_skill_lock.py` in dry-run mode first; `--write`
+  only changes the lock and never commits or pushes.
 
 ## Required environment
 
@@ -37,9 +43,17 @@ Set the vault explicitly before invoking a maintenance command:
 export SOLVENOTES_VAULT_ROOT=/absolute/path/to/solvenotes/notes
 ```
 
+Each maintenance subprocess is bounded by `SOLVENOTES_STEP_TIMEOUT` seconds
+(180 by default). The timeout wrapper reports the command, elapsed time, and
+stdout/stderr tails, and terminates the child process group where the platform
+supports it.
+
 The scripts accept `--root` where documented, but the environment variable is
 the stable interface used by the full gate and by agents. The skill must fail
 clearly rather than silently treating its own `skill/` directory as a vault.
+Run `scripts/doctor.py --strict` before a long gate when the environment is
+uncertain; it reports the selected interpreter, dependency versions, system
+tools, vault path, and Skills path without using machine-specific fallbacks.
 
 ## Quick Start
 
@@ -60,6 +74,12 @@ clearly rather than silently treating its own `skill/` directory as a vault.
 7. Report actual commands and PASS/FAIL/SKIP results. Do not commit or push
    unless the user explicitly authorizes it.
 
+The current maintainer contract is version `1`. It covers the external vault
+root, the lock format, the source-manifest boundary, the algorithm-job
+nine-direction handoff, marked runnable-code checks, the quick/full command
+surface, and clean-package exclusions. A version mismatch must fail before the
+expensive vault scan.
+
 ## Main commands
 
 From the Skills repository:
@@ -77,12 +97,24 @@ SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
 
 python3 skill/solvenotes-vault-maintainer/scripts/package_vault.py \
   --root /absolute/path/to/notes --output /tmp/solvenotes-notes-clean.zip
+
+python3 skill/solvenotes-vault-maintainer/scripts/package_workspace.py \
+  --root /path/to/solvenotes \
+  --output /tmp/solvenotes-workspace.zip \
+  --manifest-output /tmp/solvenotes-workspace-BUILD-MANIFEST.json
 ```
 
 The package command excludes Git metadata, macOS sidecar files, Obsidian
 local workspace/graph state, hidden CI infrastructure, caches, compiled files,
 and previous exports.
 It must not write an archive into the vault by default.
+
+`package_workspace.py` is a separate maintainer diagnostic package for the
+four-part workspace (`AGENT.md`, `agent/`, `notes/`, and `skills/`). It keeps
+source files but excludes Git history, local Obsidian state, caches, archives,
+local configuration, and machine-specific metadata. It writes a non-secret
+`BUILD-MANIFEST.json` into the ZIP and to the explicitly selected sidecar
+path; both outputs should remain outside the workspace.
 
 `online` is an explicit, read-only external URL audit. It is separate from
 `quick`, `full`, and ordinary CI. It deduplicates HTTP(S) URLs from Markdown,
@@ -92,6 +124,15 @@ temporary failures, and confirmed missing resources. Use
 `--offline-cache-only` for a repeatable cache-only report. Unit tests use
 mocked responses; transport status alone is not a semantic or visual review.
 `--timeout` bounds one request and `--total-timeout` bounds the whole scan.
+
+For the complete workspace surface, run
+`check_workspace_guidance.py --workspace-root /path/to/solvenotes`. It checks
+the singular `agent/` boundary, portable guidance paths, the Notes lock, and
+that the Notes workflow does not carry a second Skills SHA. It is a local
+guidance check, not a replacement for Notes content validation.
+The companion `check_documented_commands.py` checks script paths named by the
+workspace guidance and Skill documentation without executing arbitrary shell
+blocks; only paths that resolve to real files are accepted.
 
 ## Direction contract
 

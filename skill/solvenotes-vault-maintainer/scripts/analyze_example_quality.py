@@ -433,6 +433,8 @@ def main() -> int:
     kind_counts: Counter[str] = Counter()
     grade_counts: Counter[str] = Counter()
     low_grade: list[str] = []
+    worked_grade_counts: Counter[str] = Counter()
+    non_worked_grade_counts: Counter[str] = Counter()
     total = 0
     required_total = 0
     for example in iter_examples():
@@ -443,8 +445,11 @@ def main() -> int:
         grade_counts[current_grade] += 1
         if _requires_solution(example):
             required_total += 1
+            worked_grade_counts[current_grade] += 1
             if current_grade in {"C", "D"}:
                 low_grade.append(f"{rel(example.path)}:{example.line} | {example.kind} | {example.title} | {current_grade}")
+        else:
+            non_worked_grade_counts[current_grade] += 1
 
     payload = {
         "examples_analyzed": total,
@@ -452,6 +457,8 @@ def main() -> int:
         "kind_counts": dict(sorted(kind_counts.items())),
         "type_counts": dict(sorted(type_counts.items())),
         "grade_counts": dict(sorted(grade_counts.items())),
+        "worked_grade_counts": dict(sorted(worked_grade_counts.items())),
+        "non_worked_grade_counts": dict(sorted(non_worked_grade_counts.items())),
         "low_grade_examples": low_grade[:100],
         "low_grade_count": len(low_grade),
     }
@@ -466,6 +473,10 @@ def main() -> int:
             print(f"type_{key} {value}")
         for key, value in sorted(grade_counts.items()):
             print(f"grade_{key} {value}")
+        for key, value in sorted(worked_grade_counts.items()):
+            print(f"worked_grade_{key} {value}")
+        for key, value in sorted(non_worked_grade_counts.items()):
+            print(f"non_worked_grade_{key} {value}")
         print(f"low_grade_count {len(low_grade)}")
         for item in low_grade[:30]:
             print(f"LOW {item}")

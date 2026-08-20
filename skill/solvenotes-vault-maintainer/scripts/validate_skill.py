@@ -27,7 +27,15 @@ def main() -> int:
     required = (
         SKILL_ROOT / "scripts" / "dev_check.sh",
         SKILL_ROOT / "scripts" / "check_all_notes.py",
+        SKILL_ROOT / "scripts" / "doctor.py",
+        SKILL_ROOT / "scripts" / "check_skills_lock.py",
+        SKILL_ROOT / "scripts" / "check_workspace_guidance.py",
+        SKILL_ROOT / "scripts" / "check_documented_commands.py",
+        SKILL_ROOT / "scripts" / "update_notes_skill_lock.py",
+        SKILL_ROOT / "scripts" / "vault_contract.py",
         SKILL_ROOT / "scripts" / "package_vault.py",
+        SKILL_ROOT / "scripts" / "package_workspace.py",
+        SKILL_ROOT / "scripts" / "run_with_timeout.py",
         SKILL_ROOT / "tests",
     )
     missing = [str(path.relative_to(SKILL_ROOT)) for path in required if not path.exists()]

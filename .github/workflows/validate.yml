@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   root:
-    name: Root validation (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    name: Root validation (${{ matrix.profile }}, ${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -17,15 +17,20 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            python-version: "3.9"
-          - os: ubuntu-latest
             python-version: "3.11"
+            profile: full
+          - os: ubuntu-latest
+            python-version: "3.9"
+            profile: minimum
           - os: ubuntu-latest
             python-version: "3.12"
+            profile: newest
           - os: macos-latest
             python-version: "3.11"
+            profile: platform
           - os: windows-latest
             python-version: "3.11"
+            profile: platform
 
     steps:
       - name: Checkout
@@ -40,24 +45,59 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
+          python -m pip check
 
       - name: Check repository hygiene
+        if: matrix.profile == 'full'
         run: python scripts/check_repo_hygiene.py
 
       - name: Run full Ruff checks
+        if: matrix.profile == 'full'
         run: python -m ruff check . --no-cache
 
+      - name: Compile repository scripts
+        env:
+          PYTHONPYCACHEPREFIX: ${{ runner.temp }}/codex-root-pycache
+        run: python -m compileall -q scripts
+
       - name: Run root tests
+        if: matrix.profile == 'full'
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
           PYTHONDONTWRITEBYTECODE: "1"
         run: python -m pytest -q --durations=20
 
+      - name: Run minimum/newest core tests
+        if: matrix.profile == 'minimum' || matrix.profile == 'newest'
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: >-
+          python -m pytest -q --durations=20
+          tests/test_skill_metadata.py
+          tests/test_safe_io.py
+          tests/test_repo_hygiene.py
+
+      - name: Run platform smoke tests
+        if: matrix.profile == 'platform'
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: >-
+          python -m pytest -q --durations=20
+          tests/test_management_scripts.py
+          tests/test_shared_resources.py
+
       - name: Check shared metadata
+        if: matrix.profile == 'full'
         run: |
           python scripts/check_openai_yaml_sync.py
           python scripts/sync_shared_resources.py --check
           python scripts/install_skill.py --all --destination "${{ runner.temp }}/codex-skills" --self-check
+
+      - name: Run install smoke
+        if: matrix.profile != 'full'
+        run: python scripts/install_skill.py --all --destination "${{ runner.temp }}/codex-skills" --self-check
 
   skill:
     name: Skill validation (${{ matrix.skill }})
@@ -93,6 +133,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r skill/${{ matrix.skill }}/requirements-dev.txt
+          python -m pip check
 
       - name: Compile skill scripts
         working-directory: skill/${{ matrix.skill }}

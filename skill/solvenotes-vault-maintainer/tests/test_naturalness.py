@@ -74,4 +74,6 @@ def test_repeated_h2_skeleton_is_a_candidate_not_a_failure(monkeypatch, tmp_path
     payload = check_naturalness.scan()
 
     assert payload["naturalness_high_confidence"] == 0
+    assert payload["files_checked"] == 4
     assert any(item["kind"] == "repeated_h2_skeleton" for item in payload["review_candidates"])
+    assert payload["review_groups"]["repeated_h2_skeleton"]["count"] == 1

@@ -6,7 +6,7 @@ learning note and must never be copied into the vault.
 Set the vault explicitly:
 
 ```bash
-export SOLVENOTES_VAULT_ROOT=/Users/xujunyang/Desktop/solvenotes/notes
+export SOLVENOTES_VAULT_ROOT=/absolute/path/to/solvenotes/notes
 ```
 
 Run from the Skills repository:
