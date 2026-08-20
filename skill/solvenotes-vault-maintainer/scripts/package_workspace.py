@@ -18,19 +18,27 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from vault_contract import (
+    REQUIRED_SKILLS,
+    dependency_graph_digest,
+    skill_content_digest,
+    source_dependency_graph,
+    validate_lock,
+)
+
 try:
     from safe_io import (
         atomic_binary_writer,
         ensure_safe_input_directory,
-        ensure_safe_input_file,
         ensure_safe_output_path,
+        read_bytes_no_follow,
     )
 except ImportError:  # pragma: no cover - source checkout convenience
     from .safe_io import (
         atomic_binary_writer,
         ensure_safe_input_directory,
-        ensure_safe_input_file,
         ensure_safe_output_path,
+        read_bytes_no_follow,
     )
 
 EXCLUDED_DIRS = {
@@ -104,9 +112,8 @@ def inventory(root: Path, excluded_paths: set[Path]) -> list[tuple[Path, bytes, 
                 raise ValueError(f"workspace contains a symlink file: {relative}")
             if Path(os.path.abspath(os.fspath(path))) in excluded_lexical:
                 continue
-            safe_path = ensure_safe_input_file(path)
-            data = safe_path.read_bytes()
-            entries.append((relative, data, safe_path.stat().st_mode))
+            data = read_bytes_no_follow(path)
+            entries.append((relative, data, path.lstat().st_mode))
     return sorted(entries, key=lambda item: item[0].as_posix())
 
 
@@ -143,51 +150,41 @@ def git_is_clean(path: Path) -> bool | None:
     return not result.stdout.strip()
 
 
-def skill_content_digest(skills_root: Path) -> str | None:
-    maintainer = skills_root / "skill" / "solvenotes-vault-maintainer"
-    if not maintainer.is_dir():
-        return None
-    records: list[dict[str, object]] = []
-    for path in sorted(maintainer.rglob("*"), key=lambda item: item.as_posix()):
-        if not path.is_file() or path.is_symlink():
-            continue
-        relative = path.relative_to(maintainer)
-        if any(part in {"__pycache__", ".pytest_cache", ".ruff_cache", "build", "dist"} for part in relative.parts):
-            continue
-        if relative.name in {".codex-skill-install.json", ".DS_Store"}:
-            continue
-        data = ensure_safe_input_file(path).read_bytes()
-        records.append(
-            {
-                "path": relative.as_posix(),
-                "size": len(data),
-                "sha256": hashlib.sha256(data).hexdigest(),
-            }
-        )
-    canonical = json.dumps(records, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
-
-
 def lock_metadata(notes_root: Path, skills_root: Path, *, allow_lock_drift: bool = False) -> dict[str, object]:
     lock_path = notes_root / ".github" / "solvenotes-skills.lock.json"
     if not lock_path.is_file():
+        if not allow_lock_drift:
+            raise ValueError(f"Notes lock drift: missing {lock_path}")
         return {"notes_locked_skills_commit": None, "contract_version": None, "coherent_workspace": False}
     try:
         payload = json.loads(lock_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"invalid Notes Skills lock: {lock_path}: {exc}") from exc
+    lock_issues = validate_lock(payload) if isinstance(payload, dict) else ["lock is not an object"]
+    if lock_issues and not allow_lock_drift:
+        raise ValueError("invalid Notes Skills lock: " + "; ".join(lock_issues))
     commit = payload.get("commit")
     contract = payload.get("contract_version")
     actual = git_commit(skills_root)
     clean = git_is_clean(skills_root)
-    actual_digest = skill_content_digest(skills_root)
-    expected_digest = payload.get("content_digest")
+    expected_skills = payload.get("skills") if isinstance(payload.get("skills"), dict) else {}
+    actual_digests = {
+        name: skill_content_digest(skills_root, name) for name in REQUIRED_SKILLS
+    }
+    graph = source_dependency_graph(skills_root)
+    actual_graph_digest = dependency_graph_digest(graph) if graph is not None else None
     coherent = (
         isinstance(commit, str)
         and isinstance(actual, str)
         and commit == actual
         and clean is True
-        and (not isinstance(expected_digest, str) or expected_digest == actual_digest)
+        and all(
+            isinstance(expected_skills.get(name), dict)
+            and expected_skills[name].get("content_digest") == actual_digests[name]
+            for name in REQUIRED_SKILLS
+        )
+        and payload.get("dependency_graph_digest") == actual_graph_digest
+        and not lock_issues
     )
     if not coherent and not allow_lock_drift:
         raise ValueError(
@@ -199,15 +196,20 @@ def lock_metadata(notes_root: Path, skills_root: Path, *, allow_lock_drift: bool
         "contract_version": contract if isinstance(contract, int) else None,
         "coherent_workspace": coherent,
         "skills_clean": clean,
-        "skills_content_digest": actual_digest,
+        "skills": {
+            name: {"content_digest": actual_digests[name]} for name in REQUIRED_SKILLS
+        },
+        "dependency_graph_digest": actual_graph_digest,
     }
     if not coherent:
         result["lock_drift"] = {
             "locked": commit,
             "skills_commit": actual,
             "skills_clean": clean,
-            "locked_content_digest": expected_digest,
-            "skills_content_digest": actual_digest,
+            "locked_skills": expected_skills,
+            "actual_skills": actual_digests,
+            "locked_dependency_graph_digest": payload.get("dependency_graph_digest"),
+            "actual_dependency_graph_digest": actual_graph_digest,
         }
     return result
 
@@ -255,14 +257,19 @@ def manifest_for(root: Path, entries: list[tuple[Path, bytes, int]], *, lock: di
     skills_root = root / "skills"
     files = _file_records(entries)
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "generated_at": generated.isoformat().replace("+00:00", "Z"),
         "workspace_commit": git_commit(root),
         "notes_commit": git_commit(notes_root),
         "skills_commit": git_commit(skills_root),
         **lock,
-        "notes_file_count": sum(1 for item in files if item["path"] == "AGENT.md" or str(item["path"]).startswith("notes/")),
+        "root_agent_files": sum(1 for item in files if item["path"] == "AGENT.md"),
+        "agent_rule_files": sum(1 for item in files if str(item["path"]).startswith("agent/")),
+        "notes_files": sum(1 for item in files if str(item["path"]).startswith("notes/")),
         "skills_file_count": sum(1 for item in files if str(item["path"]).startswith("skills/")),
+        "workflow_files": sum(1 for item in files if "/.github/workflows/" in f"/{item['path']}"),
+        "source_manifest_files": sum(1 for item in files if str(item["path"]).endswith("source_manifest.md")),
+        "template_files": sum(1 for item in files if "/.obsidian/templates/" in f"/{item['path']}"),
         "file_count": len(files),
         "archive_entry_count": len(files) + 1,
         "content_digest": _content_digest(files),
@@ -313,6 +320,10 @@ def package(root: Path, output: Path, manifest_output: Path, *, allow_lock_drift
         raise ValueError(f"output must be outside the workspace root: {candidate}")
     if output == manifest_output:
         raise ValueError("ZIP output and manifest output must be different files")
+    # Validate both publication paths before inventory or lock work so an
+    # unsafe destination never gets masked by an unrelated workspace error.
+    ensure_safe_output_path(output, create_parent=True)
+    ensure_safe_output_path(manifest_output, create_parent=True)
     excluded_paths = {output, manifest_output}
     entries = inventory(root, excluded_paths)
     lock = lock_metadata(root / "notes", root / "skills", allow_lock_drift=allow_lock_drift)

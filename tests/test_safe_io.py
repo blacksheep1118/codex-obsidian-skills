@@ -156,6 +156,20 @@ def test_safe_io_rejects_non_whitelisted_top_level_symlink(monkeypatch) -> None:
         safe_io._normalize_top_level_alias(output)
 
 
+def test_read_bytes_no_follow_reads_regular_file_and_rejects_link(tmp_path: Path) -> None:
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"stable")
+    assert safe_io.read_bytes_no_follow(source) == b"stable"
+
+    alias = tmp_path / "alias.bin"
+    try:
+        alias.symlink_to(source)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+    with pytest.raises(ValueError, match="symlink"):
+        safe_io.read_bytes_no_follow(alias)
+
+
 def test_subprocess_environment_always_disables_bytecode(monkeypatch) -> None:
     monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "0")
 

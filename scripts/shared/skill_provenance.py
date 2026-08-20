@@ -14,7 +14,7 @@ from install_ignore import should_ignore_relative
 
 
 PROVENANCE_FILENAME = ".codex-skill-install.json"
-PROVENANCE_SCHEMA_VERSION = 1
+PROVENANCE_SCHEMA_VERSION = 2
 
 
 def _managed_paths(root: Path) -> list[Path]:
@@ -52,7 +52,9 @@ def content_digest(records: Iterable[dict[str, Any]]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def source_commit(repository_root: Path) -> str | None:
+def source_state(repository_root: Path) -> tuple[str | None, bool | None]:
+    """Return the repository HEAD and dirty state as two independent facts."""
+
     try:
         status = subprocess.run(
             ["git", "-C", str(repository_root), "status", "--porcelain", "--untracked-files=all"],
@@ -61,8 +63,6 @@ def source_commit(repository_root: Path) -> str | None:
             check=False,
             timeout=30,
         )
-        if status.returncode != 0 or status.stdout.strip():
-            return None
         result = subprocess.run(
             ["git", "-C", str(repository_root), "rev-parse", "HEAD"],
             capture_output=True,
@@ -71,9 +71,11 @@ def source_commit(repository_root: Path) -> str | None:
             timeout=30,
         )
     except (OSError, subprocess.SubprocessError):
-        return None
+        return None, None
     value = result.stdout.strip()
-    return value if result.returncode == 0 and len(value) == 40 else None
+    commit = value if result.returncode == 0 and len(value) == 40 else None
+    dirty = bool(status.stdout.strip()) if status.returncode == 0 else None
+    return commit, dirty
 
 
 def _contract_version(skill_root: Path) -> int | None:
@@ -92,23 +94,36 @@ def _contract_version(skill_root: Path) -> int | None:
 
 
 def build_provenance(
-    skill_root: Path,
+    source_root: Path,
     *,
+    installed_root: Path | None = None,
+    repository_root: Path | None = None,
     skill_name: str,
     repository: str,
     dependencies: Iterable[str] = (),
+    dependency_digests: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    records = file_records(skill_root)
-    repository_root = skill_root.parents[1]
+    installed_root = installed_root or source_root
+    repository_root = repository_root or source_root.parents[1]
+    source_records = file_records(source_root)
+    installed_records = file_records(installed_root)
+    commit, dirty = source_state(repository_root)
+    installed_digest = content_digest(installed_records)
     return {
         "schema_version": PROVENANCE_SCHEMA_VERSION,
         "skill": skill_name,
         "source_repository": repository,
-        "source_commit": source_commit(repository_root),
-        "contract_version": _contract_version(skill_root),
+        "source_commit": commit,
+        "source_dirty": dirty,
+        "source_tree_digest": content_digest(source_records),
+        "installed_content_digest": installed_digest,
+        # Kept as a compatibility alias for older external readers. New lock
+        # verification uses installed_content_digest explicitly.
+        "content_digest": installed_digest,
+        "contract_version": _contract_version(source_root),
         "dependencies": sorted(set(dependencies)),
-        "content_digest": content_digest(records),
-        "managed_files": records,
+        "dependency_digests": dict(sorted((dependency_digests or {}).items())),
+        "managed_files": installed_records,
     }
 
 

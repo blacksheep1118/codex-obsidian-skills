@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""Validate a candidate Skills commit against Notes without changing its lock."""
+
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import os
+import subprocess
+import sys
+import tarfile
+import tempfile
+import zipfile
+from pathlib import Path
+
+from update_notes_skill_lock import (
+    resolve_commit,
+    safe_extract_tar,
+    verify_repository_identity,
+    verify_target_tree,
+)
+from vault_contract import (
+    CURRENT_LOCK_SCHEMA_VERSION,
+    MAINTAINER_SKILL,
+    SKILLS_REPOSITORY,
+)
+
+
+def _run(
+    command: list[str], *, cwd: Path, env: dict[str, str], timeout: int, label: str
+) -> None:
+    try:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(f"{label} did not complete: {exc}") from exc
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip()
+        raise ValueError(f"{label} failed: {detail}")
+
+
+def candidate_lock(commit: str, target: dict[str, object]) -> dict[str, object]:
+    return {
+        "schema_version": CURRENT_LOCK_SCHEMA_VERSION,
+        "repository": SKILLS_REPOSITORY,
+        "commit": commit,
+        "maintainer_skill": MAINTAINER_SKILL,
+        "contract_version": target["contract_version"],
+        "skills": target["skills"],
+        "dependency_graph_digest": target["dependency_graph_digest"],
+    }
+
+
+def validate_candidate(
+    notes_root: Path,
+    skills_root: Path,
+    ref: str,
+    *,
+    verify_level: str,
+    python_bin: str,
+    allow_local_source: bool,
+) -> dict[str, object]:
+    verify_repository_identity(skills_root, allow_local_source=allow_local_source)
+    commit = resolve_commit(skills_root, ref)
+    target = verify_target_tree(skills_root, commit, level=verify_level)
+    lock_payload = candidate_lock(commit, target)
+
+    with tempfile.TemporaryDirectory(prefix="solvenotes-candidate-") as temporary_raw:
+        temporary = Path(temporary_raw)
+        checkout = temporary / "source"
+        checkout.mkdir()
+        archive = subprocess.check_output(
+            ["git", "-C", str(skills_root), "archive", commit], timeout=60
+        )
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
+            safe_extract_tar(tar, checkout)
+
+        installed = temporary / "installed"
+        environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        installer = checkout / "scripts" / "install_skill.py"
+        _run(
+            [
+                python_bin,
+                str(installer),
+                "--skill",
+                MAINTAINER_SKILL,
+                "--destination",
+                str(installed),
+                "--self-check",
+            ],
+            cwd=temporary,
+            env=environment,
+            timeout=180,
+            label="candidate installed smoke",
+        )
+
+        candidate_lock_path = temporary / "candidate-lock.json"
+        candidate_lock_path.write_text(
+            json.dumps(lock_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        environment.update(
+            {
+                "SOLVENOTES_VAULT_ROOT": str(notes_root),
+                "SOLVENOTES_SKILLS_LOCK_OVERRIDE": str(candidate_lock_path),
+                "SOLVENOTES_PYTHON_BIN": python_bin,
+            }
+        )
+        dev_check = installed / MAINTAINER_SKILL / "scripts" / "dev_check.sh"
+        _run(
+            ["bash", str(dev_check), "vault-full"],
+            cwd=temporary,
+            env=environment,
+            timeout=900,
+            label="candidate real Notes vault-full",
+        )
+
+        notes_zip = temporary / "notes.zip"
+        package_script = installed / MAINTAINER_SKILL / "scripts" / "package_vault.py"
+        _run(
+            [
+                python_bin,
+                str(package_script),
+                "--root",
+                str(notes_root),
+                "--output",
+                str(notes_zip),
+            ],
+            cwd=temporary,
+            env=environment,
+            timeout=300,
+            label="candidate Notes package",
+        )
+        with zipfile.ZipFile(notes_zip) as package:
+            names = package.namelist()
+            forbidden = [
+                name
+                for name in names
+                if ".git/" in f"/{name}"
+                or name.startswith("__MACOSX/")
+                or name.startswith("._")
+                or name.endswith("workspace.json")
+                or name.endswith("graph.json")
+            ]
+            if forbidden or package.testzip() is not None:
+                raise ValueError(f"candidate Notes package is not clean: {forbidden[:10]}")
+        return {
+            "ok": True,
+            "commit": commit,
+            "contract_version": target["contract_version"],
+            "skills": target["skills"],
+            "dependency_graph_digest": target["dependency_graph_digest"],
+            "notes_package_entries": len(names),
+            "formal_lock_modified": False,
+        }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--notes-root", type=Path, required=True)
+    parser.add_argument("--skills-root", type=Path, required=True)
+    parser.add_argument("--skills-ref", required=True)
+    parser.add_argument("--verify-level", choices=("metadata", "smoke", "full"), default="full")
+    parser.add_argument("--python-bin", default=os.environ.get("SOLVENOTES_PYTHON_BIN", sys.executable))
+    parser.add_argument("--allow-local-source", action="store_true")
+    parser.add_argument("--json-out", type=Path)
+    args = parser.parse_args(argv)
+    try:
+        report = validate_candidate(
+            args.notes_root.expanduser().absolute(),
+            args.skills_root.expanduser().absolute(),
+            args.skills_ref,
+            verify_level=args.verify_level,
+            python_bin=args.python_bin,
+            allow_local_source=args.allow_local_source,
+        )
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        parser.error(str(exc))
+    rendered = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
+    print(rendered)
+    if args.json_out:
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        args.json_out.write_text(rendered + "\n", encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

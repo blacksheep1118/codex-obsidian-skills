@@ -27,7 +27,7 @@ def test_workspace_package_excludes_local_state_and_includes_manifest(tmp_path: 
     output = tmp_path / "workspace.zip"
     manifest_output = tmp_path / "BUILD-MANIFEST.json"
 
-    count, _size = pw.package(root, output, manifest_output)
+    count, _size = pw.package(root, output, manifest_output, allow_lock_drift=True)
 
     with zipfile.ZipFile(output) as archive:
         names = archive.namelist()
@@ -43,6 +43,9 @@ def test_workspace_package_excludes_local_state_and_includes_manifest(tmp_path: 
     assert count == 4
     assert manifest["file_count"] == 4
     assert manifest["archive_entry_count"] == 5
+    assert manifest["root_agent_files"] == 1
+    assert manifest["agent_rule_files"] == 1
+    assert manifest["notes_files"] == 2
     assert manifest["files"][0]["path"] == "AGENT.md"
     assert "workspace" not in manifest["files"][2]["path"]
     sidecar = json.loads(manifest_output.read_text(encoding="utf-8"))
@@ -85,6 +88,46 @@ def test_workspace_package_rejects_symlinked_root_and_output(tmp_path: Path) -> 
         pw.package(root, output, tmp_path / "manifest.json")
 
 
+def test_workspace_package_rejects_symlinked_output_or_manifest_parent(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    real_parent = tmp_path / "real-output"
+    real_parent.mkdir()
+    alias_parent = tmp_path / "alias-output"
+    try:
+        alias_parent.symlink_to(real_parent, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    with pytest.raises(ValueError, match="symlink"):
+        pw.package(
+            root,
+            alias_parent / "workspace.zip",
+            tmp_path / "manifest.json",
+            allow_lock_drift=True,
+        )
+    with pytest.raises(ValueError, match="symlink"):
+        pw.package(
+            root,
+            tmp_path / "workspace.zip",
+            alias_parent / "manifest.json",
+            allow_lock_drift=True,
+        )
+
+
+def test_workspace_package_rejects_broken_output_symlink(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    output = tmp_path / "workspace.zip"
+    try:
+        output.symlink_to(tmp_path / "missing-target")
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    with pytest.raises(ValueError, match="symlink"):
+        pw.package(root, output, tmp_path / "manifest.json", allow_lock_drift=True)
+
+
 def test_workspace_package_is_reproducible_with_fixed_epoch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "workspace"
     (root / "notes").mkdir(parents=True)
@@ -95,11 +138,31 @@ def test_workspace_package_is_reproducible_with_fixed_epoch(tmp_path: Path, monk
     first_manifest = tmp_path / "first.json"
     second = tmp_path / "second.zip"
     second_manifest = tmp_path / "second.json"
-    pw.package(root, first, first_manifest)
-    pw.package(root, second, second_manifest)
+    pw.package(root, first, first_manifest, allow_lock_drift=True)
+    pw.package(root, second, second_manifest, allow_lock_drift=True)
 
     assert first.read_bytes() == second.read_bytes()
     assert first_manifest.read_bytes() == second_manifest.read_bytes()
+
+
+def test_workspace_verifier_checks_sidecar_archive_digest(tmp_path: Path) -> None:
+    import verify_workspace_package as verifier
+
+    root = tmp_path / "workspace"
+    (root / "notes").mkdir(parents=True)
+    (root / "notes" / "note.md").write_text("# Note\n", encoding="utf-8")
+    archive = tmp_path / "workspace.zip"
+    sidecar = tmp_path / "manifest.json"
+    pw.package(root, archive, sidecar, allow_lock_drift=True)
+
+    payload = verifier.verify(archive, sidecar)
+    assert not any("sidecar" in issue for issue in payload["issues"])
+
+    tampered = json.loads(sidecar.read_text(encoding="utf-8"))
+    tampered["archive_sha256"] = "0" * 64
+    sidecar.write_text(json.dumps(tampered), encoding="utf-8")
+    payload = verifier.verify(archive, sidecar)
+    assert any("sidecar archive_sha256" in issue for issue in payload["issues"])
 
 
 def test_verify_workspace_package_rejects_unsafe_zip_entry(tmp_path: Path) -> None:
@@ -140,10 +203,16 @@ def test_verify_workspace_package_recomputes_lock_coherence(tmp_path: Path) -> N
 
     lock = json.dumps(
         {
+            "schema_version": 2,
             "repository": "blacksheep1118/codex-obsidian-skills",
             "commit": "b" * 40,
             "maintainer_skill": "solvenotes-vault-maintainer",
             "contract_version": 1,
+            "skills": {
+                "solvenotes-vault-maintainer": {"content_digest": "c" * 64},
+                "algorithm-job-notes-for-obsidian": {"content_digest": "d" * 64},
+            },
+            "dependency_graph_digest": "e" * 64,
         },
         sort_keys=True,
     ).encode("utf-8")
@@ -153,7 +222,7 @@ def test_verify_workspace_package_recomputes_lock_coherence(tmp_path: Path) -> N
         {"path": "notes/note.md", "size": len(note), "sha256": hashlib.sha256(note).hexdigest()},
     ]
     manifest = {
-        "schema_version": 2,
+        "schema_version": 3,
         "coherent_workspace": True,
         "skills_commit": "a" * 40,
         "notes_locked_skills_commit": "b" * 40,

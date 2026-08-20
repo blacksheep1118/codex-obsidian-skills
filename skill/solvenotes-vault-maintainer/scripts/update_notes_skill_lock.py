@@ -21,21 +21,35 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
 from vault_contract import (
+    ALGORITHM_JOB_SKILL,
+    CURRENT_LOCK_SCHEMA_VERSION,
     CURRENT_VAULT_CONTRACT_VERSION,
     FULL_SHA_RE,
     MAINTAINER_SKILL,
+    REQUIRED_SKILLS,
     SKILLS_REPOSITORY,
+    dependency_graph_digest,
     lock_path,
 )
 
 REF_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 TARGET_FILES = (
+    "skill/dependencies.json",
     "skill/solvenotes-vault-maintainer/SKILL.md",
     "skill/solvenotes-vault-maintainer/scripts/dev_check.sh",
     "skill/solvenotes-vault-maintainer/scripts/check_skills_lock.py",
     "skill/solvenotes-vault-maintainer/scripts/validate_skill.py",
+    "skill/solvenotes-vault-maintainer/scripts/validate_notes_candidate.py",
     "skill/solvenotes-vault-maintainer/scripts/vault_contract.py",
+    "skill/solvenotes-vault-maintainer/scripts/package_vault.py",
+    "skill/solvenotes-vault-maintainer/scripts/package_workspace.py",
+    "skill/solvenotes-vault-maintainer/scripts/verify_workspace_package.py",
+    "skill/solvenotes-vault-maintainer/scripts/run_with_timeout.py",
     "skill/solvenotes-vault-maintainer/requirements-dev.txt",
+    "skill/algorithm-job-notes-for-obsidian/SKILL.md",
+    "skill/algorithm-job-notes-for-obsidian/scripts/check_algorithm_job_vault.py",
+    "skill/algorithm-job-notes-for-obsidian/scripts/check_cpp_examples.py",
+    "skill/algorithm-job-notes-for-obsidian/scripts/validate_skill.py",
 )
 TARGET_FIXTURE_PREFIX = "skill/solvenotes-vault-maintainer/fixtures/solvenotes-mini-vault/"
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -208,9 +222,11 @@ def target_paths(skills_root: Path, commit: str) -> list[str]:
         raise ValueError(f"target commit contains a non-UTF-8 path: {exc}") from exc
 
 
-def target_content_digest(skills_root: Path, commit: str, paths: list[str]) -> str:
+def target_content_digest(
+    skills_root: Path, commit: str, paths: list[str], skill_name: str
+) -> str:
     records: list[dict[str, object]] = []
-    prefix = "skill/solvenotes-vault-maintainer/"
+    prefix = f"skill/{skill_name}/"
     for relative in paths:
         if not relative.startswith(prefix) or relative.endswith("/"):
             continue
@@ -242,15 +258,47 @@ def verify_target_tree(skills_root: Path, commit: str, *, level: str) -> dict[st
             f"target commit {commit} does not contain the required maintainer tree: "
             + ", ".join(missing)
         )
-    skill_text = target_blob(skills_root, commit, TARGET_FILES[0])
+    dependency_payload = json.loads(target_blob(skills_root, commit, "skill/dependencies.json"))
+    required = dependency_payload.get("required") if isinstance(dependency_payload, dict) else None
+    if not isinstance(required, dict):
+        raise ValueError(f"target commit {commit} has no valid required dependency graph")
+    graph: dict[str, list[str]] = {}
+    for name in REQUIRED_SKILLS:
+        values = required.get(name, [])
+        if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+            raise ValueError(f"target commit {commit} has invalid dependencies for {name}")
+        graph[name] = sorted(dict.fromkeys(values))
+    if graph.get(MAINTAINER_SKILL) != [ALGORITHM_JOB_SKILL] or graph.get(ALGORITHM_JOB_SKILL):
+        raise ValueError(
+            f"target commit {commit} does not expose the required maintainer dependency closure"
+        )
+    skill_text = target_blob(
+        skills_root, commit, "skill/solvenotes-vault-maintainer/SKILL.md"
+    )
     if not re.search(r"^name:\s*solvenotes-vault-maintainer\s*$", skill_text, re.MULTILINE):
         raise ValueError(f"target commit {commit} has invalid maintainer SKILL.md metadata")
-    contract_text = target_blob(skills_root, commit, TARGET_FILES[4])
+    contract_text = target_blob(
+        skills_root,
+        commit,
+        "skill/solvenotes-vault-maintainer/scripts/vault_contract.py",
+    )
     match = re.search(r"^CURRENT_VAULT_CONTRACT_VERSION\s*=\s*(\d+)\s*$", contract_text, re.MULTILINE)
     if not match:
         raise ValueError(f"target commit {commit} has no readable vault contract version")
     contract_version = int(match.group(1))
-    for relative in TARGET_FILES[2:5]:
+    for relative in (
+        "skill/solvenotes-vault-maintainer/scripts/check_skills_lock.py",
+        "skill/solvenotes-vault-maintainer/scripts/validate_skill.py",
+        "skill/solvenotes-vault-maintainer/scripts/validate_notes_candidate.py",
+        "skill/solvenotes-vault-maintainer/scripts/vault_contract.py",
+        "skill/solvenotes-vault-maintainer/scripts/package_vault.py",
+        "skill/solvenotes-vault-maintainer/scripts/package_workspace.py",
+        "skill/solvenotes-vault-maintainer/scripts/verify_workspace_package.py",
+        "skill/solvenotes-vault-maintainer/scripts/run_with_timeout.py",
+        "skill/algorithm-job-notes-for-obsidian/scripts/check_algorithm_job_vault.py",
+        "skill/algorithm-job-notes-for-obsidian/scripts/check_cpp_examples.py",
+        "skill/algorithm-job-notes-for-obsidian/scripts/validate_skill.py",
+    ):
         try:
             ast.parse(target_blob(skills_root, commit, relative), filename=relative)
         except SyntaxError as exc:
@@ -258,7 +306,13 @@ def verify_target_tree(skills_root: Path, commit: str, *, level: str) -> dict[st
     report: dict[str, object] = {
         "commit": commit,
         "contract_version": contract_version,
-        "content_digest": target_content_digest(skills_root, commit, paths),
+        "skills": {
+            name: {
+                "content_digest": target_content_digest(skills_root, commit, paths, name)
+            }
+            for name in REQUIRED_SKILLS
+        },
+        "dependency_graph_digest": dependency_graph_digest(graph),
         "tree_paths": len(paths),
         "level": level,
     }
@@ -277,7 +331,15 @@ def verify_target_tree(skills_root: Path, commit: str, *, level: str) -> dict[st
             destination = Path(temporary) / "installed"
             python_bin = os.fspath(Path(os.environ.get("SOLVENOTES_PYTHON_BIN", sys.executable)))
             result = subprocess.run(
-                [python_bin, str(installer), "--skill", MAINTAINER_SKILL, "--destination", str(destination)],
+                [
+                    python_bin,
+                    str(installer),
+                    "--skill",
+                    MAINTAINER_SKILL,
+                    "--destination",
+                    str(destination),
+                    "--self-check",
+                ],
                 cwd=temporary,
                 capture_output=True,
                 text=True,
@@ -394,11 +456,13 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
     payload = {
+        "schema_version": CURRENT_LOCK_SCHEMA_VERSION,
         "repository": SKILLS_REPOSITORY,
         "commit": commit,
         "maintainer_skill": MAINTAINER_SKILL,
         "contract_version": contract_version,
-        "content_digest": target["content_digest"],
+        "skills": target["skills"],
+        "dependency_graph_digest": target["dependency_graph_digest"],
     }
     print(f"lock_path {lock_path(notes_root)}")
     print("current_lock " + (json.dumps(old, ensure_ascii=False, sort_keys=True) if old else "MISSING"))

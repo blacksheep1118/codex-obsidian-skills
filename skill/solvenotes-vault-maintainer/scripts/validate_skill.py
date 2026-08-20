@@ -30,6 +30,7 @@ def main() -> int:
         SKILL_ROOT / "scripts" / "check_workspace_guidance.py",
         SKILL_ROOT / "scripts" / "check_documented_commands.py",
         SKILL_ROOT / "scripts" / "update_notes_skill_lock.py",
+        SKILL_ROOT / "scripts" / "validate_notes_candidate.py",
         SKILL_ROOT / "scripts" / "vault_contract.py",
         SKILL_ROOT / "scripts" / "package_vault.py",
         SKILL_ROOT / "scripts" / "package_workspace.py",

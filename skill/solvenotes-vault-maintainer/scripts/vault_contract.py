@@ -5,19 +5,23 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
 from typing import Any
 
-CURRENT_VAULT_CONTRACT_VERSION = 1
+CURRENT_VAULT_CONTRACT_VERSION = 2
+CURRENT_LOCK_SCHEMA_VERSION = 2
 SKILLS_REPOSITORY = "blacksheep1118/codex-obsidian-skills"
 MAINTAINER_SKILL = "solvenotes-vault-maintainer"
+ALGORITHM_JOB_SKILL = "algorithm-job-notes-for-obsidian"
+REQUIRED_SKILLS = (MAINTAINER_SKILL, ALGORITHM_JOB_SKILL)
 LOCK_RELATIVE_PATH = Path(".github/solvenotes-skills.lock.json")
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 FULL_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 PROVENANCE_FILENAME = ".codex-skill-install.json"
-PROVENANCE_SCHEMA_VERSION = 1
+PROVENANCE_SCHEMA_VERSION = 2
 EXCLUDED_NAMES = {PROVENANCE_FILENAME, ".DS_Store"}
 LOCK_MATCH_STATUSES = {
     "EXACT_COMMIT_MATCH",
@@ -41,8 +45,16 @@ def maintainer_root(skills_root: Path) -> Path:
     return skills_root / MAINTAINER_SKILL
 
 
+def skill_root(skills_root: Path, name: str) -> Path:
+    """Resolve a Skill in either a source checkout or an installed mirror."""
+
+    source = skills_root / "skill" / name
+    return source if source.is_dir() else skills_root / name
+
+
 def load_lock(notes_root: Path) -> dict[str, Any]:
-    path = lock_path(notes_root)
+    override = os.environ.get("SOLVENOTES_SKILLS_LOCK_OVERRIDE")
+    path = Path(override).expanduser().absolute() if override else lock_path(notes_root)
     with path.open(encoding="utf-8") as handle:
         payload = json.load(handle)
     if not isinstance(payload, dict):
@@ -52,6 +64,13 @@ def load_lock(notes_root: Path) -> dict[str, Any]:
 
 def validate_lock(payload: dict[str, Any]) -> list[str]:
     issues: list[str] = []
+    schema = payload.get("schema_version")
+    if schema != CURRENT_LOCK_SCHEMA_VERSION:
+        issues.append(
+            "lock schema_version mismatch: "
+            f"expected {CURRENT_LOCK_SCHEMA_VERSION}, got {schema!r}; "
+            "run update_notes_skill_lock.py to migrate the lock"
+        )
     if payload.get("repository") != SKILLS_REPOSITORY:
         issues.append(f"repository must be {SKILLS_REPOSITORY!r}")
     commit = payload.get("commit")
@@ -67,9 +86,23 @@ def validate_lock(payload: dict[str, Any]) -> list[str]:
             "contract_version mismatch: "
             f"expected {CURRENT_VAULT_CONTRACT_VERSION}, got {version}"
         )
-    digest = payload.get("content_digest")
-    if digest is not None and (not isinstance(digest, str) or not FULL_DIGEST_RE.fullmatch(digest)):
-        issues.append("content_digest must be a lower-case 64-character SHA-256 when present")
+    skills = payload.get("skills")
+    if not isinstance(skills, dict):
+        issues.append("skills must be an object containing the required Skill closure")
+    else:
+        if set(skills) != set(REQUIRED_SKILLS):
+            issues.append(
+                "skills must contain exactly the required closure: "
+                + ", ".join(REQUIRED_SKILLS)
+            )
+        for name in REQUIRED_SKILLS:
+            record = skills.get(name)
+            digest = record.get("content_digest") if isinstance(record, dict) else None
+            if not isinstance(digest, str) or not FULL_DIGEST_RE.fullmatch(digest):
+                issues.append(f"skills.{name}.content_digest must be a lower-case SHA-256")
+    graph_digest = payload.get("dependency_graph_digest")
+    if not isinstance(graph_digest, str) or not FULL_DIGEST_RE.fullmatch(graph_digest):
+        issues.append("dependency_graph_digest must be a lower-case 64-character SHA-256")
     return issues
 
 
@@ -150,6 +183,44 @@ def _records_digest(records: list[dict[str, Any]]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def skill_content_digest(skills_root: Path, name: str) -> str | None:
+    root = skill_root(skills_root, name)
+    records = _managed_records(root)
+    return _records_digest(records) if records else None
+
+
+def dependency_graph_digest(graph: dict[str, list[str] | tuple[str, ...]]) -> str:
+    canonical_graph = {
+        name: sorted(dict.fromkeys(graph.get(name, ())))
+        for name in sorted(REQUIRED_SKILLS)
+    }
+    canonical = json.dumps(
+        canonical_graph,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def source_dependency_graph(skills_root: Path) -> dict[str, list[str]] | None:
+    path = skills_root / "skill" / "dependencies.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    required = payload.get("required") if isinstance(payload, dict) else None
+    if not isinstance(required, dict):
+        return None
+    graph: dict[str, list[str]] = {}
+    for name in REQUIRED_SKILLS:
+        values = required.get(name, [])
+        if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
+            return None
+        graph[name] = sorted(dict.fromkeys(values))
+    return graph
+
+
 def _load_provenance(skill_root: Path) -> tuple[dict[str, Any] | None, str | None]:
     path = skill_root / PROVENANCE_FILENAME
     try:
@@ -163,17 +234,28 @@ def _load_provenance(skill_root: Path) -> tuple[dict[str, Any] | None, str | Non
     return payload, None
 
 
-def _installed_provenance(skills_root: Path) -> tuple[dict[str, Any] | None, list[str]]:
-    manifest, error = _load_provenance(maintainer_root(skills_root))
-    return manifest, [error] if error else []
+def _installed_provenance(
+    skills_root: Path,
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    manifests: dict[str, dict[str, Any]] = {}
+    issues: list[str] = []
+    for name in REQUIRED_SKILLS:
+        manifest, error = _load_provenance(skill_root(skills_root, name))
+        if error:
+            issues.append(error)
+        elif manifest is not None:
+            manifests[name] = manifest
+    return manifests, issues
 
 
-def _provenance_schema_issues(manifest: dict[str, Any], expected_contract: Any) -> list[str]:
+def _provenance_schema_issues(
+    manifest: dict[str, Any], expected_contract: Any, expected_skill: str
+) -> list[str]:
     issues: list[str] = []
     if manifest.get("schema_version") != PROVENANCE_SCHEMA_VERSION:
         issues.append("installed provenance schema_version is unsupported")
-    if manifest.get("skill") != MAINTAINER_SKILL:
-        issues.append("installed provenance skill does not identify the maintainer Skill")
+    if manifest.get("skill") != expected_skill:
+        issues.append(f"installed provenance skill does not identify {expected_skill}")
     if manifest.get("source_repository") != SKILLS_REPOSITORY:
         issues.append("installed provenance source_repository does not match the Skills repository")
     source_commit = manifest.get("source_commit")
@@ -181,11 +263,16 @@ def _provenance_schema_issues(manifest: dict[str, Any], expected_contract: Any) 
         not isinstance(source_commit, str) or not FULL_SHA_RE.fullmatch(source_commit)
     ):
         issues.append("installed provenance source_commit must be null or a full SHA")
-    if manifest.get("contract_version") != expected_contract:
+    if expected_skill == MAINTAINER_SKILL and manifest.get("contract_version") != expected_contract:
         issues.append("installed provenance contract_version does not match the lock")
-    digest = manifest.get("content_digest")
+    if not isinstance(manifest.get("source_dirty"), bool):
+        issues.append("installed provenance source_dirty must be a boolean")
+    digest = manifest.get("installed_content_digest")
     if not isinstance(digest, str) or not FULL_DIGEST_RE.fullmatch(digest):
-        issues.append("installed provenance content_digest is missing or invalid")
+        issues.append("installed provenance installed_content_digest is missing or invalid")
+    source_digest = manifest.get("source_tree_digest")
+    if not isinstance(source_digest, str) or not FULL_DIGEST_RE.fullmatch(source_digest):
+        issues.append("installed provenance source_tree_digest is missing or invalid")
     if not isinstance(manifest.get("managed_files"), list):
         issues.append("installed provenance managed_files must be a list")
     return issues
@@ -205,9 +292,10 @@ def validate_checkout(
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return {"ok": False, "issues": [f"cannot load lock: {exc}"]}
     issues.extend(validate_lock(payload))
-    maintainer = maintainer_root(skills_root)
-    if not (maintainer / "SKILL.md").is_file():
-        issues.append(f"missing installed/source Skill: {maintainer}")
+    for name in REQUIRED_SKILLS:
+        root = skill_root(skills_root, name)
+        if not (root / "SKILL.md").is_file():
+            issues.append(f"missing installed/source Skill: {root}")
     actual_contract = skill_contract_version(skills_root)
     expected_contract = payload.get("contract_version")
     if actual_contract is None:
@@ -217,69 +305,103 @@ def validate_checkout(
             f"Skill contract mismatch: lock={expected_contract}, Skill={actual_contract}"
         )
     actual_sha, git_error = git_head(skills_root)
-    provenance, provenance_issues = _installed_provenance(skills_root)
+    provenances, provenance_issues = _installed_provenance(skills_root)
     issues.extend(provenance_issues)
     expected_sha = payload.get("commit")
-    expected_digest = payload.get("content_digest")
+    expected_skills = payload.get("skills") if isinstance(payload.get("skills"), dict) else {}
     status = "PROVENANCE_MISSING"
     if actual_sha is not None:
         clean = git_clean(skills_root)
-        actual_digest = _records_digest(_managed_records(maintainer))
+        actual_digests = {
+            name: skill_content_digest(skills_root, name) for name in REQUIRED_SKILLS
+        }
         status = (
             "EXACT_COMMIT_MATCH"
             if actual_sha == expected_sha
             and clean is True
-            and (not isinstance(expected_digest, str) or expected_digest == actual_digest)
+            and all(
+                isinstance(expected_skills.get(name), dict)
+                and expected_skills[name].get("content_digest") == actual_digests[name]
+                for name in REQUIRED_SKILLS
+            )
             else "MISMATCH"
         )
         if actual_sha != expected_sha:
             issues.append(f"Skills SHA mismatch: lock={expected_sha}, checkout={actual_sha}")
         if clean is not True:
             issues.append("Skills source checkout is dirty or its Git status is unavailable")
-        if isinstance(expected_digest, str) and expected_digest != actual_digest:
-            issues.append(
-                f"Skills content digest mismatch: lock={expected_digest}, checkout={actual_digest}"
-            )
+        for name in REQUIRED_SKILLS:
+            record = expected_skills.get(name)
+            expected_digest = record.get("content_digest") if isinstance(record, dict) else None
+            if expected_digest != actual_digests[name]:
+                issues.append(
+                    f"Skills content digest mismatch for {name}: "
+                    f"lock={expected_digest}, checkout={actual_digests[name]}"
+                )
+        graph = source_dependency_graph(skills_root)
+        actual_graph_digest = dependency_graph_digest(graph) if graph is not None else None
+        if actual_graph_digest != payload.get("dependency_graph_digest"):
+            issues.append("Skills dependency graph digest does not match the lock")
     elif require_git:
         issues.append(f"Skills checkout has no verifiable Git HEAD: {git_error}")
     if actual_sha is None:
-        if provenance is None:
+        if set(provenances) != set(REQUIRED_SKILLS):
             status = "PROVENANCE_MISSING"
             if not provenance_issues:
                 issues.append(
-                    f"installed Skills mirror has no {PROVENANCE_FILENAME}; cannot verify source"
+                    "installed Skills mirror is missing provenance for: "
+                    + ", ".join(sorted(set(REQUIRED_SKILLS) - set(provenances)))
                 )
         else:
-            schema_issues = _provenance_schema_issues(provenance, expected_contract)
+            schema_issues: list[str] = []
+            exact = True
+            content_match = True
+            explicit_source_mismatch = False
+            for name in REQUIRED_SKILLS:
+                provenance = provenances[name]
+                schema_issues.extend(
+                    _provenance_schema_issues(provenance, expected_contract, name)
+                )
+                actual_records = _managed_records(skill_root(skills_root, name))
+                actual_digest = _records_digest(actual_records)
+                expected_record = expected_skills.get(name)
+                expected_digest = (
+                    expected_record.get("content_digest")
+                    if isinstance(expected_record, dict)
+                    else None
+                )
+                if provenance.get("managed_files") != actual_records or provenance.get(
+                    "installed_content_digest"
+                ) != actual_digest:
+                    schema_issues.append(
+                        f"installed Skills content digest or managed file list mismatch for {name}"
+                    )
+                source_commit = provenance.get("source_commit")
+                explicit_source_mismatch = explicit_source_mismatch or (
+                    source_commit is not None and source_commit != expected_sha
+                )
+                exact = exact and source_commit == expected_sha and provenance.get("source_dirty") is False
+                content_match = content_match and actual_digest == expected_digest
             issues.extend(schema_issues)
-            source_commit = provenance.get("source_commit")
-            actual_digest = _records_digest(_managed_records(maintainer_root(skills_root)))
-            manifest_digest = provenance.get("content_digest")
-            manifest_records = provenance.get("managed_files")
             if schema_issues:
                 status = "MISMATCH"
-            elif not isinstance(manifest_records, list) or manifest_records != _managed_records(maintainer_root(skills_root)) or manifest_digest != actual_digest:
+            elif explicit_source_mismatch:
                 status = "MISMATCH"
-                issues.append("installed Skills content digest or managed file list mismatch")
-            elif source_commit == expected_sha and isinstance(expected_digest, str) and manifest_digest == expected_digest:
+                issues.append("installed Skills source_commit does not match the locked commit")
+            elif exact and content_match:
                 status = "EXACT_COMMIT_MATCH"
-            elif source_commit == expected_sha:
-                status = "CONTRACT_ONLY"
-                issues.append(
-                    "installed provenance names the locked commit, but the lock has no matching content_digest"
-                )
-            elif isinstance(expected_digest, str) and manifest_digest == expected_digest:
+            elif content_match:
                 status = "CONTENT_MATCH"
-            elif provenance.get("contract_version") == expected_contract:
+            elif provenances[MAINTAINER_SKILL].get("contract_version") == expected_contract:
                 status = "CONTRACT_ONLY"
                 issues.append(
-                    "installed Skills provenance proves only the contract, not the locked commit"
+                    "installed Skills provenance proves only the contract, not the locked dependency closure"
                 )
             else:
                 status = "MISMATCH"
                 issues.append(
                     f"installed Skills provenance mismatch: lock={expected_sha}, "
-                    f"source={source_commit or 'UNAVAILABLE'}"
+                    "dependency closure does not match"
                 )
     if status not in {"EXACT_COMMIT_MATCH", "CONTENT_MATCH"} and not require_git and status == "PROVENANCE_MISSING":
         issues.append("--allow-no-git does not bypass provenance verification")
@@ -291,5 +413,5 @@ def validate_checkout(
         "actual_contract_version": actual_contract,
         "git_error": git_error,
         "provenance_status": status if status in LOCK_MATCH_STATUSES else "MISMATCH",
-        "provenance": provenance,
+        "provenance": provenances,
     }

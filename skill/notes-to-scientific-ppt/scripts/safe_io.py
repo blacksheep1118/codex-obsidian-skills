@@ -203,6 +203,61 @@ def ensure_safe_input_file(path: Path) -> Path:
     return candidate
 
 
+def read_bytes_no_follow(path: Path) -> bytes:
+    """Read one stable regular file without following a leaf or ancestor link."""
+
+    candidate = _normalize_top_level_alias(path)
+    if _supports_dir_fd():
+        parent, descriptor = _open_directory_fd(candidate.parent, create=False)
+        candidate = parent / candidate.name
+        try:
+            before = os.stat(candidate.name, dir_fd=descriptor, follow_symlinks=False)
+            if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+                raise ValueError(f"input path is not a regular non-symlink file: {candidate}")
+            file_descriptor = os.open(
+                candidate.name,
+                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=descriptor,
+            )
+            try:
+                opened = os.fstat(file_descriptor)
+                if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                    raise ValueError(f"input file changed before read: {candidate}")
+                with os.fdopen(file_descriptor, "rb", closefd=True) as stream:
+                    file_descriptor = -1
+                    data = stream.read()
+                    after = os.fstat(stream.fileno())
+                if (
+                    (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+                    != (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns)
+                ):
+                    raise ValueError(f"input file changed during read: {candidate}")
+                return data
+            finally:
+                if file_descriptor >= 0:
+                    os.close(file_descriptor)
+        finally:
+            os.close(descriptor)
+
+    # Windows lacks the dir_fd primitives used above. Refuse links, then
+    # compare the path metadata before and after the descriptor-backed read.
+    candidate = ensure_safe_input_file(candidate)
+    before = candidate.lstat()
+    with candidate.open("rb") as stream:
+        opened = os.fstat(stream.fileno())
+        if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+            raise ValueError(f"input file changed before read: {candidate}")
+        data = stream.read()
+        after = os.fstat(stream.fileno())
+    current = candidate.lstat()
+    opened_identity = (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns)
+    after_identity = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+    current_identity = (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns)
+    if after_identity != opened_identity or current_identity != opened_identity:
+        raise ValueError(f"input file changed during read: {candidate}")
+    return data
+
+
 def ensure_safe_input_directory(path: Path) -> Path:
     """Validate an input directory reached without symlink components."""
 
