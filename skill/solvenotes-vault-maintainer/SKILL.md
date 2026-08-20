@@ -122,7 +122,8 @@ Before changing the formal Notes lock, run
 `validate_notes_candidate.py --notes-root ... --skills-root ... --skills-ref ...`.
 It installs the target commit and its dependency closure in a temporary
 location, runs `vault-full` against the real Notes vault through an override
-lock, packages the vault, and leaves the formal lock unchanged. Only then use
+lock, packages and independently verifies the vault, and leaves the formal
+lock unchanged. Only then use
 `update_notes_skill_lock.py --write`.
 
 The Notes learning package embeds a deterministic file manifest and excludes

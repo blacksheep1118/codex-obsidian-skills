@@ -9,7 +9,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import zipfile
 from pathlib import Path
 
 from run_with_timeout import run as run_process
@@ -133,7 +132,11 @@ def validate_candidate(
             )
 
             notes_zip = temporary / "notes.zip"
+            notes_manifest = temporary / "notes-PACKAGE-MANIFEST.json"
             package_script = installed / MAINTAINER_SKILL / "scripts" / "package_vault.py"
+            verifier_script = (
+                installed / MAINTAINER_SKILL / "scripts" / "verify_vault_package.py"
+            )
             _run(
                 [
                     python_bin,
@@ -142,32 +145,37 @@ def validate_candidate(
                     str(notes_root),
                     "--output",
                     str(notes_zip),
+                    "--manifest-output",
+                    str(notes_manifest),
                 ],
                 cwd=temporary,
                 env=environment,
                 timeout=300,
                 label="candidate Notes package",
             )
-            with zipfile.ZipFile(notes_zip) as package:
-                names = package.namelist()
-                forbidden = [
-                    name
-                    for name in names
-                    if ".git/" in f"/{name}"
-                    or name.startswith("__MACOSX/")
-                    or name.startswith("._")
-                    or name.endswith("workspace.json")
-                    or name.endswith("graph.json")
-                ]
-                if forbidden or package.testzip() is not None:
-                    raise ValueError(f"candidate Notes package is not clean: {forbidden[:10]}")
+            _run(
+                [
+                    python_bin,
+                    str(verifier_script),
+                    str(notes_zip),
+                    "--sidecar",
+                    str(notes_manifest),
+                ],
+                cwd=temporary,
+                env=environment,
+                timeout=120,
+                label="candidate Notes package verification",
+            )
+            package_entries = json.loads(notes_manifest.read_text(encoding="utf-8"))[
+                "archive_entry_count"
+            ]
             return {
                 "ok": True,
                 "commit": commit,
                 "contract_version": target["contract_version"],
                 "skills": target["skills"],
                 "dependency_graph_digest": target["dependency_graph_digest"],
-                "notes_package_entries": len(names),
+                "notes_package_entries": package_entries,
                 "formal_lock_modified": False,
             }
         finally:
