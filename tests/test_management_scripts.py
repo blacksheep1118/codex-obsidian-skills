@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import stat
@@ -87,6 +88,86 @@ def test_install_update_and_self_check(tmp_path: Path):
 
     self_check = run_script("scripts/install_skill.py", "--all", "--destination", str(destination), "--self-check-only")
     assert "install_self_check ok skills=6" in self_check.stdout
+    assert_no_install_junk(destination)
+
+
+def test_maintainer_install_expands_required_dependency_and_records_provenance(tmp_path: Path):
+    destination = tmp_path / "skills"
+
+    result = run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        "solvenotes-vault-maintainer",
+        "--destination",
+        str(destination),
+        "--self-check",
+    )
+
+    assert "install_self_check ok skills=2" in result.stdout
+    assert (destination / "algorithm-job-notes-for-obsidian" / "SKILL.md").is_file()
+    provenance = json.loads(
+        (destination / "solvenotes-vault-maintainer" / ".codex-skill-install.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert provenance["skill"] == "solvenotes-vault-maintainer"
+    source_status = subprocess.run(
+        ["git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=all"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
+    )
+    if source_status.stdout.strip():
+        assert provenance["source_commit"] is None
+    else:
+        assert isinstance(provenance["source_commit"], str)
+        assert len(provenance["source_commit"]) == 40
+    assert provenance["dependencies"] == ["algorithm-job-notes-for-obsidian"]
+    assert len(provenance["content_digest"]) == 64
+
+
+def test_no_deps_is_explicit_and_self_check_rejects_incomplete_install(tmp_path: Path):
+    destination = tmp_path / "skills"
+    result = run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        "solvenotes-vault-maintainer",
+        "--no-deps",
+        "--destination",
+        str(destination),
+        "--self-check",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "required Skill not installed: algorithm-job-notes-for-obsidian" in result.stderr
+
+
+def test_installed_provenance_detects_tampering(tmp_path: Path):
+    destination = tmp_path / "skills"
+    run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        "solvenotes-vault-maintainer",
+        "--destination",
+        str(destination),
+    )
+    skill_md = destination / "solvenotes-vault-maintainer" / "SKILL.md"
+    skill_md.write_text(skill_md.read_text(encoding="utf-8") + "\nchanged\n", encoding="utf-8")
+
+    result = run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        "solvenotes-vault-maintainer",
+        "--destination",
+        str(destination),
+        "--self-check-only",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "content digest mismatch" in result.stderr
 
 
 def test_install_rejects_existing_skill_and_explicit_update_still_refreshes(tmp_path: Path):

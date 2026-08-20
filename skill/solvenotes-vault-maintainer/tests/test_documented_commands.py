@@ -36,3 +36,45 @@ def test_documented_command_missing_path_is_reported(tmp_path: Path) -> None:
 
     assert payload["issue_count"] == 1
     assert payload["issues"][0]["token"] == "scripts/missing.py"
+
+
+def test_installed_skill_layout_resolves_source_style_skill_paths(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    installed = tmp_path / "installed-skills"
+    (workspace / "notes").mkdir(parents=True)
+    (workspace / "agent").mkdir()
+    target = installed / "solvenotes-vault-maintainer" / "scripts"
+    target.mkdir(parents=True)
+    (workspace / "notes" / "AGENT.md").write_text(
+        "run `skill/solvenotes-vault-maintainer/scripts/dev_check.sh`\n",
+        encoding="utf-8",
+    )
+    (target / "dev_check.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+
+    payload = check_documented_commands.scan(workspace, installed)
+
+    assert payload["issue_count"] == 0
+    assert payload["references_checked"] == 1
+
+
+def test_installed_mirror_keeps_root_management_commands_resolvable(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source_skills = workspace / "skills"
+    installed = tmp_path / "installed-skills"
+    (workspace / "notes").mkdir(parents=True)
+    (workspace / "agent").mkdir()
+    source_skills.mkdir()
+    (workspace / "AGENT.md").write_text(
+        "run `scripts/update_installed_skills.py --all`\n",
+        encoding="utf-8",
+    )
+    (source_skills / "scripts").mkdir()
+    (source_skills / "scripts" / "update_installed_skills.py").write_text(
+        "# source management command\n",
+        encoding="utf-8",
+    )
+
+    payload = check_documented_commands.scan(workspace, installed)
+
+    assert payload["issue_count"] == 0
+    assert payload["references_checked"] == 1

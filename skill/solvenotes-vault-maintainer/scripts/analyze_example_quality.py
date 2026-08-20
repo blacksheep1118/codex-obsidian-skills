@@ -454,6 +454,8 @@ def main() -> int:
     payload = {
         "examples_analyzed": total,
         "worked_candidates": required_total,
+        "worked_example_count": required_total,
+        "non_worked_candidates": total - required_total,
         "kind_counts": dict(sorted(kind_counts.items())),
         "type_counts": dict(sorted(type_counts.items())),
         "grade_counts": dict(sorted(grade_counts.items())),
@@ -467,6 +469,8 @@ def main() -> int:
     else:
         print(f"examples_analyzed {total}")
         print(f"worked_candidates {required_total}")
+        print(f"worked_example_count {required_total}")
+        print(f"non_worked_candidates {total - required_total}")
         for key, value in sorted(kind_counts.items()):
             print(f"kind_{key} {value}")
         for key, value in sorted(type_counts.items()):

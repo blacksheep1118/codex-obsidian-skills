@@ -34,6 +34,25 @@ def test_formal_word_and_topic_specific_prose_are_not_naturalness_errors(
     assert payload["naturalness_high_confidence"] == 0
 
 
+def test_repeated_language_like_list_items_are_review_candidates(monkeypatch, tmp_path: Path) -> None:
+    note = tmp_path / "repeated.md"
+    note.write_text(
+        "# Demo\n\n"
+        "- 说明问题、条件和失败边界，避免只背名词，还要写出技术前提。\n"
+        "- 说明问题、条件和失败边界，避免只背名词，还要写出技术前提。\n"
+        "- 说明问题、条件和失败边界，避免只背名词，还要写出技术前提。\n"
+        "- 说明问题、条件和失败边界，避免只背名词，还要写出技术前提。\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(check_naturalness, "markdown_files", lambda: [note])
+    monkeypatch.setattr(check_naturalness, "rel", lambda path: path.name)
+    monkeypatch.setattr(check_naturalness, "read_text", lambda path: path.read_text(encoding="utf-8"))
+
+    payload = check_naturalness.scan()
+
+    assert any(item["kind"] == "repeated_list_item" for item in payload["review_candidates"])
+
+
 def test_learning_outcome_variants_are_review_candidates(monkeypatch, tmp_path: Path) -> None:
     note = tmp_path / "note.md"
     note.write_text(

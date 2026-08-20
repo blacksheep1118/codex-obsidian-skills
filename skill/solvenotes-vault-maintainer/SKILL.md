@@ -29,7 +29,8 @@ orchestrator for a learning vault; it does not replace the reusable
   validate it, then use the repository installation scripts to synchronize the
   mirror.
 - A real Notes vault pins the exact Skills source in
-  `notes/.github/solvenotes-skills.lock.json`. The lock stores one full 40-byte
+  `notes/.github/solvenotes-skills.lock.json`. The lock stores one full 40-character
+  lowercase-hexadecimal
   commit SHA and `contract_version`; do not copy a floating branch or a second
   SHA into another document. Validate it with `check_skills_lock.py` before a
   full gate. Use `update_notes_skill_lock.py` in dry-run mode first; `--write`
@@ -104,9 +105,10 @@ python3 skill/solvenotes-vault-maintainer/scripts/package_workspace.py \
   --manifest-output /tmp/solvenotes-workspace-BUILD-MANIFEST.json
 ```
 
-The package command excludes Git metadata, macOS sidecar files, Obsidian
+The Notes learning package excludes Git metadata, macOS sidecar files, Obsidian
 local workspace/graph state, hidden CI infrastructure, caches, compiled files,
-and previous exports.
+and previous exports. The workspace diagnostic package intentionally keeps only
+the necessary hidden CI files under `notes/.github/`.
 It must not write an archive into the vault by default.
 
 `package_workspace.py` is a separate maintainer diagnostic package for the

@@ -7,6 +7,8 @@ import sys
 from collections.abc import MutableMapping
 from pathlib import Path
 
+import pytest
+
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 BUNDLED_TEST_VAULT = SKILL_ROOT / "fixtures" / "solvenotes-mini-vault"
 
@@ -29,3 +31,17 @@ if not ALGORITHM_SKILL_ROOT.is_dir():
 if ALGORITHM_SKILL_ROOT.is_dir():
     sys.path.insert(0, str(ALGORITHM_SKILL_ROOT / "scripts"))
 sys.path.insert(0, str(SKILL_ROOT / "scripts"))
+
+for import_root in (SKILL_ROOT, SKILL_ROOT / "scripts"):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _run_from_skill_root():
+    previous = Path.cwd()
+    os.chdir(SKILL_ROOT)
+    try:
+        yield
+    finally:
+        os.chdir(previous)

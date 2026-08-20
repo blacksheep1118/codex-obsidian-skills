@@ -27,6 +27,11 @@ STEP_TIMEOUT="${SOLVENOTES_STEP_TIMEOUT:-180}"
 PYTHON_BIN="${SOLVENOTES_PYTHON_BIN:-}"
 if [[ -z "$PYTHON_BIN" ]]; then
   PYTHON_BIN="$(command -v python3 || command -v python || true)"
+elif [[ "$PYTHON_BIN" != */* ]]; then
+  # CI commonly exposes the interpreter as the command name ``python``.
+  # Resolve that name before checking executability; ``-x python`` tests for
+  # a file in the current directory and incorrectly rejects PATH commands.
+  PYTHON_BIN="$(command -v "$PYTHON_BIN" || true)"
 fi
 if [[ -z "$PYTHON_BIN" || ! -x "$PYTHON_BIN" ]]; then
   printf '%s\n' 'No Python interpreter found. Set SOLVENOTES_PYTHON_BIN or activate a virtual environment.' >&2
@@ -169,7 +174,21 @@ full() {
   check_script normalize_source_manifests.py --check
   check_script wrap_source_coverage_blocks.py --check
   check_script sync_note_frontmatter.py --check
-  check_script check_changed_scope.py --base origin/main
+  local -a changed_scope_args=()
+  if [[ -n "${SOLVENOTES_CHANGED_SCOPE_BASE_SHA:-}" ]]; then
+    changed_scope_args+=(--base-sha "$SOLVENOTES_CHANGED_SCOPE_BASE_SHA")
+  fi
+  if [[ -n "${SOLVENOTES_CHANGED_SCOPE_HEAD_SHA:-}" ]]; then
+    changed_scope_args+=(--head-sha "$SOLVENOTES_CHANGED_SCOPE_HEAD_SHA")
+  fi
+  if [[ -n "${SOLVENOTES_CHANGED_SCOPE_MERGE_BASE:-}" ]]; then
+    changed_scope_args+=(--merge-base "$SOLVENOTES_CHANGED_SCOPE_MERGE_BASE")
+  fi
+  if ((${#changed_scope_args[@]})); then
+    check_script check_changed_scope.py "${changed_scope_args[@]}"
+  else
+    check_script check_changed_scope.py
+  fi
   run_skill_python -m compileall "$SKILL_ROOT/scripts"
   run_skill_python -m ruff check --cache-dir "$RUFF_CACHE_DIR" "$SKILL_ROOT/scripts" "$SKILL_ROOT/tests"
   run_skill_python -m pytest -p no:cacheprovider --durations=20 "$SKILL_ROOT/tests"

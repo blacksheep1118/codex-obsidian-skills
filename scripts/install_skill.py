@@ -4,19 +4,32 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import secrets
 import shutil
 import stat
+import subprocess
 import sys
+import tempfile
 
 from install_ignore import ignore_patterns, should_ignore_relative
 from shared.skill_metadata import MetadataValidationError, load_skill_frontmatter, validate_skill_metadata
+from shared.skill_provenance import (
+    PROVENANCE_FILENAME,
+    build_provenance,
+    content_digest,
+    file_records,
+    load_provenance,
+    write_provenance,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = REPO_ROOT / "skill"
+DEPENDENCIES_PATH = SKILL_ROOT / "dependencies.json"
+SKILLS_REPOSITORY = "blacksheep1118/codex-obsidian-skills"
 TRUSTED_TOP_LEVEL_ALIASES = (
     {
         Path("/etc"): Path("/private/etc"),
@@ -462,17 +475,80 @@ def discover_skills() -> dict[str, Path]:
     return skills
 
 
-def selected_skills(all_skills: dict[str, Path], requested: list[str], include_all: bool) -> dict[str, Path]:
-    if include_all or not requested:
-        return all_skills
+def selected_skills(
+    all_skills: dict[str, Path],
+    requested: list[str],
+    include_all: bool,
+    *,
+    no_deps: bool = False,
+) -> dict[str, Path]:
+    dependencies = load_required_dependencies()
+    unknown_graph_names = sorted(set(dependencies) - set(all_skills))
+    unknown_dependencies = sorted(
+        {dependency for values in dependencies.values() for dependency in values} - set(all_skills)
+    )
+    if unknown_graph_names or unknown_dependencies:
+        details = []
+        if unknown_graph_names:
+            details.append("unknown Skill entries: " + ", ".join(unknown_graph_names))
+        if unknown_dependencies:
+            details.append("unknown dependencies: " + ", ".join(unknown_dependencies))
+        raise ValueError("invalid Skill dependency graph; " + "; ".join(details))
 
-    selected = {}
+    if include_all or not requested:
+        return dict(all_skills)
+
+    selected: dict[str, Path] = {}
     for name in requested:
         if name not in all_skills:
             choices = ", ".join(sorted(all_skills))
             raise ValueError(f"unknown skill {name!r}; available: {choices}")
         selected[name] = all_skills[name]
+    if no_deps:
+        return selected
+    pending = list(selected)
+    while pending:
+        name = pending.pop()
+        for dependency in dependencies.get(name, ()):
+            if dependency not in all_skills:
+                raise ValueError(f"Skill {name!r} requires missing Skill {dependency!r}")
+            if dependency not in selected:
+                selected[dependency] = all_skills[dependency]
+                pending.append(dependency)
     return selected
+
+
+def load_required_dependencies() -> dict[str, tuple[str, ...]]:
+    try:
+        payload = json.loads(DEPENDENCIES_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"cannot read Skill dependency graph: {DEPENDENCIES_PATH}: {exc}") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("required"), dict):
+        raise ValueError(f"Skill dependency graph must contain an object at required: {DEPENDENCIES_PATH}")
+    graph: dict[str, tuple[str, ...]] = {}
+    for name, values in payload["required"].items():
+        if not isinstance(name, str) or not isinstance(values, list) or not all(
+            isinstance(value, str) and value for value in values
+        ):
+            raise ValueError(f"invalid Skill dependency entry for {name!r}")
+        graph[name] = tuple(dict.fromkeys(values))
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in visiting:
+            raise ValueError(f"Skill dependency cycle detected at {name!r}")
+        if name in visited:
+            return
+        visiting.add(name)
+        for dependency in graph.get(name, ()):
+            visit(dependency)
+        visiting.remove(name)
+        visited.add(name)
+
+    for name in graph:
+        visit(name)
+    return graph
 
 
 def managed_files(root: Path) -> dict[Path, Path]:
@@ -484,7 +560,9 @@ def managed_files(root: Path) -> dict[Path, Path]:
     return {
         path.relative_to(root): path
         for path in root.rglob("*")
-        if path.is_file() and not should_ignore_relative(path.relative_to(root))
+        if path.is_file()
+        and path.name != PROVENANCE_FILENAME
+        and not should_ignore_relative(path.relative_to(root))
     }
 
 
@@ -516,10 +594,16 @@ def prune_paths(source: Path, destination: Path) -> list[Path]:
     source_entries = {
         path.relative_to(source)
         for path in source.rglob("*")
-        if not should_ignore_relative(path.relative_to(source))
+        if path.name != PROVENANCE_FILENAME
+        and not should_ignore_relative(path.relative_to(source))
     }
     return sorted(
-        (path.relative_to(destination) for path in destination.rglob("*") if path.relative_to(destination) not in source_entries),
+        (
+            path.relative_to(destination)
+            for path in destination.rglob("*")
+            if path.name != PROVENANCE_FILENAME
+            and path.relative_to(destination) not in source_entries
+        ),
         key=lambda relative: (len(relative.parts), relative.as_posix()),
         reverse=True,
     )
@@ -553,26 +637,37 @@ def copy_skill(source: Path, destination: Path, dry_run: bool, prune: bool = Fal
 
     if _supports_dir_fd():
         _copy_skill_no_follow(source, destination, prune=prune)
-        return
+    else:
+        destination.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(
+            source,
+            destination,
+            dirs_exist_ok=True,
+            ignore=ignore_patterns,
+            symlinks=True,
+        )
+        ensure_safe_source_tree(source)
+        ensure_safe_destination_tree(destination)
 
-    destination.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(
-        source,
+        if prune:
+            for relative in prune_paths(source, destination):
+                path = destination / relative
+                if path.is_dir():
+                    path.rmdir()
+                else:
+                    path.unlink()
+
+    dependencies = load_required_dependencies().get(source.name, ())
+    write_provenance(
         destination,
-        dirs_exist_ok=True,
-        ignore=ignore_patterns,
-        symlinks=True,
+        build_provenance(
+            source,
+            skill_name=source.name,
+            repository=SKILLS_REPOSITORY,
+            dependencies=dependencies,
+        ),
     )
-    ensure_safe_source_tree(source)
-    ensure_safe_destination_tree(destination)
-
-    if prune:
-        for relative in prune_paths(source, destination):
-            path = destination / relative
-            if path.is_dir():
-                path.rmdir()
-            else:
-                path.unlink()
+    return
 
 
 def self_check_skill(skill_dir: Path) -> list[str]:
@@ -584,6 +679,106 @@ def self_check_skill(skill_dir: Path) -> list[str]:
     except (OSError, MetadataValidationError) as exc:
         return [str(exc)]
     return []
+
+
+def _validator_for(skill_dir: Path) -> Path | None:
+    for name in ("validate_skill.py", "validate_skill_repo.py"):
+        candidate = skill_dir / "scripts" / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _run_installed_validator(skill_dir: Path) -> list[str]:
+    validator = _validator_for(skill_dir)
+    if validator is None:
+        return []
+    with tempfile.TemporaryDirectory(prefix="solvenotes-installed-cwd-") as cwd:
+        environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        try:
+            result = subprocess.run(
+                [sys.executable, str(validator)],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+                env=environment,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return [f"{skill_dir.name}: installed validator failed to run: {exc}"]
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip()
+        return [f"{skill_dir.name}: installed validator failed: {detail}"]
+    return []
+
+
+def _run_installed_smoke(skill_dir: Path, destination_root: Path) -> list[str]:
+    """Run a small dependency-aware smoke against the installed maintainer."""
+
+    if skill_dir.name != "solvenotes-vault-maintainer":
+        return []
+
+    fixture = skill_dir / "fixtures" / "solvenotes-mini-vault"
+    if not fixture.is_dir():
+        return [f"{skill_dir.name}: missing installed mini-vault fixture: {fixture}"]
+
+    algorithm_root = destination_root / "algorithm-job-notes-for-obsidian"
+    cpp_checker = algorithm_root / "scripts" / "check_cpp_examples.py"
+    commands = (
+        (
+            "algorithm-job scanner",
+            [skill_dir / "scripts" / "check_algorithm_job_notes.py", "--root", fixture],
+        ),
+        ("links", [skill_dir / "scripts" / "check_links.py"]),
+        ("frontmatter", [skill_dir / "scripts" / "check_frontmatter.py"]),
+        ("naturalness", [skill_dir / "scripts" / "check_naturalness.py", "--strict"]),
+        (
+            "Python fenced blocks",
+            [skill_dir / "scripts" / "check_python_examples.py", "--root", fixture],
+        ),
+        (
+            "C++17 runnable blocks",
+            [cpp_checker, "--root", fixture, "--timeout", "30"],
+        ),
+    )
+    environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    environment["SOLVENOTES_VAULT_ROOT"] = str(fixture)
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    issues: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="solvenotes-installed-smoke-") as cwd:
+        for label, command in commands:
+            def unavailable(item: object) -> bool:
+                if not isinstance(item, Path):
+                    return False
+                expected_directory = item == fixture
+                return not (item.is_dir() if expected_directory else item.is_file())
+
+            if any(unavailable(item) for item in command):
+                missing = next(str(item) for item in command if unavailable(item))
+                issues.append(f"{skill_dir.name}: smoke dependency missing for {label}: {missing}")
+                continue
+            try:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        *(str(item) if isinstance(item, Path) else item for item in command),
+                    ],
+                    cwd=cwd,
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=60,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                issues.append(f"{skill_dir.name}: installed {label} smoke failed: {exc}")
+                continue
+            if result.returncode:
+                detail = (result.stderr or result.stdout).strip()
+                issues.append(f"{skill_dir.name}: installed {label} smoke failed: {detail}")
+    return issues
 
 
 def report_self_check(label: str, issues: list[str], skill_count: int) -> int:
@@ -623,6 +818,29 @@ def self_check_selected(destination_root: Path, skills: dict[str, Path]) -> int:
             issues.append(f"{installed_dir}: not installed")
             continue
         issues.extend(self_check_skill(installed_dir))
+        try:
+            provenance = load_provenance(installed_dir)
+        except ValueError as exc:
+            issues.append(str(exc))
+            provenance = None
+        if provenance is None:
+            issues.append(f"{installed_dir}: missing {PROVENANCE_FILENAME}")
+        else:
+            if provenance.get("skill") != name:
+                issues.append(f"{installed_dir}: provenance skill does not match {name!r}")
+            actual_records = file_records(installed_dir)
+            actual_digest = content_digest(actual_records)
+            if provenance.get("content_digest") != actual_digest:
+                issues.append(f"{installed_dir}: content digest mismatch")
+            for dependency in provenance.get("dependencies", []):
+                dependency_dir = destination_root / str(dependency)
+                if not dependency_dir.is_dir():
+                    issues.append(
+                        f"required Skill not installed: {dependency}; "
+                        f"install with: python scripts/install_skill.py --skill {name!s}"
+                    )
+        issues.extend(_run_installed_validator(installed_dir))
+        issues.extend(_run_installed_smoke(installed_dir, destination_root))
 
     return report_self_check("install_self_check", issues, len(skills))
 
@@ -642,6 +860,11 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Print actions without writing files.")
     parser.add_argument("--self-check", action="store_true", help="Validate installed skill metadata after copying.")
     parser.add_argument("--self-check-only", action="store_true", help="Validate selected installed skills without copying.")
+    parser.add_argument(
+        "--no-deps",
+        action="store_true",
+        help="Install only explicitly requested Skills; self-check reports missing required dependencies.",
+    )
     args = parser.parse_args()
 
     if args.destination and args.codex_home:
@@ -650,7 +873,7 @@ def main() -> int:
     destination_root = args.destination.expanduser() if args.destination else default_destination(args.codex_home)
     try:
         all_skills = discover_skills()
-        skills = selected_skills(all_skills, args.skill, args.all)
+        skills = selected_skills(all_skills, args.skill, args.all, no_deps=args.no_deps)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

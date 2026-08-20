@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import os
-from pathlib import Path
 import secrets
 import stat
 import sys
 import tempfile
+from contextlib import contextmanager
+from pathlib import Path
 from typing import BinaryIO, Iterator
-
 
 TRUSTED_TOP_LEVEL_ALIASES = (
     {

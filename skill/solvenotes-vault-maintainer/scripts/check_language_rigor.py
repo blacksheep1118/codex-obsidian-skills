@@ -131,6 +131,10 @@ FORMAL_CATEGORY_CONTEXT = re.compile(
 FORMAL_NOUN = re.compile(
     r"(?:质量|安全|一致性|可靠性|可用性|性能|责任|服务水平|风险|形式化|协议|保证程度|保证级别|最优性)保证"
 )
+LABEL_OR_SCHEMA_CELL_RE = re.compile(
+    r"(?:^|\|)\s*(?:保证|保证级别|面试中常用的保证|"
+    r"类型/?算法|容易说错的边界|字段|栏目|分类)\s*(?:\||$)"
+)
 BROADER_SOLUTION_RE = re.compile(
     r"(?:完全|彻底|根本|有效|成功|彻底地|无条件|一劳永逸|"
     r"解决(?:所有|全部|任何|一切|梯度消失|梯度爆炸|过拟合|数据泄漏|分布漂移|"
@@ -179,6 +183,8 @@ def _sentence(text: str, start: int, end: int) -> str:
 
 
 def _suggestion(term: str, category: str = "ENGINEERING_PROMISE") -> str:
+    if category == "LABEL_OR_SCHEMA":
+        return "这是表头或字段标签，不是正文中的事实主张；不应作为工程承诺审计。"
     if category == "QUESTION_OR_QUOTE":
         return "这是问题或引文语境；不应把其中的绝对措辞当成作者断言。"
     if category == "NEGATED_GUARANTEE":
@@ -230,6 +236,8 @@ def _high_confidence(term: str, sentence: str) -> bool:
 def classify_claim(term: str, sentence: str) -> str:
     """Classify a candidate without treating every categorical word alike."""
 
+    if LABEL_OR_SCHEMA_CELL_RE.search(sentence):
+        return "LABEL_OR_SCHEMA"
     if QUESTION_CONTEXT.search(sentence) or re.search(r"[“‘\"'].*[”’\"']", sentence):
         return "QUESTION_OR_QUOTE"
     if NEGATED_CONTEXT.search(sentence):
@@ -272,7 +280,7 @@ def audit_line(line: str, line_number: int, relative_file: str) -> list[Issue]:
             continue
         sentence = _sentence(prose, match.start(), match.end())
         category = classify_claim(term, sentence)
-        if category == "QUESTION_OR_QUOTE":
+        if category in {"QUESTION_OR_QUOTE", "LABEL_OR_SCHEMA"}:
             continue
         # Imperative/prescriptive phrases state a requirement or procedure;
         # they do not claim that the requirement has already been satisfied.

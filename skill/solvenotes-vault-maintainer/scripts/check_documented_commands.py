@@ -38,14 +38,36 @@ def resolve_token(
     if token.startswith(IGNORED_PREFIXES):
         return None
     if token.startswith("skill/"):
-        return skills_root / token
+        source_layout_target = skills_root / token
+        if source_layout_target.is_file():
+            return source_layout_target
+        # The source repository stores Skills under ``skill/<name>``, while
+        # an installed mirror stores each Skill directly under its root.  A
+        # guidance checker must accept both layouts; otherwise a valid
+        # installed command is reported missing solely because the checker
+        # used the source-repository path convention.
+        installed_layout_target = skills_root / token.removeprefix("skill/")
+        if installed_layout_target.is_file():
+            return installed_layout_target
+        return source_layout_target
     if token.startswith("notes/") or token.startswith("agent/"):
         return workspace_root / token
     if token.startswith("scripts/"):
         if active_skill:
             return skills_root / "skill" / active_skill / token
         if source == workspace_root / "AGENT.md":
-            return skills_root / token
+            installed_or_source_target = skills_root / token
+            if installed_or_source_target.is_file():
+                return installed_or_source_target
+            # Root AGENT guidance documents the Skills repository management
+            # commands.  When checking an installed mirror, the repository
+            # may still be available as the workspace's sibling ``skills``
+            # directory even though the mirror intentionally omits root
+            # management scripts.
+            workspace_source_target = workspace_root / "skills" / token
+            if workspace_source_target.is_file():
+                return workspace_source_target
+            return installed_or_source_target
         try:
             relative = source.relative_to(skills_root)
         except ValueError:

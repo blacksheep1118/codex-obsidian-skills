@@ -13,12 +13,37 @@ import json
 import sys
 from pathlib import Path
 
-from check_algorithm_job_vault import scan as scan_algorithm_vault
 from notes_utils import ROOT
+
+SKILL_ROOT = Path(__file__).resolve().parents[1]
+REQUIRED_SKILL = "algorithm-job-notes-for-obsidian"
+
+
+def _algorithm_scanner():
+    """Load the scanner from the installed sibling Skill, not the source repo."""
+
+    algorithm_scripts = SKILL_ROOT.parent / REQUIRED_SKILL / "scripts"
+    if not algorithm_scripts.is_dir():
+        raise RuntimeError(
+            "required Skill not installed: "
+            f"{REQUIRED_SKILL}; install {REQUIRED_SKILL!r} alongside "
+            f"{SKILL_ROOT.name!r}"
+        )
+    scanner_path = algorithm_scripts / "check_algorithm_job_vault.py"
+    if not scanner_path.is_file():
+        raise RuntimeError(
+            f"required Skill {REQUIRED_SKILL!r} is incomplete: "
+            f"missing {scanner_path.name}"
+        )
+    if str(algorithm_scripts) not in sys.path:
+        sys.path.insert(0, str(algorithm_scripts))
+    from check_algorithm_job_vault import scan as scan_algorithm_vault
+
+    return scan_algorithm_vault
 
 
 def scan(root: Path) -> dict[str, object]:
-    return scan_algorithm_vault(root)
+    return _algorithm_scanner()(root)
 
 
 def main() -> int:
@@ -26,7 +51,11 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    payload = scan(args.root.resolve())
+    try:
+        payload = scan(args.root.resolve())
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:

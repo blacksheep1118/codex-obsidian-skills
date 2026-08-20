@@ -34,6 +34,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"skills_lock_commit {lock.get('commit', 'MISSING')}")
         print(f"skills_checkout_commit {report.get('actual_sha') or 'UNAVAILABLE'}")
         print(f"skills_contract_version {report.get('actual_contract_version') or 'UNAVAILABLE'}")
+        print(f"skills_provenance_status {report.get('provenance_status', 'UNAVAILABLE')}")
         print(f"skills_lock_issues {len(report['issues'])}")
         for issue in report["issues"]:
             print(f"ISSUE {issue}")

@@ -62,3 +62,30 @@ def test_gc_runs_only_with_explicit_confirmation(tmp_path: Path) -> None:
         f"-C {expected_root} gc --prune=now",
         f"-C {expected_root} count-objects -vH",
     ]
+
+
+def test_path_named_python_interpreter_is_resolved(tmp_path: Path) -> None:
+    bin_dir, _log = stub_git(tmp_path)
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    env["SOLVENOTES_PYTHON_BIN"] = "python3"
+    result = subprocess.run(
+        ["bash", str(DEV_CHECK), "gc"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
+    )
+
+    assert result.returncode == 2
+    assert "No Python interpreter found" not in result.stderr
+    assert "--confirm-prune-now" in result.stderr
+
+
+def test_full_gate_guards_empty_changed_scope_arguments() -> None:
+    script = DEV_CHECK.read_text(encoding="utf-8")
+
+    assert "if ((${#changed_scope_args[@]})); then" in script
+    assert "check_script check_changed_scope.py\n  fi" in script

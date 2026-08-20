@@ -59,6 +59,7 @@ STATIC_RESOURCES = (
             ROOT / "skill" / "obsidian-vault-organizer" / "scripts" / "safe_io.py",
             ROOT / "skill" / "web-course-notes-for-obsidian" / "scripts" / "safe_io.py",
             ROOT / "skill" / "notes-to-scientific-ppt" / "scripts" / "safe_io.py",
+            ROOT / "skill" / "solvenotes-vault-maintainer" / "scripts" / "safe_io.py",
         ),
     ),
     StaticResource(
@@ -67,18 +68,19 @@ STATIC_RESOURCES = (
             ROOT / "skill" / "web-course-notes-for-obsidian" / "scripts" / "url_identity.py",
         ),
     ),
-    StaticResource(
-        source=SHARED / "skill_metadata.py",
-        targets=tuple(
-            ROOT / "skill" / skill_name / "scripts" / "skill_metadata.py"
-            for skill_name in (
-                "ppt-to-md-for-obsidian",
-                "obsidian-vault-organizer",
-                "web-course-notes-for-obsidian",
-                "notes-to-scientific-ppt",
-            )
+        StaticResource(
+            source=SHARED / "skill_metadata.py",
+            targets=tuple(
+                ROOT / "skill" / skill_name / "scripts" / "skill_metadata.py"
+                for skill_name in (
+                    "ppt-to-md-for-obsidian",
+                    "obsidian-vault-organizer",
+                    "web-course-notes-for-obsidian",
+                    "notes-to-scientific-ppt",
+                    "solvenotes-vault-maintainer",
+                )
+            ),
         ),
-    ),
 )
 
 VALIDATORS = (

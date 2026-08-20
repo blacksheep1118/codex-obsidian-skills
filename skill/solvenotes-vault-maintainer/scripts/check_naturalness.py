@@ -35,6 +35,7 @@ HEADING_RE = re.compile(r"^#{1,6}\s+")
 H2_RE = re.compile(r"^##\s+(.+?)\s*$")
 FENCE_RE = re.compile(r"^\s*(\x60{3}|~~~)")
 HTML_COMMENT_RE = re.compile(r"^\s*<!--.*-->\s*$")
+LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+] |\d+[.)]\s+)(.+?)\s*$")
 MIN_PARAGRAPH_LENGTH = 24
 
 
@@ -109,10 +110,36 @@ def first_prose_paragraph(text: str) -> str | None:
     return paragraphs[0][1] if paragraphs else None
 
 
+def normalized_list_items(text: str) -> list[tuple[int, str]]:
+    """Return language-like list items, excluding short concept inventories."""
+
+    items: list[tuple[int, str]] = []
+    in_fence = False
+    for line_number, line in enumerate(text.splitlines(), 1):
+        if FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence or HTML_COMMENT_RE.match(line):
+            continue
+        match = LIST_ITEM_RE.match(line)
+        if not match:
+            continue
+        item = re.sub(r"\s+", " ", match.group(1)).strip()
+        if len(item) < MIN_PARAGRAPH_LENGTH:
+            continue
+        if item.startswith(("http://", "https://", "[[")) or item.startswith(chr(96)):
+            continue
+        if not re.search(r"[，。！？：:；;,]", item):
+            continue
+        items.append((line_number, item))
+    return items
+
+
 def scan() -> dict[str, object]:
     high_confidence: list[dict[str, object]] = []
     review_candidates: list[dict[str, object]] = []
     paragraph_locations: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    list_locations: dict[str, list[tuple[str, int]]] = defaultdict(list)
     opening_locations: dict[str, list[tuple[str, int]]] = defaultdict(list)
     heading_groups: dict[tuple[str, tuple[str, ...]], list[str]] = defaultdict(list)
     repeated_section_counts: Counter[str] = Counter()
@@ -144,6 +171,8 @@ def scan() -> dict[str, object]:
             if paragraph.startswith(("关联阅读：", "**关联阅读", "来源说明", "**来源说明")):
                 continue
             paragraph_locations[paragraph].append((relative, line_number))
+        for line_number, item in normalized_list_items(prose):
+            list_locations[item].append((relative, line_number))
         opening = first_prose_paragraph(prose)
         if opening and not opening.startswith(("关联阅读：", "来源说明")):
             opening_locations[opening].append((relative, 1))
@@ -188,6 +217,19 @@ def scan() -> dict[str, object]:
                     "count": len(locations),
                     "files": sorted({path for path, _ in locations}),
                     "context": opening[:180],
+                }
+            )
+
+    for item, locations in list_locations.items():
+        if len(locations) >= 4:
+            review_candidates.append(
+                {
+                    "path": locations[0][0],
+                    "line": locations[0][1],
+                    "kind": "repeated_list_item",
+                    "count": len(locations),
+                    "files": sorted({path for path, _ in locations}),
+                    "context": item[:180],
                 }
             )
 

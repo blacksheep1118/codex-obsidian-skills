@@ -4,11 +4,10 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import stat
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
-
 
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---(?:\n|$)", re.S)
 SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")

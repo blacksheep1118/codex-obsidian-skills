@@ -62,6 +62,12 @@ def test_claim_categories_cover_math_and_reporting_boundaries() -> None:
     assert classify_claim("保证", "该工程保证所有请求成功。") == "ENGINEERING_PROMISE"
 
 
+def test_table_schema_labels_are_not_engineering_claims() -> None:
+    header = "| 类型/算法 | 面试中常用的保证 | 容易说错的边界 |"
+    assert classify_claim("保证", header) == "LABEL_OR_SCHEMA"
+    assert audit_line(header, 18, "demo.md") == []
+
+
 def test_definition_and_financial_compound_are_not_absolute_claims() -> None:
     assert audit_line("在数学定义中，数学上必然有 x=x。", 8, "demo.md") == []
     assert audit_line("保证金比例是保证金与融资交易金额之比。", 9, "demo.md") == []

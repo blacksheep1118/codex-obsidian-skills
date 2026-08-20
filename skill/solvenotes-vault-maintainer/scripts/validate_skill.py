@@ -6,15 +6,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-SKILL_ROOT = Path(__file__).resolve().parents[1]
-SKILLS_ROOT = SKILL_ROOT.parents[1]
-sys.path.insert(0, str(SKILLS_ROOT / "scripts"))
-
-from shared.skill_metadata import (  # noqa: E402
+from skill_metadata import (
     MetadataValidationError,
     load_skill_frontmatter,
     validate_openai_yaml,
 )
+
+SKILL_ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> int:
@@ -35,6 +33,9 @@ def main() -> int:
         SKILL_ROOT / "scripts" / "vault_contract.py",
         SKILL_ROOT / "scripts" / "package_vault.py",
         SKILL_ROOT / "scripts" / "package_workspace.py",
+        SKILL_ROOT / "scripts" / "verify_workspace_package.py",
+        SKILL_ROOT / "scripts" / "safe_io.py",
+        SKILL_ROOT / "scripts" / "skill_metadata.py",
         SKILL_ROOT / "scripts" / "run_with_timeout.py",
         SKILL_ROOT / "tests",
     )

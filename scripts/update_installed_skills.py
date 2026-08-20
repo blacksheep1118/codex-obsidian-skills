@@ -37,6 +37,11 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Print actions without writing files.")
     parser.add_argument("--prune", action="store_true", help="Remove files in the installed skill that no longer exist here.")
     parser.add_argument("--self-check", action="store_true", help="Validate installed skill metadata after updating.")
+    parser.add_argument(
+        "--no-deps",
+        action="store_true",
+        help="Update only explicitly requested Skills; self-check reports missing required dependencies.",
+    )
     args = parser.parse_args()
 
     if args.destination and args.codex_home:
@@ -45,7 +50,7 @@ def main() -> int:
     destination_root = args.destination.expanduser() if args.destination else default_destination(args.codex_home)
     try:
         all_skills = discover_skills()
-        skills = selected_skills(all_skills, args.skill, args.all)
+        skills = selected_skills(all_skills, args.skill, args.all, no_deps=args.no_deps)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

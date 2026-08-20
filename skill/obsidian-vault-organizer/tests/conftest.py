@@ -1,3 +1,7 @@
+"""Make the skill test suite independent of the caller's working directory."""
+
+from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path
@@ -6,8 +10,7 @@ import pytest
 
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = SKILL_ROOT / "scripts"
-for import_root in (SKILL_ROOT, SCRIPTS):
+for import_root in (SKILL_ROOT, SKILL_ROOT / "scripts"):
     if str(import_root) not in sys.path:
         sys.path.insert(0, str(import_root))
 

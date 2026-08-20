@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "required": {
+    "solvenotes-vault-maintainer": [
+      "algorithm-job-notes-for-obsidian"
+    ]
+  }
+}
