@@ -12,14 +12,17 @@ export SOLVENOTES_VAULT_ROOT=/absolute/path/to/solvenotes/notes
 Run from the Skills repository:
 
 ```bash
-bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh quick
-bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh full
+bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh tool-quick
+bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh tool-full
+bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-quick
+bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-full
 bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh github-ready
 ```
 
-The gate uses the project Skill's scripts and tests, while the vault remains a
-Markdown-only learning tree. `quick` is appropriate for a local iteration;
-`full` runs source-manifest, link, frontmatter, formula, table, heading,
+The tool gates validate the Skill implementation; the vault gates validate
+external learning content without rerunning the Skill test suite. Compatibility
+aliases `quick` and `full` map to `vault-quick` and `vault-full`. `vault-full`
+runs source-manifest, link, frontmatter, formula, table, heading,
 example, language, algorithm-job, and C++ checks; `github-ready` adds hygiene,
 large-file, public-readiness, and Git-status checks.
 

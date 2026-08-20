@@ -28,10 +28,11 @@ orchestrator for a learning vault; it does not replace the reusable
 - Never modify an installed skill copy directly. Edit this source repository,
   validate it, then use the repository installation scripts to synchronize the
   mirror.
-- A real Notes vault pins the exact Skills source in
+- A real Notes vault pins the exact Skills source and required dependency closure in
   `notes/.github/solvenotes-skills.lock.json`. The lock stores one full 40-character
   lowercase-hexadecimal
-  commit SHA and `contract_version`; do not copy a floating branch or a second
+  commit SHA, `contract_version`, per-Skill runtime digests, and the dependency
+  graph digest; do not copy a floating branch or a second
   SHA into another document. Validate it with `check_skills_lock.py` before a
   full gate. Use `update_notes_skill_lock.py` in dry-run mode first; `--write`
   only changes the lock and never commits or pushes.
@@ -75,9 +76,10 @@ tools, vault path, and Skills path without using machine-specific fallbacks.
 7. Report actual commands and PASS/FAIL/SKIP results. Do not commit or push
    unless the user explicitly authorizes it.
 
-The current maintainer contract is version `1`. It covers the external vault
+The current maintainer contract is version `2`. It covers the external vault
 root, the lock format, the source-manifest boundary, the algorithm-job
-nine-direction handoff, marked runnable-code checks, the quick/full command
+nine-direction handoff, the maintainer-to-algorithm dependency closure,
+marked runnable-code checks, the tool/vault command
 surface, and clean-package exclusions. A version mismatch must fail before the
 expensive vault scan.
 
@@ -87,10 +89,10 @@ From the Skills repository:
 
 ```bash
 SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
-  bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh quick
+  bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-quick
 
 SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
-  bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh full
+  bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-full
 
 SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
   bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh online \
@@ -103,7 +105,18 @@ python3 skill/solvenotes-vault-maintainer/scripts/package_workspace.py \
   --root /path/to/solvenotes \
   --output /tmp/solvenotes-workspace.zip \
   --manifest-output /tmp/solvenotes-workspace-BUILD-MANIFEST.json
+
+python3 skill/solvenotes-vault-maintainer/scripts/verify_workspace_package.py \
+  /tmp/solvenotes-workspace.zip \
+  --sidecar /tmp/solvenotes-workspace-BUILD-MANIFEST.json
 ```
+
+Before changing the formal Notes lock, run
+`validate_notes_candidate.py --notes-root ... --skills-root ... --skills-ref ...`.
+It installs the target commit and its dependency closure in a temporary
+location, runs `vault-full` against the real Notes vault through an override
+lock, packages the vault, and leaves the formal lock unchanged. Only then use
+`update_notes_skill_lock.py --write`.
 
 The Notes learning package excludes Git metadata, macOS sidecar files, Obsidian
 local workspace/graph state, hidden CI infrastructure, caches, compiled files,

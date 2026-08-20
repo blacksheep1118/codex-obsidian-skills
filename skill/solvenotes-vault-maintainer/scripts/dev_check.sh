@@ -139,19 +139,22 @@ check_workspace_guidance() {
 }
 
 tool_quick() {
+  check_environment tool-quick
   run_skill_python -m compileall "$SKILL_ROOT/scripts"
   run_skill_python "$SKILL_ROOT/scripts/validate_skill.py"
 }
 
 tool_full() {
-  tool_quick
+  check_environment tool-full
+  run_skill_python -m compileall "$SKILL_ROOT/scripts"
+  run_skill_python "$SKILL_ROOT/scripts/validate_skill.py"
   run_skill_python -m ruff check "$SKILL_ROOT/scripts" "$SKILL_ROOT/tests"
   run_skill_python -m pytest -p no:cacheprovider --durations=20 "$SKILL_ROOT/tests"
 }
 
 vault_quick() {
   require_vault
-  check_environment quick
+  check_environment vault-quick
   check_skill_lock
   check_workspace_guidance
   check_script check_guidance.py
@@ -165,7 +168,7 @@ vault_quick() {
 
 vault_full() {
   require_vault
-  check_environment full
+  check_environment vault-full
   check_skill_lock
   check_workspace_guidance
   check_script check_all_notes.py

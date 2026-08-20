@@ -124,19 +124,34 @@ def report(*, python_bin: str, notes_root: Path | None, skills_root: Path | None
     if support.get("python-newest-validated") and version_tuple(selected_version) > version_tuple(support["python-newest-validated"]):
         missing.append(f"Python <= {support['python-newest-validated']} (not validated)")
         statuses["python"] = "UNSUPPORTED"
+    normalized_mode = {
+        "quick": "vault-quick",
+        "full": "vault-full",
+    }.get(mode, mode)
+    required_modules = {"PyYAML"}
+    if normalized_mode == "tool-full":
+        required_modules.update({"pytest", "ruff"})
+    required_commands = {"git"}
+    if normalized_mode == "vault-full":
+        required_commands.add("compiler")
     for command in ("git", "g++", "clang++", "unzip", "bash"):
         resolved = command_version(command)
         values[f"{command}_path"] = resolved or "MISSING"
-        statuses[command] = "SUPPORTED" if resolved else "MISSING"
+        statuses[command] = "SUPPORTED" if resolved else "OPTIONAL_MISSING"
     for distribution in ("pytest", "PyYAML", "ruff"):
         installed_version = modules.get(distribution, "MISSING")
         values[f"{distribution}_version"] = installed_version or "MISSING"
-        statuses[distribution] = "SUPPORTED" if installed_version != "MISSING" else "MISSING"
-        if installed_version == "MISSING":
+        statuses[distribution] = (
+            "SUPPORTED"
+            if installed_version != "MISSING"
+            else ("MISSING" if distribution in required_modules else "OPTIONAL_MISSING")
+        )
+        if installed_version == "MISSING" and distribution in required_modules:
             missing.append(distribution)
     if not shutil.which("git"):
         missing.append("git")
-    if mode == "full" and not (shutil.which("g++") or shutil.which("clang++")):
+        statuses["git"] = "MISSING"
+    if "compiler" in required_commands and not (shutil.which("g++") or shutil.which("clang++")):
         missing.append("g++ or clang++")
     if notes_root is not None and not (notes_root / "AGENT.md").is_file():
         missing.append("Notes AGENT.md")
@@ -152,7 +167,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--python-bin", default=sys.executable)
     parser.add_argument("--notes-root", type=Path)
     parser.add_argument("--skills-root", type=Path)
-    parser.add_argument("--mode", choices=("quick", "full"), default="quick")
+    parser.add_argument(
+        "--mode",
+        choices=("tool-quick", "tool-full", "vault-quick", "vault-full", "quick", "full"),
+        default="vault-quick",
+    )
     parser.add_argument("--strict", action="store_true")
     args = parser.parse_args(argv)
     values, missing = report(
