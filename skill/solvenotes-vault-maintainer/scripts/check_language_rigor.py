@@ -15,7 +15,7 @@ import re
 import sys
 from dataclasses import asdict, dataclass
 
-from notes_utils import infer_note_type, markdown_files, read_text, rel
+from notes_utils import infer_note_type, markdown_files, read_text, rel, remove_fenced_code
 
 TARGETS = ("首次提出", "必然", "完全", "解决", "保证", "显著提升")
 SKIP_TYPES = {
@@ -28,7 +28,6 @@ SKIP_TYPES = {
     "vault_audit",
 }
 SKIP_NAME_RE = re.compile(r"(^|/)99_|全仓例题索引|source_manifest", re.I)
-FENCE_RE = re.compile(r"^\s*```")
 WIKILINK_RE = re.compile(r"(?P<embed>!)?\[\[(?P<body>[^\]\n]+)\]\]")
 
 
@@ -103,16 +102,19 @@ TECHNICAL_COMPLETE = re.compile(
 NEGATED_CONTEXT = re.compile(
     r"(?:不(?:一定|必然|能|会|等于|可|代表|保证|提供|再保证|成立|在|意味着|自动|构成|单独|表示|等同|具备|支持|受保证)|"
     r"不是|并不是|没有|无须|未必|并非|尚未|无法|不能|不可|未提供|不提供|不足以|并无|不受保证|无保证|只保证|"
-    r"非(?:充分|必要)|而非|不承诺|通常|一般|可能|有助于|往往|部分|仅)",
+    r"非(?:充分|必要)|而非|不承诺)",
 )
+HEDGED_CONTEXT = re.compile(r"(?:通常|一般|可能|有助于|往往|部分|仅)")
 CONDITIONAL_CONTEXT = re.compile(
     r"(?:在[^。！？\n]{0,60}(?:条件|前提|假设|设置|场景|范围|约束|数据|参数|环境)[^。！？\n]{0,40}(?:下|中|时|内)|"
+    r"(?:仅|只)?在[^。！？\n]{1,80}(?:下|内|中|时)[^。！？\n]{0,20}(?:保证|有保证|成立|有效)|"
     r"(?:若|如果|当|只要|除非|只有)[^。！？\n]{1,100}|"
     r"(?:满足|给定|基于|依赖(?:于)?|取决于)[^。！？\n]{0,60}(?:则|时|下|中|可以|能够|保证|成立|有效)|"
     r"(?:非负|有界|有限|无环|可终止|允许重开|满足[^。！？\n]{0,30}(?:约束|条件)|"
     r"(?:[<>=≤≥]|不等于|等于)[^。！？\n]{0,80}(?:则|可保证|能够保证))[^。！？\n]{0,60}(?:保证|可|能够|成立|有效)|"
     r"(?:才能|必须[^。！？\n]{0,20}保证)[^。！？\n]{0,100}(?:正确|成立|一致|有效|完成|成功|回放|保证)|"
-    r"(?:条件是|前提是|取决于|依赖于))",
+    r"(?:条件是|前提是|取决于|依赖于)|"
+    r"(?:具体|精确)?要求依[^。！？\n]{1,60}(?:而定|而异))",
 )
 QUESTION_CONTEXT = re.compile(r"(?:[?？]|是否|能否|可否|为什么|为何|如何|怎样|吗(?:[，。！？]|$))")
 FORMAL_CATEGORY_CONTEXT = re.compile(
@@ -134,6 +136,9 @@ FORMAL_NOUN = re.compile(
 LABEL_OR_SCHEMA_CELL_RE = re.compile(
     r"(?:^|\|)\s*(?:保证|保证级别|面试中常用的保证|"
     r"类型/?算法|容易说错的边界|字段|栏目|分类)\s*(?:\||$)"
+)
+LIST_LABEL_RE = re.compile(
+    r"^\s*(?:[-*+]\s+|\d+[.)、]\s*)\*\*(?P<label>[^*]{1,120})\*\*\s*[:：]"
 )
 BROADER_SOLUTION_RE = re.compile(
     r"(?:完全|彻底|根本|有效|成功|彻底地|无条件|一劳永逸|"
@@ -217,7 +222,7 @@ def _high_confidence(term: str, sentence: str) -> bool:
     if term == "必然":
         # Mathematical definitions/theorems and explicit questions are not
         # prose overclaims; otherwise “必然” needs a stated condition.
-        if re.search(r"(?:已知|概率为 ?1|定理|证明|推论|不等式|有限|正数|任意合法|数学|条件|假设|通常|可能|不表示|公式|\$|=)", sentence):
+        if re.search(r"(?:已知|概率为 ?1|定理|证明|推论|不等式|有限|正数|任意合法|数学|条件|假设|不表示|公式|\$|=)", sentence):
             return False
         return True
     if term == "完全":
@@ -227,7 +232,7 @@ def _high_confidence(term: str, sentence: str) -> bool:
     if term == "解决":
         return bool(re.search(r"解决(?:梯度消失|梯度爆炸|所有|全部|任何|一切|通用|普遍|整体性能)", sentence))
     if term == "保证":
-        if re.search(r"(?:不(?:能|会)|依赖|前提|条件|只|不自动|特定|应|需|必须|需要|理论|定义|协议|算法|硬约束|公式|\$|=|通常|可能|有助于|并无)", sentence):
+        if re.search(r"(?:不(?:能|会)|依赖|前提|条件|只|不自动|特定|应|需|必须|需要|理论|定义|协议|算法|硬约束|公式|\$|=|并无)", sentence):
             return False
         return bool(re.search(r"保证(?:所有|全部|任何|完全|不存在|成功|最佳|覆盖关键)", sentence))
     return False
@@ -236,7 +241,10 @@ def _high_confidence(term: str, sentence: str) -> bool:
 def classify_claim(term: str, sentence: str) -> str:
     """Classify a candidate without treating every categorical word alike."""
 
-    if LABEL_OR_SCHEMA_CELL_RE.search(sentence):
+    list_label = LIST_LABEL_RE.search(sentence)
+    if LABEL_OR_SCHEMA_CELL_RE.search(sentence) or (
+        list_label is not None and term in list_label.group("label")
+    ):
         return "LABEL_OR_SCHEMA"
     if QUESTION_CONTEXT.search(sentence) or re.search(r"[“‘\"'].*[”’\"']", sentence):
         return "QUESTION_OR_QUOTE"
@@ -254,6 +262,15 @@ def classify_claim(term: str, sentence: str) -> str:
         return "CONDITIONAL_GUARANTEE"
     if re.search(r"(?:法律|法规|政策|监管|合规|法定)", sentence):
         return "POLICY_OR_LEGAL_CLAIM"
+    if HEDGED_CONTEXT.search(sentence):
+        # A hedge changes confidence, not polarity.  Treat it as a reviewable
+        # assertion instead of silently classifying it as a negation.  A
+        # hedge combined with an explicit universal scope remains an
+        # engineering promise because “通常保证所有……” is internally
+        # contradictory and still needs correction.
+        if re.search(r"(?:保证|必然|完全)[^。！？\n]{0,16}(?:所有|全部|任何|一切)", sentence):
+            return "ENGINEERING_PROMISE"
+        return "MANUAL_REVIEW"
     if term in {"首次提出", "显著提升"}:
         return "EMPIRICAL_OVERCLAIM"
     if term in {"解决", "保证", "完全", "必然"}:
@@ -301,7 +318,7 @@ def audit_line(line: str, line_number: int, relative_file: str) -> list[Issue]:
             # claim that a method solved every instance.  Keep the stricter
             # check for bare performance assertions such as “解决梯度消失”.
             if re.search(
-                r"(?:要解决|需解决|需要解决|用于解决|可以帮助解决|能够帮助解决|旨在解决|针对解决|解决的是|解决什么|解决方法|解决方案|解决路径|解决框架)",
+                r"(?:要解决|需解决|需要解决|用于解决|可以帮助解决|能够帮助解决|旨在解决|针对解决|解决的是|解决什么|解决方法|解决方案|解决路径|解决框架|(?:强迫|试图|尝试|要求)[^。！？\n]{0,24}解决)",
                 sentence,
             ):
                 continue
@@ -339,13 +356,7 @@ def scan_notes() -> list[Issue]:
     for path in markdown_files():
         if SKIP_NAME_RE.search(rel(path)) or infer_note_type(path) in SKIP_TYPES:
             continue
-        in_fence = False
-        for number, line in enumerate(read_text(path).splitlines(), start=1):
-            if FENCE_RE.match(line):
-                in_fence = not in_fence
-                continue
-            if in_fence:
-                continue
+        for number, line in enumerate(remove_fenced_code(read_text(path)).splitlines(), start=1):
             if line.lstrip().startswith("#"):
                 continue
             issues.extend(audit_line(line, number, rel(path)))

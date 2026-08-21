@@ -18,6 +18,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable
 
 from check_examples import generic_prompt
 from notes_utils import (
@@ -453,11 +454,8 @@ def semantic_category(example: Example) -> str:
     return "not_an_example"
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
-    parser.add_argument("--strict", action="store_true", help="fail when a worked candidate remains at grade C or D")
-    args = parser.parse_args()
+def build_report(examples: Iterable[Example]) -> dict[str, object]:
+    """Build the semantic report used by both JSON and text output."""
 
     type_counts: Counter[str] = Counter()
     kind_counts: Counter[str] = Counter()
@@ -466,7 +464,7 @@ def main() -> int:
     failures: list[str] = []
     total = 0
     required_total = 0
-    for example in iter_examples():
+    for example in examples:
         total += 1
         kind_counts[example.kind] += 1
         type_counts[example_type(example.text, example.kind)] += 1
@@ -483,13 +481,14 @@ def main() -> int:
                 f"{rel(example.path)}:{example.line} | {example.kind} | {example.title} | {category}"
             )
 
-    payload = {
+    worked_example_count = sum(
+        category_counts[name]
+        for name in ("worked_example", "source_example", "original_exercise")
+    )
+    return {
         "examples_analyzed": total,
         "worked_candidates": required_total,
-        "worked_example_count": sum(
-            category_counts[name]
-            for name in ("worked_example", "source_example", "original_exercise")
-        ),
+        "worked_example_count": worked_example_count,
         "non_worked_candidates": total - required_total,
         "kind_counts": dict(sorted(kind_counts.items())),
         "type_counts": dict(sorted(type_counts.items())),
@@ -498,20 +497,34 @@ def main() -> int:
         "gate_failures": failures,
         "gate_failure_count": len(failures),
     }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="fail when a worked candidate is missing an answer or has insufficient conditions",
+    )
+    args = parser.parse_args()
+
+    payload = build_report(iter_examples())
+    failures = payload["gate_failures"]
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
-        print(f"examples_analyzed {total}")
-        print(f"worked_candidates {required_total}")
-        print(f"worked_example_count {required_total}")
-        print(f"non_worked_candidates {total - required_total}")
-        for key, value in sorted(kind_counts.items()):
+        print(f"examples_analyzed {payload['examples_analyzed']}")
+        print(f"worked_candidates {payload['worked_candidates']}")
+        print(f"worked_example_count {payload['worked_example_count']}")
+        print(f"non_worked_candidates {payload['non_worked_candidates']}")
+        for key, value in payload["kind_counts"].items():
             print(f"kind_{key} {value}")
-        for key, value in sorted(type_counts.items()):
+        for key, value in payload["type_counts"].items():
             print(f"type_{key} {value}")
-        for key, value in sorted(category_counts.items()):
+        for key, value in payload["category_counts"].items():
             print(f"category_{key} {value}")
-        print(f"gate_failure_count {len(failures)}")
+        print(f"gate_failure_count {payload['gate_failure_count']}")
         for item in failures[:30]:
             print(f"FAIL {item}")
     return 1 if args.strict and failures else 0

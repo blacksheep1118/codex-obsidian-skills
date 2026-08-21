@@ -41,6 +41,23 @@ def test_package_cli_root_argument_is_honored_without_environment(tmp_path) -> N
     assert output.is_file()
 
 
+def test_package_cli_help_does_not_require_environment() -> None:
+    env = os.environ.copy()
+    env.pop("SOLVENOTES_VAULT_ROOT", None)
+
+    result = subprocess.run(
+        [sys.executable, str(Path(pv.__file__)), "--help"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=20,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--root" in result.stdout
+
+
 def test_package_does_not_follow_external_symlink_file(tmp_path, monkeypatch) -> None:
     root = tmp_path / "vault"
     root.mkdir()

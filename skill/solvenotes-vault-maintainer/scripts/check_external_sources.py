@@ -23,6 +23,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+from notes_utils import remove_fenced_code
+
 URL_RE = re.compile(r"https?://[^\s<>'\"\]\[|]+", re.I)
 NON_URL_PROSE_RE = re.compile(r"[\u3400-\u9fff]")
 URL_PROSE_TERMINATOR_RE = re.compile(r"[)\]}>）】》」』：；，。！？、]")
@@ -118,15 +120,7 @@ def extract_urls(text: str) -> set[str]:
 def strip_fenced_code(text: str) -> str:
     """Exclude executable/code examples; they are not source citations."""
 
-    lines: list[str] = []
-    in_fence = False
-    for line in text.splitlines():
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
-            continue
-        if not in_fence:
-            lines.append(line)
-    return "\n".join(lines)
+    return remove_fenced_code(text)
 
 
 def url_sources(root: Path, *, changed_only: bool = False) -> dict[str, list[str]]:

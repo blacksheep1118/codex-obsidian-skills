@@ -217,7 +217,8 @@ perform a deterministic rule scan and report that it is a file-level check.
   read-only structural scanner for this skill.
 - `scripts/check_cpp_examples.py`: compiles and runs only self-contained C++17
   blocks preceded by `<!-- runnable: cpp17 -->`; unknown Markdown fences are
-  never executed.
+  never executed. Its synchronized `scripts/run_with_timeout.py` helper kills
+  the complete compiler/example process tree on timeout.
 - `scripts/`: use the repository-level validators and install scripts; do not
   create a second installation mechanism inside this skill.
 - `references/`: read the vault's local profile and validation notes before

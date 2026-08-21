@@ -10,9 +10,9 @@ import sys
 import unicodedata
 
 try:
-    from .safe_io import safe_write_text
+    from .safe_io import ensure_safe_input_file, read_bytes_no_follow, safe_write_text
 except ImportError:
-    from safe_io import safe_write_text
+    from safe_io import ensure_safe_input_file, read_bytes_no_follow, safe_write_text
 
 
 ZERO_WIDTH_RE = re.compile("[\u200b\u200c\u200d\ufeff]")
@@ -103,7 +103,12 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    text = args.input.read_text(encoding="utf-8", errors="replace")
+    try:
+        input_path = ensure_safe_input_file(args.input)
+        text = read_bytes_no_follow(input_path).decode("utf-8", errors="replace")
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
     cleaned = clean_text(text, unicode_math=args.unicode_math)
     if args.out:
         try:

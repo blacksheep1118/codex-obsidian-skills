@@ -20,6 +20,7 @@ _TIMEOUT_SPEC = importlib.util.spec_from_file_location("_solvenotes_timeout_runn
 if _TIMEOUT_SPEC is None or _TIMEOUT_SPEC.loader is None:
     raise ImportError(f"cannot load timeout helper: {_TIMEOUT_HELPER}")
 _TIMEOUT_MODULE = importlib.util.module_from_spec(_TIMEOUT_SPEC)
+sys.modules[_TIMEOUT_SPEC.name] = _TIMEOUT_MODULE
 _TIMEOUT_SPEC.loader.exec_module(_TIMEOUT_MODULE)
 run_process = _TIMEOUT_MODULE.run
 

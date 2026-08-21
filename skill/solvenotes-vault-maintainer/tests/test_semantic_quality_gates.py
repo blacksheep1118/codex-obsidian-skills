@@ -1,6 +1,14 @@
 from pathlib import Path
 
-from analyze_example_quality import Example, _compact, grade, mask_inline_code, semantic_category
+import analyze_example_quality
+from analyze_example_quality import (
+    Example,
+    _compact,
+    build_report,
+    grade,
+    mask_inline_code,
+    semantic_category,
+)
 from check_examples import generic_prompt
 from check_paper_notes import paper_contract_gaps
 
@@ -50,7 +58,7 @@ def test_generic_steps_and_result_do_not_reach_grade_b() -> None:
     assert grade(line) == "C"
 
 
-def test_example_report_categories_explain_quality_without_letter_grades() -> None:
+def test_example_report_categories_explain_quality_without_letter_grades(monkeypatch) -> None:
     source = Example(
         Path("course.md"),
         10,
@@ -64,6 +72,12 @@ def test_example_report_categories_explain_quality_without_letter_grades() -> No
 
     assert semantic_category(source) == "source_example"
     assert semantic_category(missing) == "missing_answer"
+
+    monkeypatch.setattr(analyze_example_quality, "rel", lambda path: path.as_posix())
+    report = build_report([source, missing])
+    assert report["worked_candidates"] == 2
+    assert report["worked_example_count"] == 1
+    assert report["gate_failure_count"] == 1
 
 
 def test_commonmark_code_span_with_shorter_inner_ticks_is_ignored() -> None:

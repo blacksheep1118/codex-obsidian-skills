@@ -153,3 +153,120 @@ def test_learning_path_heading_schema_is_reported_as_intentional_structure(
 
     assert payload["naturalness_review_candidates"] == 0
     assert payload["intentional_structure"][0]["kind"] == "intentional_heading_schema"
+
+
+def test_reported_line_numbers_include_frontmatter(monkeypatch, tmp_path: Path) -> None:
+    note = tmp_path / "note.md"
+    note.write_text(
+        "---\nnote_type: course_note\ncourse: demo\n---\n\n# 标题\n\n在此填写实验边界。\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(check_naturalness, "markdown_files", lambda: [note])
+    monkeypatch.setattr(check_naturalness, "rel", lambda path: path.name)
+    monkeypatch.setattr(check_naturalness, "read_text", lambda path: path.read_text(encoding="utf-8"))
+
+    payload = check_naturalness.scan()
+
+    assert payload["high_confidence"][0]["line"] == 8
+
+
+def test_repeated_sentence_inside_longer_paragraph_is_a_candidate(monkeypatch, tmp_path: Path) -> None:
+    notes = []
+    repeated = "笔记中未记录代码和权重，复现时需要回到项目页逐项确认。"
+    for index in range(5):
+        note = tmp_path / f"paper-{index}.md"
+        note.write_text(
+            "---\nnote_type: paper_note\n---\n\n# 论文\n\n"
+            f"该论文的配置说明各不相同，第 {index} 个页面保留自己的背景。{repeated}\n",
+            encoding="utf-8",
+        )
+        notes.append(note)
+    monkeypatch.setattr(check_naturalness, "markdown_files", lambda: notes)
+    monkeypatch.setattr(check_naturalness, "rel", lambda path: path.name)
+    monkeypatch.setattr(check_naturalness, "read_text", lambda path: path.read_text(encoding="utf-8"))
+
+    payload = check_naturalness.scan()
+
+    candidate = next(
+        item for item in payload["review_candidates"]
+        if item["kind"] == "cross_note_sentence_repeat"
+    )
+    assert candidate["count"] == 5
+    assert candidate["line"] == 7
+
+
+def test_required_source_contract_sentence_is_not_a_candidate(monkeypatch, tmp_path: Path) -> None:
+    notes = []
+    for index in range(5):
+        note = tmp_path / f"course-{index}.md"
+        note.write_text(
+            "---\nnote_type: course_note\n---\n\n# 课程\n\n"
+            "本节没有可抽取的演算过程。生成：PPT/PDF 未提供独立可抽取例题。\n",
+            encoding="utf-8",
+        )
+        notes.append(note)
+    monkeypatch.setattr(check_naturalness, "markdown_files", lambda: notes)
+    monkeypatch.setattr(check_naturalness, "rel", lambda path: path.name)
+    monkeypatch.setattr(check_naturalness, "read_text", lambda path: path.read_text(encoding="utf-8"))
+
+    payload = check_naturalness.scan()
+
+    assert not any(
+        item["kind"] == "cross_note_sentence_repeat"
+        for item in payload["review_candidates"]
+    )
+
+
+def test_repeated_sentence_on_wrapped_line_is_a_candidate(monkeypatch, tmp_path: Path) -> None:
+    notes = []
+    repeated = "笔记中未记录代码和权重，复现时需要回到项目页逐项确认。"
+    for index in range(5):
+        note = tmp_path / f"wrapped-{index}.md"
+        note.write_text(
+            "---\nnote_type: paper_note\n---\n\n# 论文\n\n"
+            f"第 {index} 篇论文有不同的任务设定与实验背景。\n{repeated}\n"
+            f"第 {index} 篇还保留了独有的评价约束。\n",
+            encoding="utf-8",
+        )
+        notes.append(note)
+    monkeypatch.setattr(check_naturalness, "markdown_files", lambda: notes)
+    monkeypatch.setattr(check_naturalness, "rel", lambda path: path.name)
+    monkeypatch.setattr(check_naturalness, "read_text", lambda path: path.read_text(encoding="utf-8"))
+
+    payload = check_naturalness.scan()
+
+    candidate = next(
+        item for item in payload["review_candidates"]
+        if item["kind"] == "cross_note_sentence_repeat"
+    )
+    assert candidate["count"] == 5
+    assert candidate["line"] == 8
+
+
+def test_repeated_sentence_split_by_markdown_soft_wrap_is_a_candidate(
+    monkeypatch, tmp_path: Path
+) -> None:
+    notes = []
+    for index in range(5):
+        note = tmp_path / f"soft-wrap-{index}.md"
+        note.write_text(
+            "---\nnote_type: paper_note\n---\n\n# 论文\n\n"
+            f"第 {index} 篇论文有不同的任务设定。笔记中未记录代码和权重，复现时需要\n"
+            "回到项目页逐项确认。\n",
+            encoding="utf-8",
+        )
+        notes.append(note)
+    monkeypatch.setattr(check_naturalness, "markdown_files", lambda: notes)
+    monkeypatch.setattr(check_naturalness, "rel", lambda path: path.name)
+    monkeypatch.setattr(check_naturalness, "read_text", lambda path: path.read_text(encoding="utf-8"))
+
+    payload = check_naturalness.scan()
+
+    candidate = next(
+        item
+        for item in payload["review_candidates"]
+        if item["kind"] == "cross_note_sentence_repeat"
+    )
+    assert candidate["count"] == 5
+    assert candidate["line"] == 7
+    assert candidate["context"] == "笔记中未记录代码和权重，复现时需要 回到项目页逐项确认。"

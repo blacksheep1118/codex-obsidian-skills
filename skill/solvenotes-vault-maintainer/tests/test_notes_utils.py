@@ -39,6 +39,34 @@ def test_wikilinks_ignore_fenced_inline_and_indented_code() -> None:
     assert wikilinks(text) == [("Real", "Real")]
 
 
+def test_wikilinks_respect_long_and_multiline_inline_code_spans() -> None:
+    text = (
+        "``code ` [[LongInlinePseudo]]`` and [[VisibleOne]]\n"
+        "``multiline [[MultilinePseudo]]\ncontinues`` and [[VisibleTwo]]\n"
+        "`unclosed [[VisibleBecauseSpanIsInvalid]]\n"
+    )
+
+    assert wikilinks(text) == [
+        ("VisibleOne", "VisibleOne"),
+        ("VisibleTwo", "VisibleTwo"),
+        ("VisibleBecauseSpanIsInvalid", "VisibleBecauseSpanIsInvalid"),
+    ]
+
+
+def test_wikilinks_respect_tilde_and_longer_backtick_fences() -> None:
+    text = (
+        "[[VisibleBefore]]\n"
+        "~~~text\n[[TildePseudo]]\n~~~\n"
+        "````text\n[[LongFencePseudo]]\n```\n[[StillFencedPseudo]]\n````\n"
+        "[[VisibleAfter]]\n"
+    )
+
+    assert wikilinks(text) == [
+        ("VisibleBefore", "VisibleBefore"),
+        ("VisibleAfter", "VisibleAfter"),
+    ]
+
+
 def test_markdown_inventory_excludes_supporting_guidance_and_tooling() -> None:
     relative = {path.relative_to(ROOT).as_posix() for path in markdown_files()}
     assert "AGENT.md" not in relative

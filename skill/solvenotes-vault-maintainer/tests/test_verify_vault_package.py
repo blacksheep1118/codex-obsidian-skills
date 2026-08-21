@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import stat
+import unicodedata
 import warnings
 import zipfile
 from pathlib import Path
 
+import archive_contract
 import package_vault as packager
 import verify_vault_package as verifier
 
@@ -73,6 +75,62 @@ def test_verify_vault_package_rejects_symlink_entry(tmp_path: Path) -> None:
 
     assert result["ok"] is False
     assert "symbolic-link ZIP entry: link.md" in result["issues"]
+
+
+def test_verify_vault_package_rejects_noncanonical_and_portable_collisions(
+    tmp_path: Path,
+) -> None:
+    archive = tmp_path / "portable-collision.zip"
+    composed = "notes/é.md"
+    decomposed = unicodedata.normalize("NFD", composed)
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("notes//noncanonical.md", "bad")
+        bundle.writestr(composed, "one")
+        bundle.writestr(decomposed, "two")
+
+    result = verifier.verify(archive)
+
+    assert result["ok"] is False
+    assert "unsafe ZIP entry: notes//noncanonical.md" in result["issues"]
+    assert any("portable path collision" in issue for issue in result["issues"])
+
+
+def test_verify_vault_package_rejects_archive_over_resource_budget(
+    tmp_path: Path, monkeypatch
+) -> None:
+    archive = tmp_path / "many.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("one.md", "one")
+        bundle.writestr("two.md", "two")
+    monkeypatch.setattr(archive_contract, "MAX_ARCHIVE_ENTRIES", 1)
+
+    result = verifier.verify(archive)
+
+    assert result["ok"] is False
+    assert any("entry count exceeds safety limit" in issue for issue in result["issues"])
+
+
+def test_verify_vault_package_missing_archive_is_structured_failure(tmp_path: Path) -> None:
+    result = verifier.verify(tmp_path / "missing.zip")
+
+    assert result["ok"] is False
+    assert result["entries"] == 0
+    assert result["archive_sha256"] == ""
+    assert any("does not exist" in issue for issue in result["issues"])
+
+
+def test_verify_vault_package_oversized_sidecar_is_structured_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    archive, _sidecar = _build(tmp_path, monkeypatch)
+    oversized = tmp_path / "oversized-sidecar.json"
+    oversized.write_bytes(b"x" * 32)
+    monkeypatch.setattr(verifier, "MAX_MANIFEST_BYTES", 8)
+
+    result = verifier.verify(archive, oversized)
+
+    assert result["ok"] is False
+    assert any("exceeds" in issue for issue in result["issues"])
 
 
 def test_verify_vault_package_detects_tampered_manifest(tmp_path: Path, monkeypatch) -> None:

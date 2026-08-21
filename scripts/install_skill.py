@@ -13,17 +13,17 @@ import shutil
 import stat
 import sys
 import tempfile
-import zipfile
 
 from install_ignore import ignore_patterns, should_ignore_relative
 from shared.skill_metadata import MetadataValidationError, load_skill_frontmatter, validate_skill_metadata
 from shared.skill_provenance import (
     PROVENANCE_FILENAME,
-    PROVENANCE_SCHEMA_VERSION,
     build_provenance,
     content_digest,
+    committed_skill_digest,
     file_records,
     load_provenance,
+    validate_provenance_payload,
     write_provenance,
 )
 
@@ -34,6 +34,7 @@ _TIMEOUT_SPEC = importlib.util.spec_from_file_location("_solvenotes_timeout_runn
 if _TIMEOUT_SPEC is None or _TIMEOUT_SPEC.loader is None:
     raise ImportError(f"cannot load timeout helper: {_TIMEOUT_HELPER}")
 _TIMEOUT_MODULE = importlib.util.module_from_spec(_TIMEOUT_SPEC)
+sys.modules[_TIMEOUT_SPEC.name] = _TIMEOUT_MODULE
 _TIMEOUT_SPEC.loader.exec_module(_TIMEOUT_MODULE)
 run_process = _TIMEOUT_MODULE.run
 
@@ -818,13 +819,17 @@ def _run_installed_full(skill_dir: Path, destination_root: Path) -> list[str]:
         return issues
     fixture = (skill_dir / "fixtures" / "solvenotes-mini-vault").resolve()
     package_script = skill_dir / "scripts" / "package_vault.py"
-    if not fixture.is_dir() or not package_script.is_file():
-        return [f"{skill_dir.name}: installed full smoke is missing its fixture or packager"]
+    verifier_script = skill_dir / "scripts" / "verify_vault_package.py"
+    if not fixture.is_dir() or not package_script.is_file() or not verifier_script.is_file():
+        return [
+            f"{skill_dir.name}: installed full smoke is missing its fixture, packager, or verifier"
+        ]
     environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     environment["SOLVENOTES_VAULT_ROOT"] = fixture.as_posix()
     with tempfile.TemporaryDirectory(prefix="solvenotes-installed-full-") as cwd:
         output = Path(cwd) / "notes.zip"
+        sidecar = Path(cwd) / "PACKAGE-MANIFEST.json"
         result = run_process(
             [
                 sys.executable,
@@ -833,6 +838,8 @@ def _run_installed_full(skill_dir: Path, destination_root: Path) -> list[str]:
                 str(fixture),
                 "--output",
                 str(output),
+                "--manifest-output",
+                str(sidecar),
             ],
             120,
             f"installed {skill_dir.name} package smoke",
@@ -841,12 +848,23 @@ def _run_installed_full(skill_dir: Path, destination_root: Path) -> list[str]:
         )
         if result:
             return [f"{skill_dir.name}: installed package smoke failed with exit code {result}"]
-        try:
-            with zipfile.ZipFile(output) as archive:
-                if archive.testzip() is not None or not archive.namelist():
-                    return [f"{skill_dir.name}: installed package smoke produced an invalid ZIP"]
-        except (OSError, zipfile.BadZipFile) as exc:
-            return [f"{skill_dir.name}: installed package smoke could not read its ZIP: {exc}"]
+        result = run_process(
+            [
+                sys.executable,
+                str(verifier_script),
+                str(output),
+                "--sidecar",
+                str(sidecar),
+            ],
+            120,
+            f"installed {skill_dir.name} package verifier smoke",
+            cwd=Path(cwd).resolve(),
+            env=environment,
+        )
+        if result:
+            return [
+                f"{skill_dir.name}: installed package verifier failed with exit code {result}"
+            ]
     return []
 
 
@@ -902,10 +920,14 @@ def self_check_selected(
         if provenance is None:
             issues.append(f"{installed_dir}: missing {PROVENANCE_FILENAME}")
         else:
-            if provenance.get("schema_version") != PROVENANCE_SCHEMA_VERSION:
-                issues.append(f"{installed_dir}: unsupported provenance schema")
-            if provenance.get("skill") != name:
-                issues.append(f"{installed_dir}: provenance skill does not match {name!r}")
+            schema_issues = validate_provenance_payload(
+                provenance,
+                expected_skill=name,
+                expected_repository=SKILLS_REPOSITORY,
+            )
+            issues.extend(f"{installed_dir}: {issue}" for issue in schema_issues)
+            if schema_issues:
+                continue
             actual_records = file_records(installed_dir)
             actual_digest = content_digest(actual_records)
             if provenance.get("installed_content_digest") != actual_digest:
@@ -914,8 +936,26 @@ def self_check_selected(
                 issues.append(f"{installed_dir}: compatibility content digest mismatch")
             if provenance.get("managed_files") != actual_records:
                 issues.append(f"{installed_dir}: managed file manifest mismatch")
+            if provenance.get("source_dirty") is False:
+                recorded_source_digest = provenance.get("source_tree_digest")
+                committed_digest = committed_skill_digest(
+                    REPO_ROOT,
+                    commit=provenance["source_commit"],
+                    skill_name=name,
+                )
+                if committed_digest is None:
+                    issues.append(
+                        f"{installed_dir}: source_commit is not verifiable in this repository"
+                    )
+                elif committed_digest != recorded_source_digest:
+                    issues.append(f"{installed_dir}: source tree digest does not match source_commit")
             for dependency in provenance.get("dependencies", []):
                 dependency_dir = destination_root / str(dependency)
+                try:
+                    ensure_safe_destination_tree(dependency_dir)
+                except UnsafeDestinationError as exc:
+                    issues.append(str(exc))
+                    continue
                 if not dependency_dir.is_dir():
                     issues.append(
                         f"required Skill not installed: {dependency}; "

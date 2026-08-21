@@ -68,19 +68,38 @@ STATIC_RESOURCES = (
             ROOT / "skill" / "web-course-notes-for-obsidian" / "scripts" / "url_identity.py",
         ),
     ),
-        StaticResource(
-            source=SHARED / "skill_metadata.py",
-            targets=tuple(
-                ROOT / "skill" / skill_name / "scripts" / "skill_metadata.py"
-                for skill_name in (
-                    "ppt-to-md-for-obsidian",
-                    "obsidian-vault-organizer",
-                    "web-course-notes-for-obsidian",
-                    "notes-to-scientific-ppt",
-                    "solvenotes-vault-maintainer",
-                )
-            ),
+    StaticResource(
+        source=ROOT
+        / "skill"
+        / "solvenotes-vault-maintainer"
+        / "scripts"
+        / "run_with_timeout.py",
+        targets=(
+            ROOT
+            / "skill"
+            / "algorithm-job-notes-for-obsidian"
+            / "scripts"
+            / "run_with_timeout.py",
+            ROOT
+            / "skill"
+            / "ppt-to-md-for-obsidian"
+            / "scripts"
+            / "run_with_timeout.py",
         ),
+    ),
+    StaticResource(
+        source=SHARED / "skill_metadata.py",
+        targets=tuple(
+            ROOT / "skill" / skill_name / "scripts" / "skill_metadata.py"
+            for skill_name in (
+                "ppt-to-md-for-obsidian",
+                "obsidian-vault-organizer",
+                "web-course-notes-for-obsidian",
+                "notes-to-scientific-ppt",
+                "solvenotes-vault-maintainer",
+            )
+        ),
+    ),
 )
 
 VALIDATORS = (
@@ -154,6 +173,7 @@ VALIDATORS = (
             "scripts/extract_pdf_text.py",
             "scripts/extract_pptx_text.py",
             "scripts/ppt_to_obsidian_pipeline.py",
+            "scripts/run_with_timeout.py",
             "scripts/safe_io.py",
             "scripts/skill_metadata.py",
             "scripts/validate_skill_repo.py",

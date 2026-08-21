@@ -14,7 +14,12 @@ SUBPROCESS_TIMEOUT_SECONDS = 60
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from create_web_notes import choose_category_dir, safe_path_name  # noqa: E402
+from create_web_notes import (  # noqa: E402
+    choose_category_dir,
+    normalized_inline_text,
+    safe_path_name,
+    validated_display_text,
+)
 
 
 def run_script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -90,6 +95,41 @@ def test_create_web_notes_defaults_to_external_staging(tmp_path: Path):
     staged_path = Path(next(line for line in result.stdout.splitlines() if line.startswith("staged_web_notes ")).split(" ", 1)[1])
     assert staged_path.is_dir()
     assert (staged_path / "00_Learning_Map.md").exists()
+
+
+def test_create_web_notes_staging_does_not_require_notes_dir(tmp_path: Path):
+    staging_dir = tmp_path / "staging"
+
+    result = run_script_raw(
+        "https://example.com/readings/staged.pdf",
+        "--staging-dir",
+        str(staging_dir),
+        "--title",
+        "Staged Course",
+    )
+
+    assert result.returncode == 0
+    assert (staging_dir / "Web Resources" / "Staged Course" / "00_Learning_Map.md").exists()
+
+
+def test_create_web_notes_publish_requires_notes_dir():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/create_web_notes.py",
+            "https://example.com/readings/course.pdf",
+            "--publish",
+        ],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+        check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
+    )
+
+    assert result.returncode == 1
+    assert "--notes-dir is required with --publish" in result.stderr
 
 
 def test_create_web_notes_defaults_to_english_for_english_source(tmp_path: Path):
@@ -223,6 +263,79 @@ def test_create_web_notes_dry_run_allows_missing_notes_root_without_creating_it(
 
     assert "would_publish_web_notes" in result.stdout
     assert not notes_dir.exists()
+
+
+def test_create_web_notes_dry_run_does_not_create_default_staging_directory(
+    tmp_path: Path,
+) -> None:
+    temporary_root = tmp_path / "tmp"
+    temporary_root.mkdir()
+    env = {
+        **os.environ,
+        "TMPDIR": str(temporary_root),
+        "PYTHONIOENCODING": "utf-8",
+    }
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/create_web_notes.py",
+            "https://example.com/readings/course.pdf",
+            "--title",
+            "Dry Run Course",
+            "--dry-run",
+        ],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+        check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert list(temporary_root.iterdir()) == []
+    assert "would_stage_web_notes" in result.stdout
+
+
+@pytest.mark.parametrize("title", ["Line one\n## injected", "tab\tseparated"])
+def test_create_web_notes_rejects_control_characters_in_title(
+    tmp_path: Path,
+    title: str,
+) -> None:
+    staging_dir = tmp_path / "staging"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/create_web_notes.py",
+            "https://example.com/readings/course.pdf",
+            "--staging-dir",
+            str(staging_dir),
+            "--title",
+            title,
+        ],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+        check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
+    )
+
+    assert result.returncode == 1
+    assert "control characters or line breaks" in result.stderr
+    assert not staging_dir.exists()
+
+
+def test_validated_display_text_rejects_embedded_null() -> None:
+    with pytest.raises(ValueError, match="control characters"):
+        validated_display_text("nul\x00byte", field="title")
+
+
+def test_normalized_inline_text_collapses_source_line_breaks() -> None:
+    assert normalized_inline_text("first line\n  second\tline") == "first line second line"
 
 
 def test_choose_category_dir_rejects_paths_outside_notes_dir(tmp_path: Path):

@@ -17,6 +17,7 @@ def test_doctor_reads_central_python_support_contract(tmp_path: Path) -> None:
     [
         ("vault-quick", {"PyYAML"}),
         ("vault-full", {"PyYAML"}),
+        ("github-ready", {"PyYAML"}),
         ("tool-quick", {"PyYAML", "pytest", "ruff"}),
         ("tool-full", {"PyYAML", "pytest", "ruff"}),
         ("online", {"PyYAML"}),

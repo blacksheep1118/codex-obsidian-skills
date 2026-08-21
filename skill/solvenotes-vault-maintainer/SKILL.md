@@ -230,7 +230,8 @@ The maintenance gate must check, as applicable:
   runnable C++17 blocks;
 - Python fenced examples are parsed with `ast` without executing them;
 - context-sensitive naturalness candidates, high-confidence placeholders, and
-  exact repeated paragraphs without mechanically rewriting formal prose;
+  exact repeated paragraphs, sentences, and language-like list items without
+  mechanically rewriting formal prose;
 - clean export contents and absence of local Obsidian state.
 
 Checks should report context and confidence. A checker may fail on a confirmed

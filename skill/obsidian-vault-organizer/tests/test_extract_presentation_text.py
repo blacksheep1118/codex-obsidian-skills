@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import subprocess
+import struct
 import sys
 import unicodedata
 from zipfile import ZipFile
@@ -22,10 +23,24 @@ from scripts.extract_presentation_text import allocate_output_paths  # noqa: E40
 def write_minimal_pptx(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with ZipFile(path, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("ppt/presentation.xml", "<presentation/>")
         archive.writestr(
             "ppt/slides/slide1.xml",
             f'<a:t xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">{text}</a:t>',
         )
+
+
+def test_pptx_fallback_rejects_zip_without_ooxml_boundary(tmp_path: Path) -> None:
+    source = tmp_path / "not-really-a-presentation.pptx"
+    with ZipFile(source, "w") as archive:
+        archive.writestr(
+            "ppt/slides/slide1.xml",
+            '<a:t xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">text</a:t>',
+        )
+
+    with pytest.raises(ValueError, match="missing required OOXML parts"):
+        extract_presentation_text.extract_pptx(source)
 
 
 def run_extractor(*args: str) -> subprocess.CompletedProcess[str]:
@@ -135,6 +150,80 @@ def test_extract_presentation_text_keeps_unique_basename(tmp_path: Path) -> None
     assert f"source={source}" in result.stdout
 
 
+def test_pptx_fallback_enforces_uncompressed_archive_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source" / "lecture.pptx"
+    write_minimal_pptx(source, "Budget evidence")
+    with ZipFile(source) as archive:
+        total = sum(member.file_size for member in archive.infolist())
+    monkeypatch.setattr(
+        extract_presentation_text,
+        "MAX_PPTX_TOTAL_UNCOMPRESSED_BYTES",
+        total - 1,
+    )
+
+    with pytest.raises(ValueError, match="total uncompressed size"):
+        extract_presentation_text.extract_pptx(source)
+
+
+def test_pptx_fallback_rejects_duplicate_zip_members(tmp_path: Path) -> None:
+    source = tmp_path / "source" / "duplicate.pptx"
+    write_minimal_pptx(source, "first")
+    with pytest.warns(UserWarning, match="Duplicate name"):
+        with ZipFile(source, "a") as archive:
+            archive.writestr("ppt/slides/slide1.xml", "<a:t xmlns:a='urn:a'>second</a:t>")
+
+    with pytest.raises(ValueError, match="duplicate members"):
+        extract_presentation_text.extract_pptx(source)
+
+
+def test_pptx_fallback_reads_one_stable_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source" / "lecture.pptx"
+    write_minimal_pptx(source, "Stable snapshot")
+    payload = source.read_bytes()
+    calls = 0
+
+    def stable_read(path: Path, *, max_bytes: int | None = None) -> bytes:
+        nonlocal calls
+        calls += 1
+        assert path == source
+        assert max_bytes == extract_presentation_text.MAX_PRESENTATION_INPUT_BYTES
+        return payload
+
+    monkeypatch.setattr(extract_presentation_text, "read_bytes_no_follow", stable_read)
+
+    assert "Stable snapshot" in extract_presentation_text.extract_pptx(source)
+    assert calls == 1
+
+
+@pytest.mark.parametrize("kind", ["leaf", "ancestor", "broken"])
+def test_extract_presentation_text_rejects_symlinked_source(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    target = tmp_path / "real" / "lecture.pptx"
+    write_minimal_pptx(target, "Outside source")
+    if kind == "leaf":
+        source = tmp_path / "lecture-link.pptx"
+        source.symlink_to(target)
+    elif kind == "ancestor":
+        alias = tmp_path / "real-link"
+        alias.symlink_to(target.parent, target_is_directory=True)
+        source = alias / target.name
+    else:
+        source = tmp_path / "broken.pptx"
+        source.symlink_to(tmp_path / "missing.pptx")
+
+    result = run_extractor(str(source))
+
+    assert result.returncode == 1
+    assert "symlink" in result.stderr.lower() or "does not exist" in result.stderr.lower()
+    assert "Outside source" not in result.stdout
+
+
 def test_legacy_extraction_metadata_marks_unreliable_speaker_note_coverage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -149,6 +238,43 @@ def test_legacy_extraction_metadata_marks_unreliable_speaker_note_coverage(
     assert "Visual/OCR coverage: none" in metadata
     assert "Speaker notes coverage: not reliably distinguished or covered" in metadata
     assert extracted_body == "Legacy source text\n"
+
+
+def test_legacy_parser_rejects_excessive_record_nesting() -> None:
+    payload = b""
+    for _ in range(extract_presentation_text.MAX_PPT_RECORD_NESTING + 2):
+        payload = struct.pack("<HHI", 0xF, 1, len(payload)) + payload
+
+    with pytest.raises(ValueError, match="record nesting exceeds safety limit"):
+        extract_presentation_text.parse_ppt_records(payload, [])
+
+
+def test_legacy_cfb_rejects_truncated_header(tmp_path: Path) -> None:
+    source = tmp_path / "truncated.ppt"
+    source.write_bytes(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\0" * 32)
+
+    with pytest.raises(ValueError, match="truncated Compound File Binary header"):
+        extract_presentation_text.read_cfb_stream(source, "PowerPoint Document")
+
+
+def test_version4_cfb_sector_zero_starts_after_the_4096_byte_header_sector() -> None:
+    assert extract_presentation_text.cfb_sector_offset(0, 4096) == 4096
+
+
+def test_legacy_cfb_rejects_difat_start_when_count_is_zero(tmp_path: Path) -> None:
+    payload = bytearray(1024)
+    payload[:8] = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+    struct.pack_into("<H", payload, 30, 9)
+    struct.pack_into("<H", payload, 32, 6)
+    struct.pack_into("<i", payload, 48, extract_presentation_text.END_OF_CHAIN)
+    struct.pack_into("<I", payload, 56, 4096)
+    struct.pack_into("<i", payload, 60, extract_presentation_text.END_OF_CHAIN)
+    struct.pack_into("<i", payload, 68, 0)
+    source = tmp_path / "inconsistent-difat.ppt"
+    source.write_bytes(payload)
+
+    with pytest.raises(ValueError, match="DIFAT start without DIFAT sectors"):
+        extract_presentation_text.read_cfb_stream(source, "PowerPoint Document")
 
 
 def test_extract_presentation_text_disambiguates_same_basename_sources(tmp_path: Path) -> None:

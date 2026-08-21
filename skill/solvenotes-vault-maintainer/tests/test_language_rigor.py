@@ -1,3 +1,4 @@
+import check_language_rigor
 from check_language_rigor import (
     audit_line,
     classify_claim,
@@ -48,10 +49,22 @@ def test_unconditional_universal_guarantee_is_high_confidence() -> None:
 def test_claim_categories_keep_formal_and_negated_context_distinct() -> None:
     assert classify_claim("保证", "该算法保证所有请求成功。") == "ENGINEERING_PROMISE"
     assert classify_claim("保证", "该措施并不自动保证安全。") == "NEGATED_GUARANTEE"
-    assert classify_claim("保证", "该策略通常保证较稳定的训练过程。") == "NEGATED_GUARANTEE"
+    assert classify_claim("保证", "该策略通常保证较稳定的训练过程。") == "MANUAL_REVIEW"
     assert classify_claim("保证", "在给定条件下保证最短路正确。") == "CONDITIONAL_GUARANTEE"
     assert classify_claim("必然", "定理证明该结论必然成立。") == "FORMAL_GUARANTEE"
     assert classify_claim("首次提出", "该论文首次提出统一框架。") == "EMPIRICAL_OVERCLAIM"
+
+
+def test_hedges_are_not_mistaken_for_negation() -> None:
+    review = audit_line("该策略通常保证较稳定的训练过程。", 20, "demo.md")
+    assert len(review) == 1
+    assert review[0].category == "MANUAL_REVIEW"
+    assert review[0].high_confidence is False
+
+    universal = audit_line("该方法通常保证所有训练都稳定。", 21, "demo.md")
+    assert len(universal) == 1
+    assert universal[0].category == "ENGINEERING_PROMISE"
+    assert universal[0].high_confidence is True
 
 
 def test_claim_categories_cover_math_and_reporting_boundaries() -> None:
@@ -66,6 +79,20 @@ def test_table_schema_labels_are_not_engineering_claims() -> None:
     header = "| 类型/算法 | 面试中常用的保证 | 容易说错的边界 |"
     assert classify_claim("保证", header) == "LABEL_OR_SCHEMA"
     assert audit_line(header, 18, "demo.md") == []
+    assert audit_line("11. **通用 MIP 解决所有图问题**：专门算法可能快得多。", 19, "demo.md") == []
+
+    claim_after_label = audit_line(
+        "- **工程提示**：该系统保证所有请求成功。", 20, "demo.md"
+    )
+    assert len(claim_after_label) == 1
+    assert claim_after_label[0].category == "ENGINEERING_PROMISE"
+    assert claim_after_label[0].high_confidence is True
+
+
+def test_scoped_guarantees_and_rejected_forcing_are_not_overclaims() -> None:
+    assert audit_line("原子替换通常只在同一文件系统内有保证。", 20, "demo.md") == []
+    assert audit_line("实际要求依 DBMS 而定，由唯一索引保证唯一。", 21, "demo.md") == []
+    assert audit_line("组合通常优于强迫一种算法解决全部层次。", 22, "demo.md") == []
 
 
 def test_definition_and_financial_compound_are_not_absolute_claims() -> None:
@@ -109,3 +136,18 @@ def test_output_deduplicates_same_term_and_sentence() -> None:
     issues = audit_line("该流程保证可复现，也保证可比较。", 17, "demo.md")
     assert len(issues) == 2
     assert len(deduplicate_issues(issues)) == 1
+
+
+def test_scan_ignores_tilde_and_long_backtick_fences(monkeypatch, tmp_path) -> None:
+    note = tmp_path / "demo.md"
+    note.write_text(
+        "~~~text\n该系统保证所有请求成功。\n~~~\n"
+        "````text\n```\n该系统保证所有请求成功。\n````\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(check_language_rigor, "markdown_files", lambda: [note])
+    monkeypatch.setattr(check_language_rigor, "rel", lambda path: path.name)
+    monkeypatch.setattr(check_language_rigor, "read_text", lambda path: path.read_text(encoding="utf-8"))
+    monkeypatch.setattr(check_language_rigor, "infer_note_type", lambda path: "course_note")
+
+    assert check_language_rigor.scan_notes() == []

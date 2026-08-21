@@ -13,16 +13,31 @@ import zipfile
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from io import BytesIO
+from pathlib import Path, PurePosixPath
 from xml.etree import ElementTree
 
 from notes_utils import manifest_rows
+from run_with_timeout import run_capture
+from safe_io import (
+    InputTooLargeError,
+    ensure_safe_input_directory,
+    ensure_safe_input_file,
+    read_bytes_no_follow,
+)
 
 WEAK_HIT_COUNT_RE = re.compile(r"(?P<count>\d+)\s*个(?:原)?关键词弱命中(?:单元)?")
 SUPPORTED_EXTRACTABILITY_SUFFIXES = {".pdf", ".pptx", ".docx"}
 SEMANTIC_COMPLETENESS_CLAIMS = ("可抽取文本已覆盖", "语义覆盖完成", "完整覆盖", "已全部覆盖")
+PDF_PROBE_TIMEOUT_SECONDS = 60
+MAX_SOURCE_INPUT_BYTES = 256 * 1024 * 1024
+MAX_OPENXML_MEMBERS = 20_000
+MAX_OPENXML_MEMBER_BYTES = 128 * 1024 * 1024
+MAX_OPENXML_TOTAL_BYTES = 1024 * 1024 * 1024
+MAX_OPENXML_COMPRESSION_RATIO = 1000
 ISSUE_CODE_MARKERS = (
     ("SOURCE_ROOT_UNAVAILABLE", "source root"),
+    ("SOURCE_PATH_UNSAFE", "unsafe source path in manifest"),
     ("SOURCE_MISSING", "missing source file"),
     ("EXTRACTOR_FAILED", "extractability probe failed"),
     ("NO_EXTRACTABLE_TEXT", "source has no extractable text"),
@@ -81,11 +96,45 @@ def _positive_count(cells: list[str]) -> int | None:
 
 
 def _mentioned_units(text: str) -> set[int]:
-    units = {int(value) for value in re.findall(r"\d+", text)}
-    for match in re.finditer(r"(\d+)\s*[-–~至]\s*(\d+)", text):
-        start, end = map(int, match.groups())
-        if start <= end and end - start <= 10000:
-            units.update(range(start, end + 1))
+    """Return only units named by an explicit page/slide reference.
+
+    Dates and tool versions often occur in the same limitation cell as the
+    blank-page declaration.  Treating every integer as a page number can make
+    ``Tesseract 5.5.3`` accidentally waive a genuinely unnamed blank page.
+    """
+
+    atom = r"\d+(?:\s*[-–—~～至]\s*\d+)?"
+    values = rf"{atom}(?:\s*[、,，]\s*{atom})*"
+    reference_patterns = (
+        re.compile(
+            rf"(?:(?<![A-Za-z0-9_])p(?:ages?)?\.?|"
+            rf"(?<![A-Za-z0-9_])slides?|页(?:面)?)\s*(?P<values>{values})",
+            re.IGNORECASE,
+        ),
+        re.compile(rf"第\s*(?P<values>{values})\s*(?:页|张)", re.IGNORECASE),
+        re.compile(rf"(?P<values>{values})\s*(?:页|张)(?![A-Za-z0-9_])", re.IGNORECASE),
+        re.compile(
+            rf"\d+\s*(?:页|张)\s*[（(]\s*(?P<values>{values})\s*[）)]",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            rf"(?:空白|无可读|未抽到)(?:页|slides?)?\s*(?:为|[:：])\s*"
+            rf"(?P<values>{values})",
+            re.IGNORECASE,
+        ),
+    )
+
+    units: set[int] = set()
+    for pattern in reference_patterns:
+        for match in pattern.finditer(text):
+            for item in re.split(r"\s*[、,，]\s*", match.group("values")):
+                range_match = re.fullmatch(r"(\d+)\s*[-–—~～至]\s*(\d+)", item)
+                if range_match is None:
+                    units.add(int(item))
+                    continue
+                start, end = map(int, range_match.groups())
+                if start <= end and end - start <= 10000:
+                    units.update(range(start, end + 1))
     return units
 
 
@@ -98,6 +147,16 @@ def _all_units_marked_blank(text: str, blank_units: tuple[int, ...], expected: i
     return "均" in text and str(expected) in text and blank_marked
 
 
+def _completed_ocr_declaration(text: str, expected: int) -> bool:
+    """Validate a concrete declaration, not the temporary OCR artifact itself."""
+
+    engine = re.search(r"(?:Tesseract|PaddleOCR|EasyOCR|OCRmyPDF)\s*[vV]?\s*\d", text)
+    complete_scope = "逐页" in text or f"{expected}/{expected}" in text
+    visual_check = any(marker in text for marker in ("目视", "视觉复核", "逐页复核"))
+    completed = re.search(r"(?:已|完成|执行|进行|使用)[^；。\n]{0,96}OCR", text, re.IGNORECASE)
+    return bool(engine and complete_scope and visual_check and completed)
+
+
 def _known_no_text_limitation(
     cells: list[str],
     *,
@@ -105,21 +164,22 @@ def _known_no_text_limitation(
     observed: int | None,
     blank_units: tuple[int, ...],
 ) -> bool:
-    """Accept a deliberately narrow, auditable exception for visual-only files.
+    """Accept a deliberately narrow, explicitly recorded visual-only exception.
 
     A source with no text layer is not evidence of its visual content.  Strict
     mode can therefore waive the extractability failure only for a row that
-    explicitly records a whole-document visual-page check, no OCR, and no
-    claim of complete semantic coverage.  Any missing or ambiguous field stays
-    fatal.
+    explicitly records a whole-document visual-page check, an OCR declaration
+    (either not performed or completed with concrete details), and no claim of
+    complete semantic coverage.  Any missing or ambiguous field stays fatal.
     """
 
     if len(cells) < 8 or expected is None or observed != expected:
         return False
     method = cells[3].strip().lower()
+    method_parts = {part.strip() for part in method.split("+")}
     coverage = cells[5].strip()
     limitations = cells[7].strip()
-    if method != "visual-page-check" or not coverage.startswith("仅映射："):
+    if "visual-page-check" not in method_parts or not coverage.startswith("仅映射："):
         return False
     if not any(marker in coverage for marker in ("文本层无可抽取", "无可抽取文本")):
         return False
@@ -127,11 +187,94 @@ def _known_no_text_limitation(
         return False
     if not _all_units_marked_blank(limitations, blank_units, expected):
         return False
-    if not re.search(r"(?:未做|未进行)\s*OCR|OCR\s*(?:未做|未进行)", limitations, flags=re.IGNORECASE):
+    ocr_not_done = re.search(
+        r"(?:未做|未进行)\s*OCR|OCR\s*(?:未做|未进行)",
+        limitations,
+        flags=re.IGNORECASE,
+    )
+    ocr_completed = _completed_ocr_declaration(f"{coverage}；{limitations}", expected)
+    if not (ocr_not_done or ocr_completed):
         return False
     return "完整语义覆盖" in limitations and any(
         marker in limitations for marker in ("不证明", "不声称", "不构成")
     )
+
+
+def _default_run_command(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+    timeout = float(kwargs.get("timeout", PDF_PROBE_TIMEOUT_SECONDS))
+    result = run_capture(
+        command,
+        timeout,
+        "source PDF text probe",
+        max_stdout_bytes=MAX_SOURCE_INPUT_BYTES,
+    )
+    if result.timed_out:
+        raise subprocess.TimeoutExpired(command, timeout)
+    if result.returncode == 127:
+        raise FileNotFoundError(command[0])
+    if result.stdout_limit_exceeded or result.stderr_limit_exceeded:
+        return subprocess.CompletedProcess(
+            command,
+            125,
+            stdout="",
+            stderr="pdftotext output exceeded the configured safety limit",
+        )
+    return subprocess.CompletedProcess(
+        command,
+        result.returncode,
+        stdout=result.stdout.decode("utf-8", errors="replace"),
+        stderr=result.stderr.decode("utf-8", errors="replace"),
+    )
+
+
+def _manifest_relative_path(source: str) -> Path:
+    if not source or "\\" in source:
+        raise ValueError("source path is empty or uses a backslash")
+    parsed = PurePosixPath(source)
+    if parsed.is_absolute() or any(part in {"", ".", ".."} for part in parsed.parts):
+        raise ValueError("source path must be a normalized relative POSIX path")
+    return Path(*parsed.parts)
+
+
+def _safe_manifest_source(source_root: Path, source: str) -> Path:
+    return ensure_safe_input_file(source_root / _manifest_relative_path(source))
+
+
+def _validate_openxml_archive(archive: zipfile.ZipFile) -> None:
+    members = archive.infolist()
+    if len(members) > MAX_OPENXML_MEMBERS:
+        raise ValueError("OpenXML ZIP has too many members")
+    names: set[str] = set()
+    total = 0
+    for member in members:
+        name = member.filename
+        parsed = PurePosixPath(name)
+        if (
+            not name
+            or "\\" in name
+            or parsed.is_absolute()
+            or any(part in {"", ".", ".."} for part in parsed.parts)
+        ):
+            raise ValueError("OpenXML ZIP contains an unsafe member path")
+        if name in names:
+            raise ValueError("OpenXML ZIP contains duplicate members")
+        names.add(name)
+        if member.flag_bits & 0x1:
+            raise ValueError("encrypted OpenXML packages are not supported")
+        if member.file_size > MAX_OPENXML_MEMBER_BYTES:
+            raise ValueError("OpenXML ZIP member exceeds the uncompressed size limit")
+        total += member.file_size
+        if total > MAX_OPENXML_TOTAL_BYTES:
+            raise ValueError("OpenXML ZIP exceeds the total uncompressed size limit")
+        if member.file_size and (
+            member.compress_size == 0
+            or member.file_size > member.compress_size * MAX_OPENXML_COMPRESSION_RATIO
+        ):
+            raise ValueError("OpenXML ZIP member exceeds the compression-ratio limit")
+
+
+def _openxml_payload(source_path: Path) -> bytes:
+    return read_bytes_no_follow(source_path, max_bytes=MAX_SOURCE_INPUT_BYTES)
 
 
 def _pdf_units(
@@ -144,9 +287,14 @@ def _pdf_units(
             text=True,
             capture_output=True,
             check=False,
+            timeout=PDF_PROBE_TIMEOUT_SECONDS,
         )
     except FileNotFoundError:
         return None, "pdftotext is unavailable"
+    except subprocess.TimeoutExpired:
+        return None, f"pdftotext timed out after {PDF_PROBE_TIMEOUT_SECONDS} seconds"
+    if result.returncode == 125:
+        return None, result.stderr or "pdftotext output exceeded the configured safety limit"
     if result.returncode:
         return None, "pdftotext failed"
     units = result.stdout.split("\f")
@@ -157,7 +305,8 @@ def _pdf_units(
 
 def _xml_text_units(source_path: Path, pattern: re.Pattern[str]) -> tuple[list[str] | None, str | None]:
     try:
-        with zipfile.ZipFile(source_path) as archive:
+        with zipfile.ZipFile(BytesIO(_openxml_payload(source_path))) as archive:
+            _validate_openxml_archive(archive)
             members: list[tuple[int, str]] = []
             for name in archive.namelist():
                 match = pattern.fullmatch(name)
@@ -167,17 +316,18 @@ def _xml_text_units(source_path: Path, pattern: re.Pattern[str]) -> tuple[list[s
             for _, name in sorted(members):
                 root = ElementTree.fromstring(archive.read(name))
                 units.append(" ".join((node.text or "").strip() for node in root.iter() if node.tag.endswith("}t")))
-    except (OSError, zipfile.BadZipFile, ElementTree.ParseError) as exc:
-        return None, f"OpenXML extraction failed: {exc.__class__.__name__}"
+    except (OSError, ValueError, InputTooLargeError, zipfile.BadZipFile, ElementTree.ParseError) as exc:
+        return None, f"OpenXML extraction failed: {exc}"
     return units, None
 
 
 def _docx_has_text(source_path: Path) -> tuple[bool | None, str | None]:
     try:
-        with zipfile.ZipFile(source_path) as archive:
+        with zipfile.ZipFile(BytesIO(_openxml_payload(source_path))) as archive:
+            _validate_openxml_archive(archive)
             root = ElementTree.fromstring(archive.read("word/document.xml"))
-    except (KeyError, OSError, zipfile.BadZipFile, ElementTree.ParseError) as exc:
-        return None, f"DOCX extraction failed: {exc.__class__.__name__}"
+    except (KeyError, OSError, ValueError, InputTooLargeError, zipfile.BadZipFile, ElementTree.ParseError) as exc:
+        return None, f"DOCX extraction failed: {exc}"
     return any((node.text or "").strip() for node in root.iter() if node.tag.endswith("}t")), None
 
 
@@ -186,7 +336,7 @@ def source_extractability_issues(
     rows: list[tuple[Path, list[str]]],
     *,
     strict: bool,
-    run_command: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    run_command: Callable[..., subprocess.CompletedProcess[str]] = _default_run_command,
 ) -> tuple[list[str], list[ExtractabilityEvidence], int]:
     """Probe PDF/PPTX/DOCX text layers in strict mode.
 
@@ -207,8 +357,15 @@ def source_extractability_issues(
             continue
         source = cells[0].strip("`")
         suffix = Path(source).suffix.lower()
-        source_path = source_root / source
-        if not source_path.is_file():
+        try:
+            source_path = _safe_manifest_source(source_root, source)
+        except (OSError, ValueError) as exc:
+            try:
+                candidate = source_root / _manifest_relative_path(source)
+            except ValueError:
+                candidate = None
+            if candidate is None or candidate.exists() or candidate.is_symlink():
+                issues.append(f"unsafe source path in manifest {source!r}: {exc}")
             continue
         if suffix not in SUPPORTED_EXTRACTABILITY_SUFFIXES:
             unsupported += 1
@@ -250,7 +407,7 @@ def source_extractability_issues(
         if not has_text and not known_no_text:
             issues.append(
                 f"source has no extractable text without a complete known-limitation contract: {source}; "
-                "require visual-page-check, whole-document blank units, OCR-not-done, and no-complete-semantics wording"
+                "require visual-page-check, whole-document blank units, a concrete OCR declaration, and no-complete-semantics wording"
             )
         if blank_units and "可抽取文本已覆盖" in coverage_status:
             preview = ",".join(str(unit) for unit in blank_units[:20])
@@ -274,7 +431,7 @@ def pdf_text_consistency_issues(
     rows: list[tuple[Path, list[str]]],
     *,
     strict: bool,
-    run_command: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    run_command: Callable[..., subprocess.CompletedProcess[str]] = _default_run_command,
 ) -> tuple[list[str], int]:
     """Compatibility helper for the former suspicious-PDF-only contract."""
 
@@ -312,26 +469,57 @@ def main() -> int:
         if args.strict:
             issues.append("source root is not configured; set SOLVENOTES_SOURCE_ROOT or pass --source-root")
     else:
-        source_root = source_root.resolve()
-        source_root_label = str(source_root)
-        source_dirs_present = any((source_root / directory).exists() for directory in source_dirs)
-        if not source_root.exists() or not source_dirs_present:
+        try:
+            source_root = ensure_safe_input_directory(source_root)
+        except (OSError, ValueError) as exc:
             skipped = True
+            source_root_label = str(source_root)
             if args.strict:
-                issues.append(f"source root or course source directories are unavailable: {source_root}")
+                issues.append(f"source root is unsafe or unavailable: {exc}")
         else:
-            for _, cells in rows:
-                if len(cells) < 1:
+            source_root_label = str(source_root)
+            safe_source_dirs: set[str] = set()
+            for directory in source_dirs:
+                try:
+                    relative = _manifest_relative_path(directory)
+                except ValueError:
                     continue
-                source = cells[0].strip("`")
-                if not (source_root / source).exists():
-                    issue = f"missing source file: {source_root / source}"
-                    missing_source_issues.append(issue)
-                    issues.append(issue)
-            extractability_issues, extractability_evidence, unsupported_extractability_rows = (
-                source_extractability_issues(source_root, rows, strict=args.strict)
+                if len(relative.parts) == 1:
+                    safe_source_dirs.add(relative.parts[0])
+            source_dirs_present = not safe_source_dirs or any(
+                (source_root / directory).exists() for directory in safe_source_dirs
             )
-            issues.extend(extractability_issues)
+            if not source_dirs_present:
+                skipped = True
+                if args.strict:
+                    issues.append(
+                        f"source root or course source directories are unavailable: {source_root}"
+                    )
+            else:
+                safe_rows: list[tuple[Path, list[str]]] = []
+                for manifest_path, cells in rows:
+                    if len(cells) < 1:
+                        continue
+                    source = cells[0].strip("`")
+                    try:
+                        _safe_manifest_source(source_root, source)
+                    except (OSError, ValueError) as exc:
+                        try:
+                            candidate = source_root / _manifest_relative_path(source)
+                        except ValueError:
+                            candidate = None
+                        if candidate is not None and not candidate.exists() and not candidate.is_symlink():
+                            issue = f"missing source file: {candidate}"
+                            missing_source_issues.append(issue)
+                        else:
+                            issue = f"unsafe source path in manifest {source!r}: {exc}"
+                        issues.append(issue)
+                    else:
+                        safe_rows.append((manifest_path, cells))
+                extractability_issues, extractability_evidence, unsupported_extractability_rows = (
+                    source_extractability_issues(source_root, safe_rows, strict=args.strict)
+                )
+                issues.extend(extractability_issues)
 
     blank_units = sum(len(item.blank_units) for item in extractability_evidence)
     payload = {

@@ -11,7 +11,17 @@ import zipfile
 from io import BytesIO
 from pathlib import Path, PurePosixPath
 
-from archive_contract import is_symlink_entry, records_digest, safe_entry
+from archive_contract import (
+    MAX_ARCHIVE_INPUT_BYTES,
+    MAX_MANIFEST_BYTES,
+    archive_budget_issues,
+    is_symlink_entry,
+    member_digest,
+    portable_path_collision_issues,
+    read_member_limited,
+    records_digest,
+    safe_entry,
+)
 from safe_io import ensure_safe_input_file, read_bytes_no_follow
 from vault_contract import (
     CURRENT_LOCK_SCHEMA_VERSION,
@@ -24,6 +34,8 @@ FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 EXPECTED_REPOSITORY = "blacksheep1118/codex-obsidian-skills"
 EXPECTED_MAINTAINER = "solvenotes-vault-maintainer"
 ALLOWED_TOP_LEVEL = {"agent", "notes", "skills"}
+
+
 def _skill_digest_from_manifest(files: list[dict[str, object]], name: str) -> str:
     prefix = f"skills/skill/{name}/"
     records = []
@@ -46,13 +58,36 @@ def _skill_digest_from_manifest(files: list[dict[str, object]], name: str) -> st
 
 def verify(archive_path: Path, sidecar_path: Path | None = None) -> dict[str, object]:
     issues: list[str] = []
-    archive_bytes = read_bytes_no_follow(ensure_safe_input_file(archive_path))
+    try:
+        archive_bytes = read_bytes_no_follow(
+            ensure_safe_input_file(archive_path), max_bytes=MAX_ARCHIVE_INPUT_BYTES
+        )
+    except (OSError, ValueError) as exc:
+        return {"ok": False, "issues": [str(exc)], "entries": 0, "archive_sha256": ""}
     archive_sha256 = hashlib.sha256(archive_bytes).hexdigest()
-    with zipfile.ZipFile(BytesIO(archive_bytes), "r") as archive:
+    try:
+        archive_handle = zipfile.ZipFile(BytesIO(archive_bytes), "r")
+    except (OSError, zipfile.BadZipFile) as exc:
+        return {
+            "ok": False,
+            "issues": [f"invalid workspace ZIP: {exc}"],
+            "entries": 0,
+            "archive_sha256": archive_sha256,
+        }
+    with archive_handle as archive:
         infos = archive.infolist()
         names = [info.filename for info in infos]
+        budget_issues = archive_budget_issues(infos)
+        if budget_issues:
+            return {
+                "ok": False,
+                "issues": budget_issues,
+                "entries": len(names),
+                "archive_sha256": archive_sha256,
+            }
         if len(names) != len(set(names)):
             issues.append("duplicate ZIP entries")
+        issues.extend(portable_path_collision_issues(names))
         for info in infos:
             if not safe_entry(info.filename):
                 issues.append(f"unsafe ZIP entry: {info.filename}")
@@ -67,8 +102,10 @@ def verify(archive_path: Path, sidecar_path: Path | None = None) -> dict[str, ob
             if is_symlink_entry(info):
                 issues.append(f"symbolic-link ZIP entry: {info.filename}")
         try:
-            manifest = json.loads(archive.read("BUILD-MANIFEST.json").decode("utf-8"))
-        except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            manifest = json.loads(
+                read_member_limited(archive, "BUILD-MANIFEST.json").decode("utf-8")
+            )
+        except (KeyError, UnicodeDecodeError, json.JSONDecodeError, zipfile.BadZipFile, RuntimeError, ValueError) as exc:
             issues.append(f"invalid BUILD-MANIFEST.json: {exc}")
             manifest = None
         if not isinstance(manifest, dict):
@@ -97,10 +134,14 @@ def verify(archive_path: Path, sidecar_path: Path | None = None) -> dict[str, ob
                     if not isinstance(name, str) or name not in actual:
                         issues.append(f"manifest references missing entry: {name}")
                         continue
-                    digest = hashlib.sha256(archive.read(name)).hexdigest()
+                    try:
+                        size, digest = member_digest(archive, name)
+                    except (KeyError, zipfile.BadZipFile, RuntimeError, ValueError) as exc:
+                        issues.append(f"cannot verify manifest entry {name}: {exc}")
+                        continue
                     if digest != item.get("sha256"):
                         issues.append(f"manifest digest mismatch: {name}")
-                    if len(archive.read(name)) != item.get("size"):
+                    if size != item.get("size"):
                         issues.append(f"manifest size mismatch: {name}")
                 if manifest.get("content_digest") != records_digest(files):
                     issues.append("manifest content_digest does not match file records")
@@ -114,8 +155,10 @@ def verify(archive_path: Path, sidecar_path: Path | None = None) -> dict[str, ob
                 issues.append(f"package is missing {lock_name}")
             else:
                 try:
-                    lock_payload = json.loads(archive.read(lock_name).decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    lock_payload = json.loads(
+                        read_member_limited(archive, lock_name).decode("utf-8")
+                    )
+                except (UnicodeDecodeError, json.JSONDecodeError, zipfile.BadZipFile, RuntimeError, ValueError) as exc:
                     issues.append(f"invalid {lock_name}: {exc}")
             coherent_from_content = (
                 isinstance(skills_commit, str)
@@ -139,14 +182,16 @@ def verify(archive_path: Path, sidecar_path: Path | None = None) -> dict[str, ob
             if isinstance(lock_payload, dict):
                 graph_name = "skills/skill/dependencies.json"
                 try:
-                    graph_payload = json.loads(archive.read(graph_name).decode("utf-8"))
+                    graph_payload = json.loads(
+                        read_member_limited(archive, graph_name).decode("utf-8")
+                    )
                     graph = graph_payload.get("required") if isinstance(graph_payload, dict) else None
                     graph_ok = (
                         isinstance(graph, dict)
                         and dependency_graph_digest(graph)
                         == lock_payload.get("dependency_graph_digest")
                     )
-                except (KeyError, UnicodeDecodeError, json.JSONDecodeError):
+                except (KeyError, UnicodeDecodeError, json.JSONDecodeError, zipfile.BadZipFile, RuntimeError, ValueError):
                     graph_ok = False
                 coherent_from_content = coherent_from_content and graph_ok
             if manifest.get("coherent_workspace") is not coherent_from_content:
@@ -155,9 +200,11 @@ def verify(archive_path: Path, sidecar_path: Path | None = None) -> dict[str, ob
                 issues.append("package is not a coherent locked workspace")
     if sidecar_path is not None:
         try:
-            sidecar_bytes = read_bytes_no_follow(ensure_safe_input_file(sidecar_path))
+            sidecar_bytes = read_bytes_no_follow(
+                ensure_safe_input_file(sidecar_path), max_bytes=MAX_MANIFEST_BYTES
+            )
             sidecar = json.loads(sidecar_bytes.decode("utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             issues.append(f"invalid sidecar manifest: {exc}")
             sidecar = None
         if not isinstance(sidecar, dict):

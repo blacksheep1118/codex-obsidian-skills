@@ -110,6 +110,31 @@ def test_collect_page_accepts_file_uri_with_spaces(tmp_path: Path):
     assert "week%201.pptx" in page.links[0].url
 
 
+@pytest.mark.parametrize("kind", ["leaf", "ancestor", "broken"])
+def test_collect_sources_rejects_symlinked_local_inputs(tmp_path: Path, kind: str):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = outside / "course.html"
+    target.write_text("<!doctype html><title>Outside Course</title>", encoding="utf-8")
+    if kind == "leaf":
+        source = tmp_path / "course-link.html"
+        source.symlink_to(target)
+    elif kind == "ancestor":
+        alias = tmp_path / "outside-link"
+        alias.symlink_to(outside, target_is_directory=True)
+        source = alias / "course.html"
+    else:
+        source = tmp_path / "broken.html"
+        source.symlink_to(tmp_path / "missing.html")
+
+    page = collect_sources([str(source)])[0]
+
+    assert page.access_status == "inaccessible"
+    assert page.access_class == "filesystem_error"
+    assert "symlink" in page.error.lower() or "does not exist" in page.error.lower()
+    assert page.title != "Outside Course"
+
+
 def test_collect_page_skips_same_document_navigation_and_non_web_schemes(tmp_path: Path):
     html_path = tmp_path / "course.html"
     html_path.write_text(
@@ -300,6 +325,36 @@ def test_collect_source_records_chunked_response_byte_limit(monkeypatch):
     assert page.access_status == "too_large"
     assert page.access_class == "size_limit"
     assert "byte limit" in page.error
+
+
+def test_collect_source_records_local_file_byte_limit(tmp_path: Path):
+    source = tmp_path / "large.html"
+    source.write_text("<title>Too large</title>", encoding="utf-8")
+
+    page = collect_web_sources.collect_source(str(source), max_bytes=10)
+
+    assert page.access_status == "too_large"
+    assert page.access_class == "size_limit"
+    assert "byte limit" in page.error
+
+
+@pytest.mark.parametrize("kind", ["missing", "symlink"])
+def test_collect_source_marks_unsafe_direct_local_resource_inaccessible(
+    tmp_path: Path,
+    kind: str,
+):
+    source = tmp_path / "lecture.pdf"
+    if kind == "symlink":
+        target = tmp_path / "outside.pdf"
+        target.write_bytes(b"%PDF-placeholder")
+        source.symlink_to(target)
+
+    page = collect_web_sources.collect_source(str(source))
+
+    assert page.kind == "pdf"
+    assert page.access_status == "inaccessible"
+    assert page.access_class == "filesystem_error"
+    assert page.error
 
 
 def test_collect_source_records_total_read_timeout(monkeypatch):

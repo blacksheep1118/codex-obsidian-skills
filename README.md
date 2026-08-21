@@ -72,7 +72,7 @@ py scripts\install_skill.py --all --self-check
 
 On Windows, replace `py` with `python` if the Python launcher is not installed.
 
-Installing from a GitHub clone is the normal path. The install and update scripts copy the runtime/self-check payload and exclude repository-only `tests/` together with caches, macOS resource files, Python bytecode, build directories, distribution metadata, and generated `converted_pptx/` outputs. Each installed Skill receives a `.codex-skill-install.json` containing its source commit, dirty state, runtime digest, managed files, and required-Skill digests. `install_skill.py` is only for a first install and refuses an existing destination skill directory; use `update_installed_skills.py` explicitly to refresh an existing install. Its `--dry-run` compares managed files and reports added, changed, unchanged, and stale paths without writing. You do not need to compress the repository before installing.
+Installing from a GitHub clone is the normal path. The install and update scripts copy the runtime/self-check payload and exclude repository-only `tests/` together with caches, macOS resource files, Python bytecode, build directories, distribution metadata, and generated `converted_pptx/` outputs. Each installed Skill receives a `.codex-skill-install.json` containing its source commit, dirty state, runtime digest, managed files, and required-Skill digests. Self-check validates that schema and, for a clean source commit available in the checkout, recomputes the committed Skill tree digest instead of trusting provenance strings. `install_skill.py` is only for a first install and refuses an existing destination skill directory; use `update_installed_skills.py` explicitly to refresh an existing install. Its `--dry-run` compares managed files and reports added, changed, unchanged, and stale paths without writing. You do not need to compress the repository before installing.
 
 `--self-check` remains a compatibility alias for `--self-check-level smoke`.
 Use `metadata` for static installation checks, `runtime` to execute installed
@@ -96,6 +96,7 @@ py scripts\install_skill.py --skill obsidian-vault-organizer --self-check
 py scripts\install_skill.py --skill web-course-notes-for-obsidian --self-check
 py scripts\install_skill.py --skill notes-to-scientific-ppt --self-check
 py scripts\install_skill.py --skill algorithm-job-notes-for-obsidian --self-check
+py scripts\install_skill.py --skill solvenotes-vault-maintainer --self-check-level full
 ```
 
 Check a first install into a fresh destination without writing files. For an existing install, use `update_installed_skills.py --dry-run` instead:
@@ -212,18 +213,18 @@ When a task crosses sources, notes, cleanup, and deck creation, follow the hando
     │   ├── scripts/
     │   └── tests/
     ├── obsidian-vault-organizer/
-        ├── SKILL.md
-        ├── LICENSE
-        ├── agents/
-        ├── references/
-        └── scripts/
+    │   ├── SKILL.md
+    │   ├── LICENSE
+    │   ├── agents/
+    │   ├── references/
+    │   └── scripts/
     ├── algorithm-job-notes-for-obsidian/
-        ├── SKILL.md
-        ├── LICENSE
-        ├── agents/
-        ├── references/
-        ├── scripts/
-        └── tests/
+    │   ├── SKILL.md
+    │   ├── LICENSE
+    │   ├── agents/
+    │   ├── references/
+    │   ├── scripts/
+    │   └── tests/
     └── solvenotes-vault-maintainer/
         ├── SKILL.md
         ├── agents/
@@ -247,7 +248,7 @@ The PPT skill includes deterministic helpers for the fragile parts of courseware
 
 - `extract_pptx_text.py`: extract slide text, tables, and speaker notes from `.pptx`.
 - `convert_ppt_to_pptx.py`: convert legacy `.ppt` with LibreOffice before extraction.
-- `extract_pdf_text.py`: extract raw PDF text with `pypdf` and optional `pdfplumber`.
+- `extract_pdf_text.py`: extract one stable PDF snapshot with `pypdf`, optional `pdfplumber`, and `pdftotext` fallback; reject oversized inputs, page counts, and extracted-text payloads.
 - `clean_latex_from_ppt.py`: normalize formula and Unicode noise from extracted text.
 - `ppt_to_obsidian_pipeline.py`: run source extraction, cleanup, and manifest creation.
 - `check_obsidian_links.py`: validate Markdown and Obsidian wiki links.

@@ -14,6 +14,7 @@ SKILL = ROOT / "SKILL.md"
 CONTRACT = ROOT / "references" / "algorithm-job-contract.md"
 TAXONOMY = ROOT / "scripts" / "algorithm_job_taxonomy.py"
 SCANNER = ROOT / "scripts" / "check_algorithm_job_vault.py"
+TIMEOUT_RUNNER = ROOT / "scripts" / "run_with_timeout.py"
 
 
 def main() -> int:
@@ -33,8 +34,8 @@ def main() -> int:
     if table.count("| `") != len(CANONICAL_IDS):
         print("ERROR: canonical direction table is not a single nine-row table", file=sys.stderr)
         return 1
-    if not TAXONOMY.is_file() or not SCANNER.is_file():
-        print("ERROR: scanner or central taxonomy is missing", file=sys.stderr)
+    if not TAXONOMY.is_file() or not SCANNER.is_file() or not TIMEOUT_RUNNER.is_file():
+        print("ERROR: scanner, taxonomy, or timeout runner is missing", file=sys.stderr)
         return 1
     if "Do not create a tenth" not in text or "Migration decisions" not in contract:
         print("ERROR: migration boundary is incomplete", file=sys.stderr)

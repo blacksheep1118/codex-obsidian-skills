@@ -13,6 +13,7 @@ import io
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tarfile
@@ -21,6 +22,8 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
 from run_with_timeout import run as run_process
+from run_with_timeout import run_capture
+from safe_io import ensure_safe_input_directory, ensure_safe_input_file, read_bytes_no_follow, safe_write_text
 from vault_contract import (
     ALGORITHM_JOB_SKILL,
     CURRENT_LOCK_SCHEMA_VERSION,
@@ -58,6 +61,8 @@ TARGET_FILES = (
 TARGET_FIXTURE_PREFIX = "skill/solvenotes-vault-maintainer/fixtures/solvenotes-mini-vault/"
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 INSTALL_EXCLUDED_PARTS = {"tests"}
+MAX_LOCK_BYTES = 1_048_576
+MAX_TARGET_ARCHIVE_BYTES = 1024 * 1024 * 1024
 
 
 def normalize_repository_url(value: str) -> str:
@@ -161,10 +166,17 @@ def resolve_commit(skills_root: Path, ref: str) -> str:
 
 def current_lock(notes_root: Path) -> dict[str, object] | None:
     path = lock_path(notes_root)
-    if not path.exists():
+    try:
+        path.lstat()
+    except FileNotFoundError:
         return None
-    with path.open(encoding="utf-8") as handle:
-        value = json.load(handle)
+    payload = read_bytes_no_follow(path, max_bytes=MAX_LOCK_BYTES)
+    if not payload:
+        raise ValueError(f"existing lock is empty: {path}")
+    try:
+        value = json.loads(payload.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"existing lock is not UTF-8: {path}") from exc
     if not isinstance(value, dict):
         raise ValueError(f"existing lock is not a JSON object: {path}")
     return value
@@ -255,6 +267,29 @@ def target_content_digest(
     return hashlib.sha256(canonical).hexdigest()
 
 
+def target_archive(skills_root: Path, commit: str) -> bytes:
+    """Return the target Git archive or raise a domain-level validation error."""
+
+    result = run_capture(
+        ["git", "-C", str(skills_root), "archive", commit],
+        60,
+        f"archive target commit {commit}",
+        max_stdout_bytes=MAX_TARGET_ARCHIVE_BYTES,
+        max_stderr_bytes=1024 * 1024,
+    )
+    if result.timed_out:
+        raise ValueError(f"cannot archive target commit {commit}: timed out after 60 seconds")
+    if result.stdout_limit_exceeded or result.stderr_limit_exceeded:
+        raise ValueError(f"cannot archive target commit {commit}: output exceeded safety limit")
+    if result.returncode:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise ValueError(
+            f"cannot archive target commit {commit}: git exited {result.returncode}"
+            + (f": {detail}" if detail else "")
+        )
+    return result.stdout
+
+
 def verify_target_tree(skills_root: Path, commit: str, *, level: str) -> dict[str, object]:
     paths = target_paths(skills_root, commit)
     path_set = set(paths)
@@ -330,9 +365,7 @@ def verify_target_tree(skills_root: Path, commit: str, *, level: str) -> dict[st
         with tempfile.TemporaryDirectory(prefix="solvenotes-lock-target-") as temporary:
             extracted = Path(temporary) / "repo"
             extracted.mkdir()
-            archive = subprocess.check_output(
-                ["git", "-C", str(skills_root), "archive", commit], timeout=60
-            )
+            archive = target_archive(skills_root, commit)
             with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
                 safe_extract_tar(tar, extracted)
             installer = extracted / "scripts" / "install_skill.py"
@@ -378,9 +411,7 @@ def verify_target_tree(skills_root: Path, commit: str, *, level: str) -> dict[st
         with tempfile.TemporaryDirectory(prefix="solvenotes-lock-tests-") as temporary:
             extracted = Path(temporary) / "repo"
             extracted.mkdir()
-            archive = subprocess.check_output(
-                ["git", "-C", str(skills_root), "archive", commit], timeout=60
-            )
+            archive = target_archive(skills_root, commit)
             with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
                 safe_extract_tar(tar, extracted)
             returncode = run_process(
@@ -399,27 +430,17 @@ def verify_target_tree(skills_root: Path, commit: str, *, level: str) -> dict[st
 
 def write_lock(notes_root: Path, payload: dict[str, object]) -> None:
     destination = lock_path(notes_root)
-    if destination.parent.exists() and destination.parent.is_symlink():
-        raise ValueError(f"lock directory must not be a symlink: {destination.parent}")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if not destination.parent.is_dir():
-        raise ValueError(f"lock directory must be a regular directory: {destination.parent}")
+    ensure_safe_input_directory(notes_root)
     rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
-    fd, temporary_name = tempfile.mkstemp(
-        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
-    )
+    mode = 0o644
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(rendered)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary_name, destination)
-    except Exception:
-        try:
-            os.unlink(temporary_name)
-        except FileNotFoundError:
-            pass
-        raise
+        destination.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        existing = ensure_safe_input_file(destination)
+        mode = stat.S_IMODE(existing.lstat().st_mode)
+    safe_write_text(destination, rendered, mode=mode)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -439,7 +460,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.write and args.dry_run:
         parser.error("--write and --dry-run are mutually exclusive")
-    notes_root = args.notes_root.resolve()
+    notes_root = Path(os.path.abspath(args.notes_root.expanduser()))
     skills_root = args.skills_root.resolve()
     try:
         verify_repository_identity(skills_root, allow_local_source=args.allow_local_source)

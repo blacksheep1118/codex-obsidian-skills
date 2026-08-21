@@ -6,12 +6,23 @@ from __future__ import annotations
 import argparse
 import re
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 
+try:
+    from .run_with_timeout import run_capture
+except ImportError:
+    from run_with_timeout import run_capture
+
 MARKER = "<!-- runnable: cpp17 -->"
 CPP_BLOCK_RE = re.compile(r"```cpp[^\n]*\n(.*?)^```\s*$", re.MULTILINE | re.DOTALL)
+
+
+def positive_timeout(value: str) -> float:
+    timeout = float(value)
+    if timeout <= 0:
+        raise argparse.ArgumentTypeError("timeout must be greater than zero")
+    return timeout
 
 
 def marked_blocks(text: str) -> list[tuple[int, str]]:
@@ -26,7 +37,7 @@ def marked_blocks(text: str) -> list[tuple[int, str]]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True, help="notes vault root")
-    parser.add_argument("--timeout", type=float, default=5.0)
+    parser.add_argument("--timeout", type=positive_timeout, default=5.0)
     args = parser.parse_args()
     compiler = shutil.which("g++")
     paths = sorted(args.root.rglob("*.md"))
@@ -38,30 +49,45 @@ def main() -> int:
         print(f"cpp_examples skipped compiler_missing marked_blocks={len(discovered)}")
         return 0
     failures: list[str] = []
+    compiled_count = 0
     with tempfile.TemporaryDirectory(prefix="solvenotes-cpp-") as temp_dir:
         temp = Path(temp_dir)
         for index, (path, line, code) in enumerate(discovered, 1):
             source = temp / f"example_{index}.cpp"
             binary = temp / f"example_{index}"
             source.write_text(code, encoding="utf-8")
-            compile_result = subprocess.run(
-                [compiler, "-std=c++17", "-Wall", "-Wextra", "-pedantic", str(source), "-o", str(binary)],
-                capture_output=True,
-                text=True,
-                timeout=args.timeout,
-            )
             label = f"{path.relative_to(args.root)}:{line}"
-            if compile_result.returncode:
-                failures.append(f"{label}: compile\n{compile_result.stderr.strip()}")
+            compile_result = run_capture(
+                [compiler, "-std=c++17", "-Wall", "-Wextra", "-pedantic", str(source), "-o", str(binary)],
+                args.timeout,
+                f"compile {label}",
+            )
+            if compile_result.timed_out:
+                failures.append(f"{label}: compile timeout")
                 continue
-            try:
-                run_result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=args.timeout)
-            except subprocess.TimeoutExpired:
+            if compile_result.stdout_limit_exceeded or compile_result.stderr_limit_exceeded:
+                failures.append(f"{label}: compile diagnostic output exceeded safety limit")
+                continue
+            if compile_result.returncode:
+                stderr = compile_result.stderr.decode("utf-8", errors="replace").strip()
+                failures.append(f"{label}: compile\n{stderr}")
+                continue
+            compiled_count += 1
+            run_result = run_capture(
+                [str(binary)],
+                args.timeout,
+                f"run {label}",
+            )
+            if run_result.timed_out:
                 failures.append(f"{label}: run timeout")
                 continue
+            if run_result.stdout_limit_exceeded or run_result.stderr_limit_exceeded:
+                failures.append(f"{label}: run output exceeded safety limit")
+                continue
             if run_result.returncode:
-                failures.append(f"{label}: run exit {run_result.returncode}\n{run_result.stderr.strip()}")
-    print(f"cpp_examples marked_blocks={len(discovered)} compiled={len(discovered) - len(failures)} failures={len(failures)}")
+                stderr = run_result.stderr.decode("utf-8", errors="replace").strip()
+                failures.append(f"{label}: run exit {run_result.returncode}\n{stderr}")
+    print(f"cpp_examples marked_blocks={len(discovered)} compiled={compiled_count} failures={len(failures)}")
     for failure in failures:
         print(f"FAIL {failure}")
     return 1 if failures else 0

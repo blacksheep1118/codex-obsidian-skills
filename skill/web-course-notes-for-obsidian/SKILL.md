@@ -59,7 +59,7 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
 3. Place notes in the vault.
    - If the user provides an Obsidian notes directory, inspect existing top-level folders and classify the collection into the closest existing folder.
    - If no existing folder fits, create a language-specific fallback folder under the notes directory: `网络资源/<collection-title>/` for Chinese scaffolds or `Web Resources/<collection-title>/` for English scaffolds.
-   - Use `scripts/create_web_notes.py --notes-dir <notes-dir> <url...>` to create an external staging collection by default. Use `--publish` only after the scaffold has been read, completed, source-checked, copyright-checked, and passed the local note validators.
+   - Use `scripts/create_web_notes.py <url...>` to create an external staging collection by default; `--notes-dir` is required only together with `--publish`. Use `--publish` only after the scaffold has been read, completed, source-checked, copyright-checked, and passed the local note validators.
    - Use `--staging-dir /tmp/<name>` when a stable external staging path is useful; never use a staging directory inside the Notes vault.
    - Use `--category <folder>` when the user or context clearly identifies the destination category.
    - Use `--language auto` by default. Read `references/note-output.md` for its detection, placement, and naming rules; use `--language zh|en`, `--root-folder-name`, or `--map-note-name` for explicit overrides.

@@ -155,6 +155,35 @@ def test_no_deps_is_explicit_and_self_check_rejects_incomplete_install(tmp_path:
     assert "required Skill not installed: algorithm-job-notes-for-obsidian" in result.stderr
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation is not reliably available")
+def test_self_check_rejects_dependency_replaced_by_symlink(tmp_path: Path) -> None:
+    destination = tmp_path / "skills"
+    run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        "solvenotes-vault-maintainer",
+        "--destination",
+        str(destination),
+    )
+    dependency = destination / "algorithm-job-notes-for-obsidian"
+    outside = tmp_path / "outside-dependency"
+    dependency.rename(outside)
+    dependency.symlink_to(outside, target_is_directory=True)
+
+    result = run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        "solvenotes-vault-maintainer",
+        "--destination",
+        str(destination),
+        "--self-check-only",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "unsafe destination symlink" in result.stderr.lower()
+
+
 def test_installed_provenance_detects_tampering(tmp_path: Path):
     destination = tmp_path / "skills"
     run_script(
@@ -179,6 +208,54 @@ def test_installed_provenance_detects_tampering(tmp_path: Path):
 
     assert result.returncode != 0
     assert "content digest mismatch" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("field", "forged", "expected_error"),
+    [
+        ("source_commit", "not-a-sha", "source_commit must be null or a full lowercase 40-character Git SHA"),
+        ("source_dirty", "dirty", "source_dirty must be boolean or null"),
+        ("source_repository", 7, "source_repository must be a non-empty repository identifier"),
+        ("source_tree_digest", "fake", "source_tree_digest must be a lowercase SHA-256 digest"),
+        ("source_tree_digest", "c" * 64, "source_tree_digest must match installed_content_digest"),
+        ("contract_version", "one", "contract_version must be a positive integer or null"),
+        ("source_commit", None, "source_commit is required when source_dirty is known"),
+    ],
+)
+def test_installed_provenance_rejects_forged_schema_fields(
+    tmp_path: Path,
+    field: str,
+    forged: object,
+    expected_error: str,
+) -> None:
+    destination = tmp_path / "skills"
+    skill_name = "algorithm-job-notes-for-obsidian"
+    run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        skill_name,
+        "--destination",
+        str(destination),
+    )
+    manifest = destination / skill_name / ".codex-skill-install.json"
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload[field] = forged
+    manifest.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    result = run_script(
+        "scripts/install_skill.py",
+        "--skill",
+        skill_name,
+        "--destination",
+        str(destination),
+        "--self-check-only",
+        "--self-check-level",
+        "metadata",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert expected_error in result.stderr
 
 
 def test_install_rejects_existing_skill_and_explicit_update_still_refreshes(tmp_path: Path):
@@ -695,12 +772,46 @@ def test_install_self_check_levels_are_accepted(tmp_path: Path, level: str) -> N
     assert "install_self_check ok skills=1" in result.stdout
 
 
+def test_installed_full_self_check_uses_the_installed_package_verifier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    skill_dir = tmp_path / "solvenotes-vault-maintainer"
+    (skill_dir / "fixtures" / "solvenotes-mini-vault").mkdir(parents=True)
+    for name in ("package_vault.py", "verify_vault_package.py"):
+        write_file(skill_dir / "scripts" / name, "raise SystemExit(0)\n")
+    monkeypatch.setattr(install_skill, "_run_installed_smoke", lambda *_args: [])
+    commands: list[list[str]] = []
+
+    def fake_run(command, *_args, **_kwargs):
+        commands.append([str(item) for item in command])
+        return 19 if "verify_vault_package.py" in str(command[1]) else 0
+
+    monkeypatch.setattr(install_skill, "run_process", fake_run)
+
+    issues = install_skill._run_installed_full(skill_dir, tmp_path)
+
+    assert any("package verifier failed with exit code 19" in issue for issue in issues)
+    assert len(commands) == 2
+    assert "--manifest-output" in commands[0]
+    assert "--sidecar" in commands[1]
+
+
 def test_root_doctor_entrypoint_is_executable() -> None:
     result = run_script("scripts/doctor.py")
 
     assert result.returncode == 0
-    assert "doctor_mode vault-quick" in result.stdout
+    assert "doctor_profile tool-quick" in result.stdout
     assert "python_executable" in result.stdout
+    assert f"skills_root {ROOT}" in result.stdout
+
+
+def test_root_doctor_strict_tool_profile_infers_skills_root() -> None:
+    result = run_script("scripts/doctor.py", "--profile", "tool-full", "--strict")
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "doctor_profile tool-full" in result.stdout
+    assert f"skills_root {ROOT}" in result.stdout
+    assert "issues none" in result.stdout
 
 
 def test_update_self_check_level_metadata_avoids_runtime_smoke(tmp_path: Path) -> None:

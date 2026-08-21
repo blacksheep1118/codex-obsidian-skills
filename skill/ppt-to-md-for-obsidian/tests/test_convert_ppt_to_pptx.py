@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
-import subprocess
+from types import SimpleNamespace
 from zipfile import ZipFile
 
 import pytest
@@ -22,6 +22,15 @@ def write_minimal_pptx(path: Path, marker: str = "fresh") -> None:
 
 def staging_directory(command: list[str]) -> Path:
     return Path(command[command.index("--outdir") + 1])
+
+
+def completed_run(returncode: int = 0, stdout: bytes = b"", stderr: bytes = b""):
+    return SimpleNamespace(
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        timed_out=False,
+    )
 
 
 def test_soffice_candidates_include_cross_platform_names():
@@ -93,9 +102,9 @@ def test_convert_one_rejects_successful_noop_with_stale_expected_output(
     expected = out_dir / "lecture.pptx"
     expected.write_bytes(b"stale")
     monkeypatch.setattr(
-        convert_ppt_to_pptx.subprocess,
-        "run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, "", ""),
+        convert_ppt_to_pptx,
+        "run_capture",
+        lambda *args, **kwargs: completed_run(),
     )
 
     with pytest.raises(RuntimeError, match="without producing"):
@@ -120,9 +129,9 @@ def test_convert_one_rejects_expected_output_symlink_before_running_converter(
     def fake_run(*args, **kwargs):
         nonlocal called
         called = True
-        return subprocess.CompletedProcess(args[0], 0, "", "")
+        return completed_run()
 
-    monkeypatch.setattr(convert_ppt_to_pptx.subprocess, "run", fake_run)
+    monkeypatch.setattr(convert_ppt_to_pptx, "run_capture", fake_run)
 
     with pytest.raises(ValueError, match="symlink"):
         convert_one(source, out_dir, "soffice")
@@ -143,11 +152,11 @@ def test_convert_one_ignores_unrelated_output_symlink(
     sentinel.write_bytes(b"sentinel")
     (out_dir / "other.pptx").symlink_to(sentinel)
 
-    def fake_run(command: list[str], **kwargs):
+    def fake_run(command: list[str], *_args, **_kwargs):
         write_minimal_pptx(staging_directory(command) / "lecture.pptx")
-        return subprocess.CompletedProcess(command, 0, "", "")
+        return completed_run()
 
-    monkeypatch.setattr(convert_ppt_to_pptx.subprocess, "run", fake_run)
+    monkeypatch.setattr(convert_ppt_to_pptx, "run_capture", fake_run)
 
     converted = convert_one(source, out_dir, "soffice")
 
@@ -168,11 +177,11 @@ def test_convert_one_atomically_replaces_hardlink_without_mutating_external_inod
     expected = out_dir / "lecture.pptx"
     os.link(sentinel, expected)
 
-    def fake_run(command: list[str], **kwargs):
+    def fake_run(command: list[str], *_args, **_kwargs):
         write_minimal_pptx(staging_directory(command) / "lecture.pptx")
-        return subprocess.CompletedProcess(command, 0, "", "")
+        return completed_run()
 
-    monkeypatch.setattr(convert_ppt_to_pptx.subprocess, "run", fake_run)
+    monkeypatch.setattr(convert_ppt_to_pptx, "run_capture", fake_run)
 
     converted = convert_one(source, out_dir, "soffice")
 
@@ -194,11 +203,11 @@ def test_convert_one_rejects_invalid_staged_package_and_preserves_existing_outpu
     expected = out_dir / "lecture.pptx"
     expected.write_bytes(b"original")
 
-    def fake_run(command: list[str], **kwargs):
+    def fake_run(command: list[str], *_args, **_kwargs):
         (staging_directory(command) / "lecture.pptx").write_bytes(b"not a PPTX")
-        return subprocess.CompletedProcess(command, 0, "", "")
+        return completed_run()
 
-    monkeypatch.setattr(convert_ppt_to_pptx.subprocess, "run", fake_run)
+    monkeypatch.setattr(convert_ppt_to_pptx, "run_capture", fake_run)
 
     with pytest.raises(RuntimeError, match="invalid PPTX package"):
         convert_one(source, out_dir, "soffice")
@@ -217,12 +226,12 @@ def test_convert_one_does_not_return_unrelated_changed_pptx(
     unrelated = out_dir / "unrelated.pptx"
     unrelated.write_bytes(b"old")
 
-    def fake_run(command: list[str], **kwargs):
+    def fake_run(command: list[str], *_args, **_kwargs):
         unrelated.write_bytes(b"changed")
         write_minimal_pptx(staging_directory(command) / "unrelated.pptx")
-        return subprocess.CompletedProcess(command, 0, "", "")
+        return completed_run()
 
-    monkeypatch.setattr(convert_ppt_to_pptx.subprocess, "run", fake_run)
+    monkeypatch.setattr(convert_ppt_to_pptx, "run_capture", fake_run)
 
     with pytest.raises(RuntimeError, match="expected output lecture.pptx"):
         convert_one(source, out_dir, "soffice")
@@ -244,11 +253,11 @@ def test_convert_one_publish_failure_preserves_existing_output(
     expected = out_dir / "lecture.pptx"
     expected.write_bytes(b"original")
 
-    def fake_run(command: list[str], **kwargs):
+    def fake_run(command: list[str], *_args, **_kwargs):
         write_minimal_pptx(staging_directory(command) / "lecture.pptx")
-        return subprocess.CompletedProcess(command, 0, "", "")
+        return completed_run()
 
-    monkeypatch.setattr(convert_ppt_to_pptx.subprocess, "run", fake_run)
+    monkeypatch.setattr(convert_ppt_to_pptx, "run_capture", fake_run)
     monkeypatch.setattr(safe_io, "_directory_identity_matches", lambda parent_fd, parent: False)
 
     with pytest.raises(ValueError, match="parent directory changed"):

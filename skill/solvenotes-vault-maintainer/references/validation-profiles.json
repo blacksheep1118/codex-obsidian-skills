@@ -63,6 +63,14 @@
       "requires_skills_root": true,
       "allows_network": false
     },
+    "github-ready": {
+      "required_modules": ["PyYAML"],
+      "required_commands": ["git", "compiler"],
+      "optional_commands": ["unzip", "bash"],
+      "requires_notes_root": true,
+      "requires_skills_root": true,
+      "allows_network": false
+    },
     "online": {
       "required_modules": ["PyYAML"],
       "required_commands": ["git"],

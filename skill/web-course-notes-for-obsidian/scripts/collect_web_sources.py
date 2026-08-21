@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from html.parser import HTMLParser
+import os
 from pathlib import Path
 import re
 import socket
@@ -17,10 +18,20 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, url2pathname, urlopen
 
 try:
-    from .safe_io import safe_write_text
+    from .safe_io import (
+        InputTooLargeError,
+        ensure_safe_input_file,
+        read_bytes_no_follow,
+        safe_write_text,
+    )
     from .url_identity import normalize_url
 except ImportError:
-    from safe_io import safe_write_text
+    from safe_io import (
+        InputTooLargeError,
+        ensure_safe_input_file,
+        read_bytes_no_follow,
+        safe_write_text,
+    )
     from url_identity import normalize_url
 
 
@@ -66,6 +77,10 @@ class SourceTooLargeError(ValueError):
 
 class SourceTotalTimeoutError(TimeoutError):
     """Raised when reading a source exceeds the total wall-clock budget."""
+
+
+class LocalSourceAccessError(OSError):
+    """Raised when a local source cannot be read without following links."""
 
 
 @dataclass(frozen=True)
@@ -161,7 +176,7 @@ def is_url(value: str) -> bool:
 def source_to_url(source: str) -> str:
     if is_url(source):
         return normalize_url(source)
-    return Path(source).expanduser().resolve().as_uri()
+    return Path(os.path.abspath(Path(source).expanduser())).as_uri()
 
 
 def title_from_url(url: str) -> str:
@@ -222,12 +237,21 @@ def read_source_with_metadata(
         raise ValueError("max_bytes must be positive")
     parsed = urlparse(source_url)
     if parsed.scheme == "file":
-        source_path = Path(url2pathname(parsed.path))
-        if source_path.stat().st_size > max_bytes:
-            raise SourceTooLargeError(f"source exceeds byte limit ({max_bytes} bytes)")
+        try:
+            source_path = ensure_safe_input_file(Path(url2pathname(parsed.path)))
+        except (OSError, ValueError) as exc:
+            raise LocalSourceAccessError(str(exc)) from exc
         deadline = time.monotonic() + total_timeout
-        with source_path.open("rb") as stream:
-            payload = _read_limited(stream, max_bytes=max_bytes, deadline=deadline)
+        try:
+            payload = read_bytes_no_follow(source_path, max_bytes=max_bytes)
+        except InputTooLargeError as exc:
+            raise SourceTooLargeError(str(exc)) from exc
+        except (OSError, ValueError) as exc:
+            raise LocalSourceAccessError(str(exc)) from exc
+        if time.monotonic() >= deadline:
+            raise SourceTotalTimeoutError("source read exceeded the total time budget")
+        if len(payload) > max_bytes:
+            raise SourceTooLargeError(f"source exceeds byte limit ({max_bytes} bytes)")
         return payload.decode("utf-8", errors="replace"), source_url, 200
     request = Request(source_url, headers={"User-Agent": "codex-obsidian-skills/1.0"})
     deadline = time.monotonic() + total_timeout
@@ -343,6 +367,12 @@ def collect_page(
     source_url = source_to_url(source)
     source_kind = classify_url(source_url)
     if source_kind in DIRECT_RESOURCE_KINDS:
+        parsed_source = urlparse(source_url)
+        if parsed_source.scheme == "file":
+            try:
+                ensure_safe_input_file(Path(url2pathname(parsed_source.path)))
+            except (OSError, ValueError) as exc:
+                raise LocalSourceAccessError(str(exc)) from exc
         return PageRecord(
             original_source=source,
             canonical_url=source_url,
@@ -458,7 +488,7 @@ def collect_source(
             access_class = "network_error"
             description = "Source could not be reached; kept for manifest coverage."
             final_url = source_url
-        elif isinstance(exc, (FileNotFoundError, IsADirectoryError)):
+        elif isinstance(exc, (FileNotFoundError, IsADirectoryError, LocalSourceAccessError)):
             http_status = None
             access_status = "inaccessible"
             access_class = "filesystem_error"

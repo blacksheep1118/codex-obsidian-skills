@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import shutil
-import subprocess
 import tempfile
 from zipfile import BadZipFile, ZipFile
 
@@ -22,6 +21,7 @@ try:
         ensure_safe_input_file,
         ensure_safe_output_path,
     )
+    from .run_with_timeout import run_capture
 except ImportError:
     from safe_io import (
         atomic_binary_writer,
@@ -30,6 +30,7 @@ except ImportError:
         ensure_safe_input_file,
         ensure_safe_output_path,
     )
+    from run_with_timeout import run_capture
 
 
 MACOS_SOFFICE = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
@@ -103,20 +104,27 @@ def convert_one(path: Path, out_dir: Path, soffice: str) -> Path:
             str(staging_dir),
             str(path),
         ]
-        result = subprocess.run(cmd, text=True, capture_output=True, check=False, timeout=180)
+        result = run_capture(cmd, 180, f"LibreOffice conversion: {path.name}")
+        stdout = result.stdout.decode("utf-8", errors="replace")
+        stderr = result.stderr.decode("utf-8", errors="replace")
+        if result.timed_out:
+            raise RuntimeError(
+                "LibreOffice conversion timed out after 180 seconds\n"
+                f"command: {' '.join(cmd)}\nstdout: {stdout}\nstderr: {stderr}"
+            )
         if result.returncode != 0:
             raise RuntimeError(
                 "LibreOffice conversion failed\n"
                 f"command: {' '.join(cmd)}\n"
-                f"stdout: {result.stdout}\n"
-                f"stderr: {result.stderr}"
+                f"stdout: {stdout}\n"
+                f"stderr: {stderr}"
             )
 
         staged = ensure_safe_output_path(staged, create_parent=False)
         if not staged.exists():
             raise RuntimeError(
                 f"LibreOffice finished without producing expected output {expected.name}. "
-                f"stdout: {result.stdout}\nstderr: {result.stderr}"
+                f"stdout: {stdout}\nstderr: {stderr}"
             )
         validate_pptx_package(staged)
         with staged.open("rb") as converted, atomic_binary_writer(expected) as output:

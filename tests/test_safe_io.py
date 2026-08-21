@@ -140,6 +140,34 @@ def test_safe_write_text_rejects_symlink_components(tmp_path: Path, kind: str) -
     assert not (outside / "nested" / "result.md").exists()
 
 
+def test_safe_create_text_is_atomic_and_never_replaces_existing_file(tmp_path: Path) -> None:
+    output = tmp_path / "result.md"
+
+    safe_io.safe_create_text(output, "first\n")
+    assert output.read_text(encoding="utf-8") == "first\n"
+
+    with pytest.raises(FileExistsError, match="refusing to replace"):
+        safe_io.safe_create_text(output, "second\n")
+    assert output.read_text(encoding="utf-8") == "first\n"
+
+
+def test_safe_create_text_does_not_publish_partial_file_when_link_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "result.md"
+
+    def fail_link(*args, **kwargs):
+        raise OSError("simulated publication failure")
+
+    monkeypatch.setattr(safe_io.os, "link", fail_link)
+
+    with pytest.raises(OSError, match="simulated publication failure"):
+        safe_io.safe_create_text(output, "complete payload\n")
+
+    assert not output.exists()
+    assert list(tmp_path.glob(".result.md.*.tmp")) == []
+
+
 def test_safe_io_rejects_non_whitelisted_top_level_symlink(monkeypatch) -> None:
     original_lstat = Path.lstat
     output = Path("/untrusted/output.md")
@@ -168,6 +196,16 @@ def test_read_bytes_no_follow_reads_regular_file_and_rejects_link(tmp_path: Path
         pytest.skip(f"symlinks unavailable: {exc}")
     with pytest.raises(ValueError, match="symlink"):
         safe_io.read_bytes_no_follow(alias)
+
+
+def test_read_bytes_no_follow_enforces_byte_budget_after_open(tmp_path: Path) -> None:
+    source = tmp_path / "oversized.bin"
+    source.write_bytes(b"12345")
+
+    with pytest.raises(safe_io.InputTooLargeError, match=r"byte limit \(4 bytes\)"):
+        safe_io.read_bytes_no_follow(source, max_bytes=4)
+
+    assert safe_io.read_bytes_no_follow(source, max_bytes=5) == b"12345"
 
 
 def test_subprocess_environment_always_disables_bytecode(monkeypatch) -> None:

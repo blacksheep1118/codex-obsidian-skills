@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -29,6 +31,31 @@ LOCK_TOOL = SKILL_ROOT / "scripts" / "update_notes_skill_lock.py"
 SUBPROCESS_TIMEOUT_SECONDS = 60
 
 
+def run_git(repository: Path, *arguments: str, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
+    """Run a hermetic fixture Git command with a bounded wait."""
+
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=repository,
+        check=True,
+        capture_output=capture_output,
+        text=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
+    )
+
+
+def initialize_fixture_repo(repository: Path) -> None:
+    run_git(repository, "init", capture_output=True)
+    run_git(repository, "config", "user.email", "fixture@example.invalid")
+    run_git(repository, "config", "user.name", "Fixture")
+    run_git(repository, "config", "commit.gpgsign", "false")
+    run_git(repository, "config", "core.hooksPath", ".git/no-hooks")
+
+
+def git_head(repository: Path) -> str:
+    return run_git(repository, "rev-parse", "HEAD", capture_output=True).stdout.strip()
+
+
 def synthetic_target_repo(tmp_path: Path) -> tuple[Path, str]:
     """Commit the current target-tree contract without relying on checkout HEAD."""
 
@@ -42,13 +69,62 @@ def synthetic_target_repo(tmp_path: Path) -> tuple[Path, str]:
     fixture = repository / update_notes_skill_lock.TARGET_FIXTURE_PREFIX / "AGENT.md"
     fixture.parent.mkdir(parents=True, exist_ok=True)
     fixture.write_text("# synthetic fixture\n", encoding="utf-8")
-    subprocess.run(["git", "init"], cwd=repository, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "fixture@example.invalid"], cwd=repository, check=True)
-    subprocess.run(["git", "config", "user.name", "Fixture"], cwd=repository, check=True)
-    subprocess.run(["git", "add", "."], cwd=repository, check=True)
-    subprocess.run(["git", "commit", "-m", "synthetic target"], cwd=repository, check=True, capture_output=True)
-    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository, text=True).strip()
+    initialize_fixture_repo(repository)
+    run_git(repository, "add", ".")
+    run_git(repository, "commit", "-m", "synthetic target", capture_output=True)
+    commit = git_head(repository)
     return repository, commit
+
+
+def test_target_archive_timeout_is_reported_as_validation_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, commit = synthetic_target_repo(tmp_path)
+
+    class TimedOut:
+        returncode = 124
+        stdout = b""
+        stderr = b""
+        timed_out = True
+        stdout_limit_exceeded = False
+        stderr_limit_exceeded = False
+
+    monkeypatch.setattr(update_notes_skill_lock, "run_capture", lambda *_args, **_kwargs: TimedOut())
+
+    with pytest.raises(ValueError, match="cannot archive target commit"):
+        update_notes_skill_lock.target_archive(repository, commit)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation is not reliably available")
+@pytest.mark.parametrize("kind", ("root", "lock-parent"))
+def test_write_lock_rejects_symlinked_path_components(tmp_path: Path, kind: str) -> None:
+    real_notes = tmp_path / "real-notes"
+    real_notes.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if kind == "root":
+        notes_root = tmp_path / "notes-link"
+        notes_root.symlink_to(real_notes, target_is_directory=True)
+    else:
+        notes_root = real_notes
+        (notes_root / ".github").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        update_notes_skill_lock.write_lock(notes_root, {"schema_version": 2})
+    assert not (outside / "solvenotes-skills.lock.json").exists()
+
+
+def test_write_lock_preserves_existing_file_mode(tmp_path: Path) -> None:
+    notes_root = tmp_path / "notes"
+    lock = notes_root / ".github" / "solvenotes-skills.lock.json"
+    lock.parent.mkdir(parents=True)
+    lock.write_text("{}\n", encoding="utf-8")
+    lock.chmod(0o640)
+
+    update_notes_skill_lock.write_lock(notes_root, {"schema_version": 2})
+
+    assert stat.S_IMODE(lock.stat().st_mode) == 0o640
+    assert json.loads(lock.read_text(encoding="utf-8")) == {"schema_version": 2}
 
 
 def write_lock(notes_root: Path, commit: str, version: int = CURRENT_VAULT_CONTRACT_VERSION) -> None:
@@ -113,7 +189,7 @@ def test_dirty_source_checkout_does_not_claim_exact_match(
 ) -> None:
     notes_root = tmp_path / "notes"
     notes_root.mkdir()
-    commit = subprocess.check_output(["git", "-C", str(SKILLS_ROOT), "rev-parse", "HEAD"], text=True).strip()
+    commit = git_head(SKILLS_ROOT)
     monkeypatch.setattr(vault_contract, "git_clean", lambda _root: False)
     write_lock(notes_root, commit)
 
@@ -129,7 +205,7 @@ def test_dirty_source_checkout_does_not_claim_exact_match(
 def test_clean_source_checkout_can_match_lock_when_digest_matches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     notes_root = tmp_path / "notes"
     notes_root.mkdir()
-    commit = subprocess.check_output(["git", "-C", str(SKILLS_ROOT), "rev-parse", "HEAD"], text=True).strip()
+    commit = git_head(SKILLS_ROOT)
     monkeypatch.setattr(vault_contract, "git_clean", lambda _root: True)
     write_lock(notes_root, commit)
 
@@ -144,7 +220,7 @@ def test_installed_dependency_provenance_mismatch_is_rejected(tmp_path: Path) ->
     notes_root = tmp_path / "notes"
     notes_root.mkdir()
     destination = tmp_path / "installed"
-    commit = subprocess.check_output(["git", "-C", str(SKILLS_ROOT), "rev-parse", "HEAD"], text=True).strip()
+    commit = git_head(SKILLS_ROOT)
     write_lock(notes_root, commit)
 
     result = subprocess.run(
@@ -233,13 +309,11 @@ def test_lock_update_rejects_target_tree_without_maintainer(tmp_path: Path) -> N
     notes_root.mkdir()
     target_repo = tmp_path / "target-repo"
     target_repo.mkdir()
-    subprocess.run(["git", "init"], cwd=target_repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "fixture@example.invalid"], cwd=target_repo, check=True)
-    subprocess.run(["git", "config", "user.name", "Fixture"], cwd=target_repo, check=True)
+    initialize_fixture_repo(target_repo)
     (target_repo / "README.md").write_text("synthetic old tree\n", encoding="utf-8")
-    subprocess.run(["git", "add", "README.md"], cwd=target_repo, check=True)
-    subprocess.run(["git", "commit", "-m", "old tree"], cwd=target_repo, check=True, capture_output=True)
-    old_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=target_repo, text=True).strip()
+    run_git(target_repo, "add", "README.md")
+    run_git(target_repo, "commit", "-m", "old tree", capture_output=True)
+    old_commit = git_head(target_repo)
 
     result = subprocess.run(
         [

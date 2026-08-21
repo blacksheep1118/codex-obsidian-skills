@@ -15,14 +15,7 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from notes_utils import (
-    frontmatter_note_type,
-    markdown_files,
-    read_text,
-    rel,
-    strip_frontmatter,
-    text_without_code,
-)
+from notes_utils import frontmatter_note_type, markdown_files, read_text, rel, text_without_code
 
 PLACEHOLDER_RE = re.compile(r"(?:在此填写|TODO|FIXME|待补充|<待填写>)", re.I)
 BOILERPLATE_PATTERNS = (
@@ -47,6 +40,22 @@ LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+] |\d+[.)]\s+)(.+?)\s*$")
 MIN_PARAGRAPH_LENGTH = 24
 EXCLUDED_NOTE_TYPES = {"template", "source_manifest", "agent_rule"}
 CITATION_RE = re.compile(r"^(?:\[[^]]+\]\(https?://|https?://|DOI[:：]|arXiv[:：])", re.I)
+SENTENCE_RE = re.compile(r"[^。！？!?；;]+[。！？!?；;]+|[^。！？!?；;]+$")
+REQUIRED_SOURCE_CONTRACT_RE = re.compile(
+    r"(?:生成[:：])?PPT/PDF\s*未提供独立可抽取例题[。.]?$"
+)
+
+
+def mask_frontmatter(text: str) -> str:
+    """Blank frontmatter while preserving every original source line number."""
+
+    if not text.startswith("---\n"):
+        return text
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return text
+    body_start = end + len("\n---\n")
+    return "\n" * text[:body_start].count("\n") + text[body_start:]
 
 
 def should_scan(path: Path, text: str) -> bool:
@@ -62,48 +71,56 @@ def intentional_heading_schema(relative: str) -> bool:
     return relative.startswith("学习路径/") or relative.startswith("游戏数值策划/表格样例/")
 
 
-def normalized_paragraphs(text: str) -> list[tuple[int, str]]:
-    paragraphs: list[tuple[int, str]] = []
+def prose_paragraph_lines(text: str) -> list[list[tuple[int, str]]]:
+    """Return prose paragraphs as source-line fragments."""
+
+    paragraphs: list[list[tuple[int, str]]] = []
     lines = text.splitlines()
-    current: list[str] = []
-    start = 1
+    current: list[tuple[int, str]] = []
     in_fence = False
+    in_math = False
+
+    def flush() -> None:
+        nonlocal current
+        if current:
+            paragraphs.append(current)
+            current = []
+
     for line_number, line in enumerate(lines, 1):
         if FENCE_RE.match(line):
             in_fence = not in_fence
-            if current:
-                paragraphs.append((start, " ".join(current).strip()))
-                current = []
+            flush()
             continue
-        if in_fence or not line.strip():
-            if current:
-                paragraphs.append((start, " ".join(current).strip()))
-                current = []
-            start = line_number + 1
+        stripped = line.strip()
+        if not in_fence and stripped == "$$":
+            in_math = not in_math
+            flush()
+            continue
+        if in_fence or in_math or not stripped:
+            flush()
             continue
         if HTML_COMMENT_RE.match(line):
-            if current:
-                paragraphs.append((start, " ".join(current).strip()))
-                current = []
-            start = line_number + 1
+            flush()
             continue
-        if HEADING_RE.match(line) or line.lstrip().startswith(("|", "- ", "* ", "> ")):
-            if current:
-                paragraphs.append((start, " ".join(current).strip()))
-                current = []
-            start = line_number + 1
+        if (
+            HEADING_RE.match(line)
+            or line.lstrip().startswith("|")
+            or LIST_ITEM_RE.match(line)
+            or line.lstrip().startswith("> ")
+        ):
+            flush()
             continue
-        if not current:
-            start = line_number
-        current.append(line.strip())
-    if current:
-        paragraphs.append((start, " ".join(current).strip()))
+        current.append((line_number, re.sub(r"\s+", " ", stripped)))
+    flush()
+    return paragraphs
+
+
+def normalized_paragraphs(text: str) -> list[tuple[int, str]]:
     normalized: list[tuple[int, str]] = []
-    for line, paragraph in paragraphs:
-        paragraph = re.sub(r"\s+", " ", paragraph)
+    for fragments in prose_paragraph_lines(text):
+        line = fragments[0][0]
+        paragraph = " ".join(fragment for _, fragment in fragments)
         if len(paragraph) < MIN_PARAGRAPH_LENGTH:
-            continue
-        if paragraph.lstrip().startswith("$$") and paragraph.rstrip().endswith("$$"):
             continue
         normalized.append((line, paragraph))
     return normalized
@@ -113,13 +130,7 @@ def heading_sequence(text: str) -> tuple[str, ...]:
     """Return the meaningful H2 skeleton without treating code as prose."""
 
     headings: list[str] = []
-    in_fence = False
-    for line in text.splitlines():
-        if FENCE_RE.match(line):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
+    for line in text_without_code(text).splitlines():
         match = H2_RE.match(line.strip())
         if match:
             heading = re.sub(r"\s+", " ", match.group(1)).strip()
@@ -128,9 +139,43 @@ def heading_sequence(text: str) -> tuple[str, ...]:
     return tuple(headings)
 
 
-def first_prose_paragraph(text: str) -> str | None:
+def first_prose_paragraph(text: str) -> tuple[int, str] | None:
     paragraphs = normalized_paragraphs(text)
-    return paragraphs[0][1] if paragraphs else None
+    return paragraphs[0] if paragraphs else None
+
+
+def normalized_sentences(text: str) -> list[tuple[int, str]]:
+    """Return prose sentences, joining Markdown soft wraps within paragraphs."""
+
+    sentences: list[tuple[int, str]] = []
+    for fragments in prose_paragraph_lines(text):
+        offsets: list[tuple[int, int]] = []
+        parts: list[str] = []
+        cursor = 0
+        for line_number, fragment in fragments:
+            if parts:
+                cursor += 1
+            offsets.append((cursor, line_number))
+            parts.append(fragment)
+            cursor += len(fragment)
+        paragraph = " ".join(parts)
+        for match in SENTENCE_RE.finditer(paragraph):
+            raw_sentence = match.group(0)
+            sentence = re.sub(r"\s+", " ", raw_sentence).strip()
+            if len(sentence) < MIN_PARAGRAPH_LENGTH:
+                continue
+            if sentence.startswith(("关联阅读：", "**关联阅读", "来源说明", "**来源说明")):
+                continue
+            if CITATION_RE.match(sentence) or REQUIRED_SOURCE_CONTRACT_RE.search(sentence):
+                continue
+            sentence_start = match.start() + len(raw_sentence) - len(raw_sentence.lstrip())
+            line_number = offsets[0][1]
+            for offset, candidate_line in offsets:
+                if offset > sentence_start:
+                    break
+                line_number = candidate_line
+            sentences.append((line_number, sentence))
+    return sentences
 
 
 def normalized_list_items(text: str) -> list[tuple[int, str]]:
@@ -164,6 +209,7 @@ def scan() -> dict[str, object]:
     high_confidence: list[dict[str, object]] = []
     review_candidates: list[dict[str, object]] = []
     paragraph_locations: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    sentence_locations: dict[str, list[tuple[str, int]]] = defaultdict(list)
     list_locations: dict[str, list[tuple[str, int]]] = defaultdict(list)
     opening_locations: dict[str, list[tuple[str, int]]] = defaultdict(list)
     heading_groups: dict[tuple[str, tuple[str, ...]], list[str]] = defaultdict(list)
@@ -179,7 +225,7 @@ def scan() -> dict[str, object]:
         if not should_scan(path, text):
             continue
         note_files.append(path)
-        prose = text_without_code(strip_frontmatter(text))
+        prose = text_without_code(mask_frontmatter(text))
         for line_number, line in enumerate(prose.splitlines(), 1):
             if PLACEHOLDER_RE.search(line):
                 high_confidence.append(
@@ -201,12 +247,14 @@ def scan() -> dict[str, object]:
             if paragraph.startswith(("关联阅读：", "**关联阅读", "来源说明", "**来源说明")):
                 continue
             paragraph_locations[paragraph].append((relative, line_number))
+        for line_number, sentence in normalized_sentences(prose):
+            sentence_locations[sentence].append((relative, line_number))
         for line_number, item in normalized_list_items(prose):
             list_locations[item].append((relative, line_number))
         opening = first_prose_paragraph(prose)
-        if opening and not opening.startswith(("关联阅读：", "来源说明")):
-            opening_locations[opening].append((relative, 1))
-        sequence = heading_sequence(strip_frontmatter(text))
+        if opening and not opening[1].startswith(("关联阅读：", "来源说明")):
+            opening_locations[opening[1]].append((relative, opening[0]))
+        sequence = heading_sequence(mask_frontmatter(text))
         if len(sequence) >= 3:
             heading_groups[(str(path.parent), sequence)].append(relative)
             for heading in sequence:
@@ -247,6 +295,21 @@ def scan() -> dict[str, object]:
                     "count": len(locations),
                     "files": sorted({path for path, _ in locations}),
                     "context": opening[:180],
+                }
+            )
+
+    for sentence, locations in sentence_locations.items():
+        distinct_files = {path for path, _ in locations}
+        paragraph_occurrences = set(paragraph_locations.get(sentence, []))
+        if len(distinct_files) >= 5 and set(locations) != paragraph_occurrences:
+            review_candidates.append(
+                {
+                    "path": locations[0][0],
+                    "line": locations[0][1],
+                    "kind": "cross_note_sentence_repeat",
+                    "count": len(locations),
+                    "files": sorted(distinct_files),
+                    "context": sentence[:180],
                 }
             )
 

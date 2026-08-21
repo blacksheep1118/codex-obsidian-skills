@@ -5,6 +5,7 @@ import sys
 from zipfile import ZipFile
 
 import pytest
+import scripts.extract_pptx_text as extractor
 
 from scripts.extract_pptx_text import (
     PptxExtractionError,
@@ -77,6 +78,45 @@ def test_extract_pptx_sample_keeps_python_backend_without_fallback() -> None:
     assert result.partial is False
 
 
+def test_normal_backend_warns_when_text_extraction_cannot_cover_visual_content() -> None:
+    from scripts.extract_pptx_text import extraction_header
+
+    header = extraction_header(
+        Path("visual.pptx"),
+        backend="python-pptx",
+        partial=False,
+        slide_count=2,
+        blank_slides=1,
+        media_objects=1,
+    )
+
+    assert "- Partial fallback: false" in header
+    assert any("not complete visual/OCR coverage" in line for line in header)
+
+
+@pytest.mark.parametrize("kind", ["leaf", "ancestor", "broken"])
+def test_extract_pptx_cli_rejects_symlinked_input(tmp_path: Path, kind: str) -> None:
+    target = tmp_path / "real" / "lecture.pptx"
+    target.parent.mkdir()
+    write_required_package(target)
+    if kind == "leaf":
+        source = tmp_path / "lecture-link.pptx"
+        source.symlink_to(target)
+    elif kind == "ancestor":
+        alias = tmp_path / "real-link"
+        alias.symlink_to(target.parent, target_is_directory=True)
+        source = alias / target.name
+    else:
+        source = tmp_path / "broken.pptx"
+        source.symlink_to(tmp_path / "missing.pptx")
+
+    result = run_extractor(source)
+
+    assert result.returncode == 1
+    assert "symlink" in result.stderr.lower() or "does not exist" in result.stderr.lower()
+    assert "Traceback" not in result.stderr
+
+
 @pytest.mark.parametrize(
     ("fixture", "reason"),
     [
@@ -117,6 +157,46 @@ def test_extract_pptx_cli_reports_stable_errors_without_tracebacks(
     assert result.stdout == ""
     assert result.stderr == f"ERROR: {source}: {reason}\n"
     assert "Traceback" not in result.stderr
+
+
+def test_pptx_reader_enforces_input_and_uncompressed_zip_budgets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "budget.pptx"
+    write_required_package(source)
+
+    monkeypatch.setattr(extractor, "MAX_PPTX_INPUT_BYTES", source.stat().st_size - 1)
+    with pytest.raises(PptxExtractionError, match="input exceeds"):
+        extractor.extract_pptx_result(source)
+
+    monkeypatch.setattr(extractor, "MAX_PPTX_INPUT_BYTES", source.stat().st_size + 1)
+    with ZipFile(source) as archive:
+        total = sum(member.file_size for member in archive.infolist())
+    monkeypatch.setattr(extractor, "MAX_PPTX_TOTAL_UNCOMPRESSED_BYTES", total - 1)
+    with pytest.raises(PptxExtractionError, match="total uncompressed size"):
+        extractor.extract_pptx_result(source)
+
+
+def test_pptx_reader_rejects_excessive_member_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "members.pptx"
+    write_required_package(source)
+    monkeypatch.setattr(extractor, "MAX_PPTX_ZIP_MEMBERS", 1)
+
+    with pytest.raises(PptxExtractionError, match="too many members"):
+        extractor.extract_pptx_result(source)
+
+
+def test_pptx_reader_rejects_duplicate_zip_members(tmp_path: Path) -> None:
+    source = tmp_path / "duplicate.pptx"
+    write_required_package(source)
+    with pytest.warns(UserWarning, match="Duplicate name"):
+        with ZipFile(source, "a") as archive:
+            archive.writestr("ppt/presentation.xml", "<presentation duplicate='1'/>")
+
+    with pytest.raises(PptxExtractionError, match="duplicate members"):
+        extractor.extract_pptx_result(source)
 
 
 def test_pipeline_reuses_structured_pptx_error_boundary(tmp_path: Path) -> None:
@@ -199,6 +279,8 @@ def test_zip_fallback_reports_backend_partial_and_slide_media_stats(tmp_path: Pa
         "<p:cSld><p:spTree><p:pic /></p:spTree></p:cSld></p:sld>"
     )
     with ZipFile(source, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types />")
+        archive.writestr("ppt/presentation.xml", "<presentation />")
         archive.writestr("ppt/slides/slide1.xml", text_slide)
         archive.writestr("ppt/slides/slide2.xml", media_only_slide)
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import re
 import sys
@@ -44,8 +45,19 @@ OLD_ROUTE_FILE_STEMS = (
 )
 ROUTE_CONTEXT_RE = re.compile(r"岗位|方向|路线|入口|地图|矩阵|分类|主线|track|direction|route", re.I)
 HEADING_RE = re.compile(r"^#{1,4}\s+(.+?)\s*$")
+FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 FRONTMATTER_LINE_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$")
+FRONTMATTER_LIST_ITEM_RE = re.compile(r"^\s*-\s+(.+?)\s*$")
 GENERIC_DIRECTION_VALUES = {"p0", "p1", "p2", "foundation", "common", "cross-cutting", "cross_cutting", "topic", "application"}
+DIRECTION_PATTERNS = {
+    label: re.compile(r"(?<![A-Za-z0-9_])CV(?![A-Za-z0-9_])")
+    if label == "CV"
+    else re.compile(r"NLP\s*/\s*LLM", re.I)
+    if label == "NLP / LLM"
+    else re.compile(re.escape(label))
+    for label in CANONICAL_LABELS
+}
 
 
 def _frontmatter(text: str) -> list[str]:
@@ -59,35 +71,126 @@ def _frontmatter(text: str) -> list[str]:
     return lines[1:end]
 
 
+def _inline_values(raw: str) -> list[str]:
+    """Parse a scalar or a simple YAML-style inline list without PyYAML."""
+
+    value = raw.strip()
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+        if not value.strip():
+            return []
+        return [item.strip().strip('"\'') for item in next(csv.reader([value], skipinitialspace=True))]
+    return [value.strip('"\'')] if value else []
+
+
 def _frontmatter_values(lines: list[str]):
     active_key: str | None = None
-    for line in lines:
-        if line.startswith("  - "):
+    for line_number, line in enumerate(lines, 2):
+        item_match = FRONTMATTER_LIST_ITEM_RE.match(line)
+        if item_match:
             if active_key:
-                yield active_key, line[4:].strip().strip('"\'')
+                for value in _inline_values(item_match.group(1)):
+                    yield active_key, value, line_number
             continue
         match = FRONTMATTER_LINE_RE.match(line)
         if not match:
             active_key = None
             continue
         active_key = match.group(1)
-        value = match.group(2).strip().strip('"\'[]')
-        if value:
-            yield active_key, value
+        for value in _inline_values(match.group(2)):
+            yield active_key, value, line_number
+
+
+def _normalized_direction(value: str) -> str:
+    return re.sub(r"[\s/.-]+", "_", value.strip().lower()).strip("_")
+
+
+def _text_without_fenced_code(text: str) -> str:
+    """Remove code fences and comments before checking human-facing routes."""
+
+    kept: list[str] = []
+    fence_char = ""
+    fence_length = 0
+    lines = text.splitlines()
+    frontmatter_end = -1
+    if lines and lines[0].strip() == "---":
+        try:
+            frontmatter_end = lines.index("---", 1)
+        except ValueError:
+            frontmatter_end = -1
+    for line_number, line in enumerate(lines):
+        if frontmatter_end >= 0 and line_number <= frontmatter_end:
+            kept.append("")
+            continue
+        match = FENCE_RE.match(line)
+        if fence_char:
+            kept.append("")
+            if (
+                match
+                and match.group(1)[0] == fence_char
+                and len(match.group(1)) >= fence_length
+                and not match.group(2).strip()
+            ):
+                fence_char = ""
+                fence_length = 0
+            continue
+        if match:
+            marker = match.group(1)
+            info = match.group(2)
+            if marker[0] == "`" and "`" in info:
+                kept.append(line)
+                continue
+            fence_char = marker[0]
+            fence_length = len(marker)
+            kept.append("")
+            continue
+        kept.append(line)
+    return HTML_COMMENT_RE.sub("", "\n".join(kept))
 
 
 def _route_issues(relative: str, line: str) -> list[str]:
     if not ROUTE_CONTEXT_RE.search(line):
         return []
-    if line.lstrip().startswith("|") and "创建" in line:
-        return []
-    if any(marker in line for marker in ("不能", "禁止", "不设置", "不再", "不要", "只能", "归属", "挂靠", "错误信息架构")):
-        return []
-    return [
-        f"{relative}: route boundary contains extra category {phrase!r}"
-        for phrase in sorted(LEGACY_ROUTE_PHRASES | COMBINED_ROUTE_PHRASES)
-        if phrase in line
-    ]
+
+    def explicitly_rejected(start: int, end: int) -> bool:
+        before = line[max(0, start - 32) : start]
+        after = line[end : end + 40]
+        return bool(
+            re.search(
+                r"(?:禁止(?:创建|新增|保留)?|不得(?:创建|新增|保留|作为)?|"
+                r"不应(?:创建|新增|保留|作为)?|不能(?:创建|新增|保留)?|"
+                r"不要(?:创建|新增|保留)?|不再|不设置|不新增|不创建|"
+                r"不构成|不是|并非|不作为|取消|删除|移除|清理)"
+                r"\s*(?:把|将)?\s*(?:独立的)?\s*[“\"']?\s*$",
+                before,
+            )
+            or re.match(
+                r"^\s*(?:[|，,:：;；-]\s*)*(?:路线|方向|入口)?\s*"
+                r"(?:不是|并非|不作为|不得作为|不再作为|不应作为|不再保留|"
+                r"不创建|不新增|已删除|应删除|归属|挂靠|只能作为|仅作为)",
+                after,
+            )
+        )
+
+    issues: list[str] = []
+    for phrase in sorted(LEGACY_ROUTE_PHRASES | COMBINED_ROUTE_PHRASES):
+        for match in re.finditer(re.escape(phrase), line):
+            if not explicitly_rejected(match.start(), match.end()):
+                issues.append(
+                    f"{relative}: route boundary contains extra category {phrase!r}"
+                )
+                break
+    return issues
+
+
+def _table_cells(line: str) -> list[str] | None:
+    if not line.lstrip().startswith("|"):
+        return None
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _separator_row(cells: list[str]) -> bool:
+    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells)
 
 
 def _matrix_header_issues(relative: str, line: str) -> list[str]:
@@ -117,36 +220,70 @@ def scan(root: Path) -> dict[str, object]:
             issues.append(f"missing key navigation: {filename}")
             continue
         text = path.read_text(encoding="utf-8")
+        visible_text = _text_without_fenced_code(text)
         relative = f"{ALGORITHM_DIR_NAME}/{filename}"
         issues.extend(
             f"{relative}: missing canonical direction {label!r}"
             for label in sorted(CANONICAL_LABELS)
-            if label not in text
+            if not DIRECTION_PATTERNS[label].search(visible_text)
         )
-        for line_number, line in enumerate(text.splitlines(), 1):
-            issues.extend(f"{issue} at line {line_number}" for issue in _matrix_header_issues(relative, line))
-            if HEADING_RE.match(line) or line.lstrip().startswith(("- ", "* ", "| ")):
-                issues.extend(f"{issue} at line {line_number}" for issue in _route_issues(relative, line))
     for path in algorithm_dir.glob("*.md"):
         relative = f"{ALGORITHM_DIR_NAME}/{path.name}"
-        lines = _frontmatter(path.read_text(encoding="utf-8"))
-        for line_number, line in enumerate(lines, 1):
-            match = FRONTMATTER_LINE_RE.match(line)
-            key = match.group(1) if match else None
-            if key not in FRONTMATTER_DIRECTION_KEYS:
-                continue
-            value = match.group(2).strip().strip('"\'[]')
-            normalized = value.lower().replace(" ", "_").replace("/", "_")
-            if normalized in LEGACY_VALUE_TOKENS or any(phrase.lower() in value.lower() for phrase in LEGACY_ROUTE_PHRASES):
-                issues.append(f"{relative}: legacy frontmatter direction at line {line_number}")
-            elif value and normalized not in CANONICAL_IDS and normalized not in GENERIC_DIRECTION_VALUES:
-                issues.append(f"{relative}: unknown frontmatter direction at line {line_number}")
-        for key, value in _frontmatter_values(lines):
-            normalized = value.lower().replace(" ", "_").replace("/", "_").strip("[]\"'")
-            if key in FRONTMATTER_DIRECTION_KEYS and normalized and normalized not in CANONICAL_IDS and normalized not in GENERIC_DIRECTION_VALUES:
-                issues.append(f"{relative}: unknown frontmatter direction in list {key!r}")
+        text = path.read_text(encoding="utf-8")
+        lines = _frontmatter(text)
+        for key, value, line_number in _frontmatter_values(lines):
+            normalized = _normalized_direction(value)
+            if key in FRONTMATTER_DIRECTION_KEYS:
+                if normalized in LEGACY_VALUE_TOKENS or any(
+                    phrase.lower() in value.lower() for phrase in LEGACY_ROUTE_PHRASES
+                ):
+                    issues.append(
+                        f"{relative}: legacy frontmatter direction at line {line_number}"
+                    )
+                elif (
+                    normalized
+                    and normalized not in CANONICAL_IDS
+                    and normalized not in GENERIC_DIRECTION_VALUES
+                ):
+                    issues.append(
+                        f"{relative}: unknown frontmatter direction at line {line_number}"
+                    )
             if key in {"aliases", "tags"} and any(phrase.lower() in value.lower() for phrase in LEGACY_ROUTE_PHRASES):
                 issues.append(f"{relative}: legacy route phrase in frontmatter {key!r}: {value!r}")
+        visible_text = _text_without_fenced_code(text)
+        rejected_table_columns: set[int] = set()
+        for line_number, line in enumerate(visible_text.splitlines(), 1):
+            issues.extend(f"{issue} at line {line_number}" for issue in _matrix_header_issues(relative, line))
+            cells = _table_cells(line)
+            if cells is None:
+                rejected_table_columns.clear()
+                route_fragments = [line]
+            elif _separator_row(cells):
+                route_fragments = []
+            elif any(re.search(r"不能做|禁止|不得", cell) for cell in cells):
+                rejected_table_columns = {
+                    index
+                    for index, cell in enumerate(cells)
+                    if re.search(r"不能做|禁止|不得", cell)
+                }
+                route_fragments = [
+                    cell
+                    for index, cell in enumerate(cells)
+                    if index not in rejected_table_columns
+                ]
+            elif rejected_table_columns:
+                route_fragments = [
+                    cell
+                    for index, cell in enumerate(cells)
+                    if index not in rejected_table_columns
+                ]
+            else:
+                route_fragments = [line]
+            for fragment in route_fragments:
+                issues.extend(
+                    f"{issue} at line {line_number}"
+                    for issue in _route_issues(relative, fragment)
+                )
     return {
         "ok": not issues,
         "root": str(root),

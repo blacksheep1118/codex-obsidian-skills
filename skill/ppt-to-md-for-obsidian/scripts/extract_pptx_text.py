@@ -10,17 +10,17 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 import re
-import stat
 import sys
 from zipfile import BadZipFile, ZipFile
 import xml.etree.ElementTree as ET
 
 try:
-    from .safe_io import safe_write_text
+    from .safe_io import InputTooLargeError, ensure_safe_input_file, read_bytes_no_follow, safe_write_text
 except ImportError:
-    from safe_io import safe_write_text
+    from safe_io import InputTooLargeError, ensure_safe_input_file, read_bytes_no_follow, safe_write_text
 
 
 NS = {
@@ -30,6 +30,11 @@ NS = {
 }
 SLIDE_XML_RE = re.compile(r"ppt/slides/slide(\d+)\.xml$")
 REQUIRED_PPTX_PARTS = {"[Content_Types].xml", "ppt/presentation.xml"}
+MAX_PPTX_INPUT_BYTES = 256 * 1024 * 1024
+MAX_PPTX_ZIP_MEMBERS = 20_000
+MAX_PPTX_MEMBER_BYTES = 128 * 1024 * 1024
+MAX_PPTX_TOTAL_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
+MAX_PPTX_COMPRESSION_RATIO = 1000
 
 
 class PptxExtractionError(ValueError):
@@ -59,28 +64,59 @@ class PptxExtractionResult:
     media_objects: int
 
 
-def validate_pptx_input(path: Path) -> None:
-    """Validate the ordinary ZIP/OOXML boundary before selecting a backend."""
-
+def _stable_pptx_bytes(path: Path) -> tuple[Path, bytes]:
     if path.suffix.casefold() != ".pptx":
         raise PptxExtractionError(path, "input must be a .pptx file")
     try:
-        mode = path.lstat().st_mode
-    except FileNotFoundError as exc:
-        raise PptxExtractionError(path, "file does not exist") from exc
-    except OSError as exc:
-        raise PptxExtractionError(path, "input path cannot be inspected") from exc
-    if not stat.S_ISREG(mode):
-        raise PptxExtractionError(path, "input is not a regular file")
+        path = ensure_safe_input_file(path)
+    except (OSError, ValueError) as exc:
+        reason = str(exc)
+        if "does not exist" in reason:
+            reason = "file does not exist"
+        elif "not a regular file" in reason:
+            reason = "input is not a regular file"
+        raise PptxExtractionError(path, reason) from exc
 
     try:
-        with ZipFile(path) as archive:
+        return path, read_bytes_no_follow(path, max_bytes=MAX_PPTX_INPUT_BYTES)
+    except InputTooLargeError as exc:
+        raise PptxExtractionError(
+            path, f"PPTX input exceeds {MAX_PPTX_INPUT_BYTES} byte safety limit"
+        ) from exc
+
+
+def _validate_zip_budget(path: Path, archive: ZipFile) -> None:
+    members = archive.infolist()
+    if len(members) > MAX_PPTX_ZIP_MEMBERS:
+        raise PptxExtractionError(path, "PPTX ZIP package has too many members")
+    names: set[str] = set()
+    total = 0
+    for member in members:
+        if member.filename in names:
+            raise PptxExtractionError(path, "PPTX ZIP package contains duplicate members")
+        names.add(member.filename)
+        if member.file_size > MAX_PPTX_MEMBER_BYTES:
+            raise PptxExtractionError(path, "PPTX ZIP member exceeds the uncompressed size limit")
+        total += member.file_size
+        if total > MAX_PPTX_TOTAL_UNCOMPRESSED_BYTES:
+            raise PptxExtractionError(path, "PPTX ZIP package exceeds the total uncompressed size limit")
+        if member.file_size and (
+            member.compress_size == 0
+            or member.file_size > member.compress_size * MAX_PPTX_COMPRESSION_RATIO
+        ):
+            raise PptxExtractionError(path, "PPTX ZIP member exceeds the compression-ratio limit")
+    if any(member.flag_bits & 0x1 for member in members):
+        raise PptxExtractionError(path, "encrypted PPTX packages are not supported")
+
+
+def _validated_pptx_payload(path: Path) -> tuple[Path, bytes]:
+    """Read one stable PPTX snapshot and validate its OOXML boundary."""
+
+    path, payload = _stable_pptx_bytes(path)
+    try:
+        with ZipFile(BytesIO(payload)) as archive:
+            _validate_zip_budget(path, archive)
             members = archive.infolist()
-            if any(member.flag_bits & 0x1 for member in members):
-                raise PptxExtractionError(
-                    path,
-                    "encrypted PPTX packages are not supported",
-                )
             if archive.testzip() is not None:
                 raise PptxExtractionError(path, "PPTX ZIP package has a corrupt member")
             names = {member.filename for member in members}
@@ -103,6 +139,14 @@ def validate_pptx_input(path: Path) -> None:
         raise PptxExtractionError(path, "invalid PPTX ZIP package") from None
     except OSError as exc:
         raise PptxExtractionError(path, "PPTX package cannot be read") from exc
+    return path, payload
+
+
+def validate_pptx_input(path: Path) -> Path:
+    """Validate one stable ZIP/OOXML snapshot before selecting a backend."""
+
+    validated, _payload = _validated_pptx_payload(path)
+    return validated
 
 
 def extraction_header(
@@ -129,6 +173,13 @@ def extraction_header(
             [
                 "Warning: ZIP/XML fallback is partial; speaker notes, media meaning, and some relationships may be missing.",
                 "Use OCR or manual slide inspection before claiming complete source coverage.",
+                "",
+            ]
+        )
+    if blank_slides or media_objects:
+        lines.extend(
+            [
+                "Coverage warning: slides without visible text or with media require visual inspection; text extraction alone is not complete visual/OCR coverage.",
                 "",
             ]
         )
@@ -226,8 +277,11 @@ def sorted_slide_xml_names(archive: ZipFile) -> list[str]:
     return [name for _, name in sorted(matches)]
 
 
-def extract_pptx_with_zip_result(path: Path, include_slide_title: bool = True) -> PptxExtractionResult:
-    with ZipFile(path) as archive:
+def _extract_pptx_with_zip_payload(
+    path: Path, payload: bytes, include_slide_title: bool = True
+) -> PptxExtractionResult:
+    with ZipFile(BytesIO(payload)) as archive:
+        _validate_zip_budget(path, archive)
         slide_names = sorted_slide_xml_names(archive)
         rendered_slides: list[str] = []
         blank_slides = 0
@@ -288,6 +342,18 @@ def extract_pptx_with_zip_result(path: Path, include_slide_title: bool = True) -
     )
 
 
+def extract_pptx_with_zip_result(path: Path, include_slide_title: bool = True) -> PptxExtractionResult:
+    path, payload = _validated_pptx_payload(path)
+    try:
+        return _extract_pptx_with_zip_payload(
+            path, payload, include_slide_title=include_slide_title
+        )
+    except PptxExtractionError:
+        raise
+    except (BadZipFile, EOFError, OSError, ET.ParseError) as exc:
+        raise PptxExtractionError(path, "PPTX package could not be parsed") from exc
+
+
 def extract_pptx_with_zip(path: Path, include_slide_title: bool = True) -> str:
     return extract_pptx_with_zip_result(path, include_slide_title=include_slide_title).markdown
 
@@ -308,17 +374,20 @@ def extract_pptx_result(
     include_media_placeholders: bool = True,
     include_slide_title: bool = True,
 ) -> PptxExtractionResult:
-    validate_pptx_input(path)
+    original_path = path
+    path, payload = _validated_pptx_payload(path)
     try:
         from pptx import Presentation
     except ImportError:
         try:
-            return extract_pptx_with_zip_result(path, include_slide_title=include_slide_title)
+            return _extract_pptx_with_zip_payload(
+                path, payload, include_slide_title=include_slide_title
+            )
         except Exception as exc:
-            raise PptxExtractionError(path, "PPTX package could not be parsed") from exc
+            raise PptxExtractionError(original_path, "PPTX package could not be parsed") from exc
 
     try:
-        prs = Presentation(str(path))
+        prs = Presentation(BytesIO(payload))
         rendered_slides: list[str] = []
         blank_slides = 0
         media_objects = 0
@@ -384,7 +453,7 @@ def extract_pptx_result(
             media_objects=media_objects,
         )
     except Exception as exc:
-        raise PptxExtractionError(path, "PPTX package could not be parsed") from exc
+        raise PptxExtractionError(original_path, "PPTX package could not be parsed") from exc
 
 
 def extract_pptx(path: Path, include_media_placeholders: bool = True, include_slide_title: bool = True) -> str:

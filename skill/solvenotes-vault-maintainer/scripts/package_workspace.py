@@ -18,6 +18,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from archive_contract import portable_path_collision_issues, safe_entry
 from vault_contract import (
     REQUIRED_SKILLS,
     dependency_graph_digest,
@@ -152,13 +153,15 @@ def git_is_clean(path: Path) -> bool | None:
 
 def lock_metadata(notes_root: Path, skills_root: Path, *, allow_lock_drift: bool = False) -> dict[str, object]:
     lock_path = notes_root / ".github" / "solvenotes-skills.lock.json"
-    if not lock_path.is_file():
+    try:
+        lock_path.lstat()
+    except FileNotFoundError:
         if not allow_lock_drift:
             raise ValueError(f"Notes lock drift: missing {lock_path}")
         return {"notes_locked_skills_commit": None, "contract_version": None, "coherent_workspace": False}
     try:
-        payload = json.loads(lock_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        payload = json.loads(read_bytes_no_follow(lock_path).decode("utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"invalid Notes Skills lock: {lock_path}: {exc}") from exc
     lock_issues = validate_lock(payload) if isinstance(payload, dict) else ["lock is not an object"]
     if lock_issues and not allow_lock_drift:
@@ -173,22 +176,30 @@ def lock_metadata(notes_root: Path, skills_root: Path, *, allow_lock_drift: bool
     }
     graph = source_dependency_graph(skills_root)
     actual_graph_digest = dependency_graph_digest(graph) if graph is not None else None
-    coherent = (
-        isinstance(commit, str)
-        and isinstance(actual, str)
-        and commit == actual
-        and clean is True
-        and all(
-            isinstance(expected_skills.get(name), dict)
-            and expected_skills[name].get("content_digest") == actual_digests[name]
-            for name in REQUIRED_SKILLS
+    drift_reasons: list[str] = []
+    if not isinstance(commit, str) or not isinstance(actual, str) or commit != actual:
+        drift_reasons.append(
+            f"commit mismatch (lock={commit or 'MISSING'}, checkout={actual or 'UNAVAILABLE'})"
         )
-        and payload.get("dependency_graph_digest") == actual_graph_digest
-        and not lock_issues
-    )
+    if clean is not True:
+        drift_reasons.append(
+            "Skills checkout is dirty"
+            if clean is False
+            else "Skills checkout cleanliness is unavailable"
+        )
+    for name in REQUIRED_SKILLS:
+        expected = expected_skills.get(name)
+        expected_digest = expected.get("content_digest") if isinstance(expected, dict) else None
+        if expected_digest != actual_digests[name]:
+            drift_reasons.append(f"content digest mismatch for {name}")
+    if payload.get("dependency_graph_digest") != actual_graph_digest:
+        drift_reasons.append("dependency graph digest mismatch")
+    if lock_issues:
+        drift_reasons.append("lock schema is invalid")
+    coherent = not drift_reasons
     if not coherent and not allow_lock_drift:
         raise ValueError(
-            f"Notes lock drift: lock={commit or 'MISSING'}, Skills checkout={actual or 'UNAVAILABLE'}; "
+            "Notes lock drift: " + "; ".join(drift_reasons) + "; "
             "use --allow-lock-drift only for a diagnostic package"
         )
     result = {
@@ -326,16 +337,24 @@ def package(root: Path, output: Path, manifest_output: Path, *, allow_lock_drift
     ensure_safe_output_path(manifest_output, create_parent=True)
     excluded_paths = {output, manifest_output}
     entries = inventory(root, excluded_paths)
+    names = [relative.as_posix() for relative, _data, _mode in entries]
+    unsafe = [name for name in names if not safe_entry(name)]
+    if unsafe:
+        raise ValueError(f"workspace contains an unsafe package path: {unsafe[0]}")
+    collisions = portable_path_collision_issues(names + ["BUILD-MANIFEST.json"])
+    if collisions:
+        raise ValueError("; ".join(collisions))
     lock = lock_metadata(root / "notes", root / "skills", allow_lock_drift=allow_lock_drift)
     epoch = deterministic_epoch(root)
     manifest = manifest_for(root, entries, lock=lock, epoch=epoch)
     manifest_bytes = (json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
     write_archive(output, entries, manifest_bytes, epoch)
-    archive_sha256 = hashlib.sha256(output.read_bytes()).hexdigest()
+    archive_bytes = read_bytes_no_follow(output)
+    archive_sha256 = hashlib.sha256(archive_bytes).hexdigest()
     sidecar = dict(manifest)
     sidecar["archive_sha256"] = archive_sha256
     write_manifest(manifest_output, (json.dumps(sidecar, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"))
-    return len(entries), output.stat().st_size
+    return len(entries), len(archive_bytes)
 
 
 def main() -> int:
@@ -345,7 +364,16 @@ def main() -> int:
     parser.add_argument("--manifest-output", type=Path, required=True, help="sidecar manifest outside the root")
     parser.add_argument("--allow-lock-drift", action="store_true", help="create a diagnostic, non-coherent package")
     args = parser.parse_args()
-    count, size = package(args.root, args.output, args.manifest_output, allow_lock_drift=args.allow_lock_drift)
+    try:
+        count, size = package(
+            args.root,
+            args.output,
+            args.manifest_output,
+            allow_lock_drift=args.allow_lock_drift,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"workspace_package_error {exc}", file=sys.stderr)
+        return 1
     print(f"workspace_package_path {args.output.expanduser().absolute()}")
     print(f"workspace_package_files {count}")
     print(f"workspace_package_size_bytes {size}")

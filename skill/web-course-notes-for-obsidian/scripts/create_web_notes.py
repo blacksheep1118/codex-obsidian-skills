@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from datetime import date
+import json
 import os
 from pathlib import Path, PureWindowsPath
 import re
@@ -22,9 +23,19 @@ from collect_web_sources import (
     title_from_url,
 )
 try:
-    from .safe_io import ensure_safe_input_directory
+    from .safe_io import (
+        ensure_safe_directory as ensure_safe_root_directory,
+        ensure_safe_input_directory,
+        read_bytes_no_follow,
+        safe_create_text,
+    )
 except ImportError:
-    from safe_io import ensure_safe_input_directory
+    from safe_io import (
+        ensure_safe_directory as ensure_safe_root_directory,
+        ensure_safe_input_directory,
+        read_bytes_no_follow,
+        safe_create_text,
+    )
 
 
 CATEGORY_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -53,6 +64,7 @@ CATEGORY_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+CONTROL_CHARACTER_RE = re.compile(r"[\x00-\x1f\x7f]")
 TOKEN_RE = re.compile(r"[a-z0-9]+", re.I)
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 DEFAULT_ROOT_FOLDERS = {"zh": "网络资源", "en": "Web Resources"}
@@ -86,7 +98,19 @@ def safe_path_name(value: str, fallback: str = "untitled", max_length: int = 80)
 
 
 def yaml_string(value: str) -> str:
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return json.dumps(value, ensure_ascii=False)
+
+
+def validated_display_text(value: str, *, field: str) -> str:
+    if CONTROL_CHARACTER_RE.search(value):
+        raise ValueError(f"{field} must not contain control characters or line breaks")
+    return value
+
+
+def normalized_inline_text(value: str) -> str:
+    """Collapse source-provided whitespace before embedding it in Markdown."""
+
+    return re.sub(r"\s+", " ", value).strip()
 
 
 def resolve_language(language: str, pages: list[PageRecord], sources: list[str]) -> str:
@@ -163,7 +187,7 @@ def validated_notes_root(notes_dir: Path, *, allow_missing: bool) -> Path:
 
 
 def _relative_beneath(root: Path, path: Path) -> Path:
-    root = root.expanduser().resolve()
+    root = Path(os.path.abspath(root.expanduser()))
     candidate = path.expanduser()
     if not candidate.is_absolute():
         candidate = root / candidate
@@ -177,7 +201,7 @@ def _relative_beneath(root: Path, path: Path) -> Path:
 def ensure_safe_directory(root: Path, path: Path, *, create: bool) -> Path:
     """Validate or create a directory without traversing symlink components."""
 
-    root = root.expanduser().resolve()
+    root = Path(os.path.abspath(root.expanduser()))
     relative = _relative_beneath(root, path)
     current = root
     for component in relative.parts:
@@ -197,7 +221,7 @@ def ensure_safe_directory(root: Path, path: Path, *, create: bool) -> Path:
 
 
 def ensure_safe_output_path(root: Path, path: Path) -> Path:
-    root = root.expanduser().resolve()
+    root = Path(os.path.abspath(root.expanduser()))
     relative = _relative_beneath(root, path)
     candidate = root / relative
     ensure_safe_directory(root, candidate.parent, create=False)
@@ -221,23 +245,10 @@ def write_text_no_follow(root: Path, path: Path, content: str) -> None:
     except FileNotFoundError:
         mode = None
     if mode is not None:
-        if candidate.read_text(encoding="utf-8") == content:
+        if read_bytes_no_follow(candidate).decode("utf-8") == content:
             return
         raise FileExistsError(f"refusing to replace existing output file: {candidate}")
-
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    descriptor = os.open(candidate, flags, 0o666)
-    try:
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise ValueError(f"created output is not a regular file: {candidate}")
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
-            descriptor = -1
-            stream.write(content)
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
+    safe_create_text(candidate, content, mode=0o644)
 
 
 def choose_category_dir(
@@ -302,9 +313,11 @@ def note_stem(file_name: str) -> str:
 
 def available_file(root: Path, path: Path, content: str) -> Path:
     path = ensure_safe_output_path(root, path)
-    if not path.exists():
+    try:
+        path.lstat()
+    except FileNotFoundError:
         return path
-    if path.read_text(encoding="utf-8") == content:
+    if read_bytes_no_follow(path).decode("utf-8") == content:
         return path
 
     for index in range(2, 100):
@@ -312,9 +325,11 @@ def available_file(root: Path, path: Path, content: str) -> Path:
             root,
             path.with_name(f"{path.stem}_{index}{path.suffix}"),
         )
-        if not candidate.exists():
+        try:
+            candidate.lstat()
+        except FileNotFoundError:
             return candidate
-        if candidate.read_text(encoding="utf-8") == content:
+        if read_bytes_no_follow(candidate).decode("utf-8") == content:
             return candidate
     raise RuntimeError(f"could not find an available path near {path}")
 
@@ -323,8 +338,13 @@ def canonical_file(root: Path, path: Path, content: str) -> Path:
     """Reserve a fixed support-file name, failing on conflicting content."""
 
     path = ensure_safe_output_path(root, path)
-    if path.exists() and path.read_text(encoding="utf-8") != content:
-        raise FileExistsError(f"canonical output conflicts with existing content: {path}")
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        if read_bytes_no_follow(path).decode("utf-8") != content:
+            raise FileExistsError(f"canonical output conflicts with existing content: {path}")
     return path
 
 
@@ -332,9 +352,11 @@ def existing_collection_date(root: Path, map_path: Path, fallback: date) -> date
     """Reuse a canonical map's creation date so reruns remain deterministic."""
 
     map_path = ensure_safe_output_path(root, map_path)
-    if not map_path.exists():
+    try:
+        map_path.lstat()
+    except FileNotFoundError:
         return fallback
-    text = map_path.read_text(encoding="utf-8", errors="replace")
+    text = read_bytes_no_follow(map_path).decode("utf-8", errors="replace")
     match = re.search(r"^(?:Created|创建日期):\s*(\d{4}-\d{2}-\d{2})\s*$", text, re.M)
     if not match:
         return fallback
@@ -352,7 +374,8 @@ def page_note_content_zh(
     map_note_stem: str = "00_学习地图",
 ) -> str:
     title = display_title or page.title or title_from_url(page.url)
-    description = page.description.strip() if page.description.strip() else "待补充: 摘要、课程简介或章节定位。"
+    normalized_description = normalized_inline_text(page.description)
+    description = normalized_description or "待补充: 摘要、课程简介或章节定位。"
     lines = [
         "---",
         f"title: {yaml_string(title)}",
@@ -507,7 +530,8 @@ def page_note_content_en(
     map_note_stem: str = "00_Learning_Map",
 ) -> str:
     title = display_title or page.title or title_from_url(page.url)
-    description = page.description.strip() if page.description.strip() else "To complete: summary, course context, or chapter role."
+    normalized_description = normalized_inline_text(page.description)
+    description = normalized_description or "To complete: summary, course context, or chapter role."
     lines = [
         "---",
         f"title: {yaml_string(title)}",
@@ -736,7 +760,7 @@ def map_content(title: str, pages: list[PageRecord], note_names: list[str], crea
 
 def create_notes(
     sources: list[str],
-    notes_dir: Path,
+    notes_dir: Path | None,
     *,
     category: str | None = None,
     folder: str | None = None,
@@ -751,17 +775,16 @@ def create_notes(
     publish: bool = False,
     staging_dir: Path | None = None,
 ) -> CreatedNotes:
-    notes_root = validated_notes_root(notes_dir, allow_missing=dry_run)
     if publish:
-        output_root = notes_root
+        if notes_dir is None:
+            raise ValueError("--notes-dir is required with --publish")
+        output_root = validated_notes_root(notes_dir, allow_missing=dry_run)
     elif staging_dir is not None:
         output_root = validated_notes_root(staging_dir, allow_missing=True)
-        if not output_root.exists() and not dry_run:
-            output_root.mkdir(parents=True)
+    elif dry_run:
+        output_root = Path(tempfile.gettempdir()) / f"solvenotes-web-staging-dry-run-{os.getpid()}"
     else:
         output_root = Path(tempfile.mkdtemp(prefix="solvenotes-web-staging-"))
-    if not output_root.exists() and not dry_run:
-        output_root.mkdir(parents=True)
     pages = collect_sources(
         sources,
         timeout=timeout,
@@ -769,7 +792,21 @@ def create_notes(
         total_timeout=total_timeout,
     )
     resolved_language = resolve_language(language, pages, sources)
-    chosen_title = collection_title(pages, title)
+    chosen_title = validated_display_text(
+        collection_title(pages, title),
+        field="collection title",
+    )
+    display_titles = [
+        validated_display_text(
+            title if title and len(pages) == 1 else page.title or title_from_url(page.url),
+            field=f"source {index} title",
+        )
+        for index, page in enumerate(pages, start=1)
+    ]
+    if dry_run:
+        output_root = validated_notes_root(output_root, allow_missing=True)
+    else:
+        output_root = ensure_safe_root_directory(output_root, create=True)
     fallback_root_folder = safe_path_name(root_folder_name or DEFAULT_ROOT_FOLDERS[resolved_language], DEFAULT_ROOT_FOLDERS[resolved_language])
     map_file_name = note_file_name(map_note_name, DEFAULT_MAP_NOTE_NAMES[resolved_language])
     map_note_stem = note_stem(map_file_name)
@@ -791,8 +828,7 @@ def create_notes(
     manifest = build_manifest(pages)
     note_paths: list[Path] = []
     note_names: list[str] = []
-    for index, page in enumerate(pages, start=1):
-        display_title = title if title and len(pages) == 1 else page.title or title_from_url(page.url)
+    for index, (page, display_title) in enumerate(zip(pages, display_titles), start=1):
         note_title = safe_path_name(display_title, f"source-{index}")
         note_name = f"{index:02d}_{note_title}"
         content = page_note_content(page, index, today, display_title, resolved_language, map_note_stem)
@@ -814,8 +850,10 @@ def create_notes(
         ensure_safe_directory(output_root, collection_dir, create=True)
         write_text_no_follow(output_root, map_path, map_body)
         write_text_no_follow(output_root, manifest_path, manifest)
-        for index, (note_path, page) in enumerate(zip(note_paths, pages), start=1):
-            display_title = title if title and len(pages) == 1 else page.title or title_from_url(page.url)
+        for index, (note_path, page, display_title) in enumerate(
+            zip(note_paths, pages, display_titles),
+            start=1,
+        ):
             write_text_no_follow(
                 output_root,
                 note_path,
@@ -829,7 +867,7 @@ def main() -> int:
     configure_output_encoding()
     parser = argparse.ArgumentParser(description="Create an Obsidian note folder from web learning resource URLs.")
     parser.add_argument("sources", nargs="+", help="URL or local HTML file")
-    parser.add_argument("--notes-dir", type=Path, required=True, help="Obsidian notes directory used only when --publish is set")
+    parser.add_argument("--notes-dir", type=Path, help="Obsidian notes directory; required only with --publish")
     parser.add_argument("--publish", action="store_true", help="Publish finished output into --notes-dir; default writes scaffolds to external staging")
     parser.add_argument("--staging-dir", type=Path, help="External staging directory; defaults to /tmp/solvenotes-web-staging-*")
     parser.add_argument("--category", help="Existing or new top-level category folder under --notes-dir")

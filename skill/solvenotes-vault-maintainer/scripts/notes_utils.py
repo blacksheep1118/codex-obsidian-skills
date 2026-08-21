@@ -1120,23 +1120,77 @@ def frontmatter_note_type(text: str) -> str | None:
     return None
 
 
+FENCE_LINE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+
 def remove_fenced_code(text: str) -> str:
+    """Blank CommonMark fenced blocks while preserving source line count.
+
+    Closing fences must use the same marker and at least the opening run
+    length.  A shorter run inside a four-backtick block is therefore content,
+    not a close delimiter.  Tilde fences are handled as well as backticks.
+    """
+
     kept: list[str] = []
-    in_code = False
+    fence_char = ""
+    fence_length = 0
     for line in text.splitlines():
-        if line.startswith("```"):
-            in_code = not in_code
+        match = FENCE_LINE_RE.match(line)
+        if fence_char:
+            kept.append("")
+            if (
+                match
+                and match.group(1)[0] == fence_char
+                and len(match.group(1)) >= fence_length
+                and not match.group(2).strip()
+            ):
+                fence_char = ""
+                fence_length = 0
+            continue
+        if match:
+            marker = match.group(1)
+            fence_char = marker[0]
+            fence_length = len(marker)
             kept.append("")
             continue
-        if not in_code:
-            kept.append(line)
-        else:
-            kept.append("")
+        kept.append(line)
     return "\n".join(kept)
 
 
 def remove_inline_code(text: str) -> str:
-    return re.sub(r"`[^`]*`", "", text)
+    """Blank CommonMark code spans while preserving line breaks and offsets."""
+
+    chars = list(text)
+    index = 0
+    while index < len(text):
+        if text[index] != "`":
+            index += 1
+            continue
+        opening_end = index
+        while opening_end < len(text) and text[opening_end] == "`":
+            opening_end += 1
+        marker_length = opening_end - index
+        cursor = opening_end
+        closing_end = -1
+        while cursor < len(text):
+            if text[cursor] != "`":
+                cursor += 1
+                continue
+            run_end = cursor
+            while run_end < len(text) and text[run_end] == "`":
+                run_end += 1
+            if run_end - cursor == marker_length:
+                closing_end = run_end
+                break
+            cursor = run_end
+        if closing_end < 0:
+            index = opening_end
+            continue
+        for position in range(index, closing_end):
+            if chars[position] not in {"\n", "\r"}:
+                chars[position] = " "
+        index = closing_end
+    return "".join(chars)
 
 
 def remove_indented_code(text: str) -> str:
@@ -1146,7 +1200,10 @@ def remove_indented_code(text: str) -> str:
 
 
 def text_without_code(text: str) -> str:
-    return remove_indented_code(remove_inline_code(remove_fenced_code(text)))
+    # Remove indentation before replacing inline spans with spaces. Otherwise
+    # a code span at column zero can make ordinary prose later on the same line
+    # look like a four-space indented block.
+    return remove_inline_code(remove_indented_code(remove_fenced_code(text)))
 
 
 def wikilinks(text: str) -> list[tuple[str, str]]:

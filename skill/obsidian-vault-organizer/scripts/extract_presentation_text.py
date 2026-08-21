@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import hashlib
+from io import BytesIO
 import os
 from pathlib import Path
 import re
@@ -17,14 +18,35 @@ import zipfile
 from xml.etree import ElementTree as ET
 
 try:
-    from .safe_io import ensure_safe_directory, safe_write_text
+    from .safe_io import (
+        ensure_safe_directory,
+        ensure_safe_input_file,
+        read_bytes_no_follow,
+        safe_write_text,
+    )
 except ImportError:
-    from safe_io import ensure_safe_directory, safe_write_text
+    from safe_io import (
+        ensure_safe_directory,
+        ensure_safe_input_file,
+        read_bytes_no_follow,
+        safe_write_text,
+    )
 
 
 END_OF_CHAIN = -2
 FREE_SECTOR = -1
 NO_STREAM = -1
+CFB_HEADER_BYTES = 512
+VALID_SECTOR_SHIFTS = {9, 12}
+VALID_MINI_SECTOR_SHIFT = 6
+MAX_PPT_RECORD_NESTING = 64
+MAX_PPT_RECORDS = 1_000_000
+MAX_PRESENTATION_INPUT_BYTES = 256 * 1024 * 1024
+MAX_PPTX_ZIP_MEMBERS = 20_000
+MAX_PPTX_MEMBER_BYTES = 128 * 1024 * 1024
+MAX_PPTX_TOTAL_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
+MAX_PPTX_COMPRESSION_RATIO = 1000
+REQUIRED_PPTX_PARTS = {"[Content_Types].xml", "ppt/presentation.xml"}
 OUTPUT_DIR_ERROR_REASON = "--output-dir must be a directory without symlink components"
 
 PLACEHOLDER_RE = re.compile(
@@ -64,16 +86,26 @@ def is_useful_line(text: str) -> bool:
 
 
 def cfb_sector_offset(sector_id: int, sector_size: int) -> int:
-    return 512 + sector_id * sector_size
+    return (sector_id + 1) * sector_size
 
 
 def read_cfb_stream(path: Path, stream_name: str) -> bytes:
-    data = path.read_bytes()
+    path = ensure_safe_input_file(path)
+    data = read_bytes_no_follow(path, max_bytes=MAX_PRESENTATION_INPUT_BYTES)
     if data[:8] != b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
         raise ValueError(f"not a Compound File Binary document: {path}")
+    if len(data) < CFB_HEADER_BYTES:
+        raise ValueError(f"truncated Compound File Binary header: {path}")
 
-    sector_size = 1 << struct.unpack_from("<H", data, 30)[0]
-    mini_sector_size = 1 << struct.unpack_from("<H", data, 32)[0]
+    sector_shift = struct.unpack_from("<H", data, 30)[0]
+    mini_sector_shift = struct.unpack_from("<H", data, 32)[0]
+    if sector_shift not in VALID_SECTOR_SHIFTS or mini_sector_shift != VALID_MINI_SECTOR_SHIFT:
+        raise ValueError(f"unsupported Compound File Binary sector geometry: {path}")
+    sector_size = 1 << sector_shift
+    mini_sector_size = 1 << mini_sector_shift
+    if len(data) < sector_size:
+        raise ValueError(f"truncated Compound File Binary sector area: {path}")
+    total_sectors = len(data) // sector_size - 1
     fat_sector_count = struct.unpack_from("<I", data, 44)[0]
     directory_start = struct.unpack_from("<i", data, 48)[0]
     mini_stream_cutoff = struct.unpack_from("<I", data, 56)[0]
@@ -81,24 +113,35 @@ def read_cfb_stream(path: Path, stream_name: str) -> bytes:
     mini_fat_sector_count = struct.unpack_from("<I", data, 64)[0]
     difat_start = struct.unpack_from("<i", data, 68)[0]
     difat_sector_count = struct.unpack_from("<I", data, 72)[0]
+    if any(count > total_sectors for count in (fat_sector_count, mini_fat_sector_count, difat_sector_count)):
+        raise ValueError(f"Compound File Binary sector count exceeds file bounds: {path}")
+
+    def sector_payload(sector_id: int) -> bytes:
+        if sector_id < 0 or sector_id >= total_sectors:
+            raise ValueError(f"Compound File Binary sector is outside file bounds: {sector_id}")
+        offset = cfb_sector_offset(sector_id, sector_size)
+        end = offset + sector_size
+        if end > len(data):
+            raise ValueError(f"truncated Compound File Binary sector: {sector_id}")
+        return data[offset:end]
 
     difat = list(struct.unpack_from("<109i", data, 76))
     current = difat_start
     seen: set[int] = set()
-    while current not in (END_OF_CHAIN, FREE_SECTOR, NO_STREAM) and current not in seen:
+    if difat_sector_count == 0 and current not in (END_OF_CHAIN, FREE_SECTOR, NO_STREAM):
+        raise ValueError(f"Compound File Binary has a DIFAT start without DIFAT sectors: {path}")
+    for _ in range(difat_sector_count):
+        if current in (END_OF_CHAIN, FREE_SECTOR, NO_STREAM) or current in seen:
+            raise ValueError(f"Compound File Binary DIFAT chain is shorter than declared: {path}")
         seen.add(current)
-        offset = cfb_sector_offset(current, sector_size)
-        entries = list(struct.unpack_from(f"<{sector_size // 4}i", data, offset))
+        entries = list(struct.unpack(f"<{sector_size // 4}i", sector_payload(current)))
         difat.extend(entries[:-1])
         current = entries[-1]
-        if len(seen) >= difat_sector_count:
-            break
 
     fat_sectors = [sector for sector in difat if sector >= 0][:fat_sector_count]
     fat: list[int] = []
     for sector in fat_sectors:
-        offset = cfb_sector_offset(sector, sector_size)
-        fat.extend(struct.unpack_from(f"<{sector_size // 4}i", data, offset))
+        fat.extend(struct.unpack(f"<{sector_size // 4}i", sector_payload(sector)))
 
     def read_chain(start_sector: int) -> bytes:
         output = bytearray()
@@ -106,8 +149,7 @@ def read_cfb_stream(path: Path, stream_name: str) -> bytes:
         chain_seen: set[int] = set()
         while sector >= 0 and sector not in chain_seen:
             chain_seen.add(sector)
-            offset = cfb_sector_offset(sector, sector_size)
-            output.extend(data[offset : offset + sector_size])
+            output.extend(sector_payload(sector))
             if sector >= len(fat):
                 break
             sector = fat[sector]
@@ -169,11 +211,25 @@ def read_cfb_stream(path: Path, stream_name: str) -> bytes:
     return read_chain(start)[:size]
 
 
-def parse_ppt_records(payload: bytes, output: list[str]) -> None:
+def parse_ppt_records(
+    payload: bytes | memoryview,
+    output: list[str],
+    *,
+    _depth: int = 0,
+    _record_budget: list[int] | None = None,
+) -> None:
+    if _depth > MAX_PPT_RECORD_NESTING:
+        raise ValueError("legacy PPT record nesting exceeds safety limit")
+    if _record_budget is None:
+        _record_budget = [MAX_PPT_RECORDS]
+    payload = memoryview(payload)
     position = 0
     payload_length = len(payload)
     while position + 8 <= payload_length:
         instance_version, record_type, record_length = struct.unpack_from("<HHI", payload, position)
+        _record_budget[0] -= 1
+        if _record_budget[0] < 0:
+            raise ValueError("legacy PPT record count exceeds safety limit")
         version = instance_version & 0xF
         start = position + 8
         end = start + record_length
@@ -182,14 +238,14 @@ def parse_ppt_records(payload: bytes, output: list[str]) -> None:
         body = payload[start:end]
 
         if record_type in (4000, 4026):
-            text = body.decode("utf-16le", errors="ignore")
+            text = body.tobytes().decode("utf-16le", errors="ignore")
             if printable_ratio(text) > 0.65:
                 for line in text.splitlines():
                     if is_useful_line(line):
                         output.append(clean_line(line))
         elif record_type == 4008:
             for encoding in ("gbk", "cp1252", "utf-8"):
-                text = body.decode(encoding, errors="ignore")
+                text = body.tobytes().decode(encoding, errors="ignore")
                 if printable_ratio(text) > 0.65:
                     for line in text.splitlines():
                         if is_useful_line(line):
@@ -197,7 +253,12 @@ def parse_ppt_records(payload: bytes, output: list[str]) -> None:
                     break
 
         if version == 0xF and record_length:
-            parse_ppt_records(body, output)
+            parse_ppt_records(
+                body,
+                output,
+                _depth=_depth + 1,
+                _record_budget=_record_budget,
+            )
         position = end
 
 
@@ -226,8 +287,42 @@ def extract_text_from_xml(xml_data: bytes) -> list[str]:
 
 
 def extract_pptx(path: Path) -> str:
+    path = ensure_safe_input_file(path)
+    data = read_bytes_no_follow(path, max_bytes=MAX_PRESENTATION_INPUT_BYTES)
     sections: list[str] = []
-    with zipfile.ZipFile(path) as archive:
+    with zipfile.ZipFile(BytesIO(data)) as archive:
+        members = archive.infolist()
+        if len(members) > MAX_PPTX_ZIP_MEMBERS:
+            raise ValueError("PPTX ZIP package has too many members")
+        names: set[str] = set()
+        total = 0
+        for member in members:
+            if member.filename in names:
+                raise ValueError("PPTX ZIP package contains duplicate members")
+            names.add(member.filename)
+            if member.flag_bits & 0x1:
+                raise ValueError("encrypted PPTX packages are not supported")
+            if member.file_size > MAX_PPTX_MEMBER_BYTES:
+                raise ValueError("PPTX ZIP member exceeds the uncompressed size limit")
+            total += member.file_size
+            if total > MAX_PPTX_TOTAL_UNCOMPRESSED_BYTES:
+                raise ValueError("PPTX ZIP package exceeds the total uncompressed size limit")
+            if member.file_size and (
+                member.compress_size == 0
+                or member.file_size > member.compress_size * MAX_PPTX_COMPRESSION_RATIO
+            ):
+                raise ValueError("PPTX ZIP member exceeds the compression-ratio limit")
+        corrupt = archive.testzip()
+        if corrupt is not None:
+            raise ValueError(f"PPTX ZIP package has a corrupt member: {corrupt}")
+        names = {member.filename for member in members}
+        if not REQUIRED_PPTX_PARTS <= names:
+            raise ValueError("PPTX package is missing required OOXML parts")
+        try:
+            for name in REQUIRED_PPTX_PARTS:
+                ET.fromstring(archive.read(name))
+        except ET.ParseError:
+            raise ValueError("PPTX package contains malformed required XML") from None
         slide_names = sorted(
             (name for name in archive.namelist() if name.startswith("ppt/slides/slide") and name.endswith(".xml")),
             key=slide_number,
@@ -253,6 +348,7 @@ def join_deduped(lines: list[str]) -> str:
 
 
 def extract(path: Path) -> str:
+    path = ensure_safe_input_file(path)
     suffix = path.suffix.lower()
     if suffix == ".pptx":
         return extract_pptx(path)
@@ -362,6 +458,12 @@ def main() -> int:
     parser.add_argument("sources", nargs="+", type=Path, help="PPT or PPTX files")
     parser.add_argument("--output-dir", type=Path, help="write one .txt file per source")
     args = parser.parse_args()
+
+    try:
+        args.sources = [ensure_safe_input_file(source) for source in args.sources]
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
     if args.output_dir:
         requested_output_dir = args.output_dir.expanduser()

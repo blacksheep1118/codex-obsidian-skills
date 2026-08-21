@@ -4,6 +4,8 @@ All notable changes to this repository are documented here.
 
 ## Unreleased
 
+- Bounded captured validation output with early process-tree termination, hardened PDF extraction with stable input snapshots and page/text budgets, and corrected algorithm-route rejection handling for prose and negative table columns.
+- Fixed Web staging dry-runs, control-character titles, local-source symlink handling, algorithm route/frontmatter diagnostics, C++ compile timeouts, direct courseware input safety, PPTX visual-coverage warnings, naturalness sentence detection, semantic example counts, and installed provenance schema/commit-tree verification.
 - Unified Doctor and validation entry points around one profile contract, added fail-fast dependency preflight, and introduced deterministic Notes-package manifests with independent archive and sidecar verification.
 - Corrected CommonMark inline-link and code-span boundaries across LF, CRLF, and CR; hardened cross-platform root-relative path validation; preserved Windows paths, regexes, and LaTeX in web manifests; and required independent per-resource web-note ownership.
 - Hardened paper-note local source ownership to require exact regular non-symlink files in both frontmatter and body references, and tightened validation of the official `agents/openai.yaml` dependency schema.

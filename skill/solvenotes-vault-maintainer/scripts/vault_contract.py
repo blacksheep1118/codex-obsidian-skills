@@ -155,10 +155,14 @@ def skill_contract_version(skills_root: Path) -> int | None:
 
 def _managed_records(skill_root: Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
+    if skill_root.is_symlink():
+        raise ValueError(f"Skill root must not be a symlink: {skill_root}")
     if not skill_root.is_dir():
         return records
     for path in skill_root.rglob("*"):
-        if not path.is_file() or path.is_symlink():
+        if path.is_symlink():
+            raise ValueError(f"Skill payload must not contain symlinks: {path}")
+        if not path.is_file():
             continue
         relative = path.relative_to(skill_root)
         if relative.name in EXCLUDED_NAMES or any(
@@ -342,9 +346,13 @@ def validate_checkout(
     status = "PROVENANCE_MISSING"
     if actual_sha is not None:
         clean = git_clean(skills_root)
-        actual_digests = {
-            name: skill_content_digest(skills_root, name) for name in REQUIRED_SKILLS
-        }
+        actual_digests: dict[str, str | None] = {}
+        for name in REQUIRED_SKILLS:
+            try:
+                actual_digests[name] = skill_content_digest(skills_root, name)
+            except ValueError as exc:
+                actual_digests[name] = None
+                issues.append(str(exc))
         status = (
             "EXACT_COMMIT_MATCH"
             if actual_sha == expected_sha
@@ -392,7 +400,11 @@ def validate_checkout(
                 schema_issues.extend(
                     _provenance_schema_issues(provenance, expected_contract, name)
                 )
-                actual_records = _managed_records(skill_root(skills_root, name))
+                try:
+                    actual_records = _managed_records(skill_root(skills_root, name))
+                except ValueError as exc:
+                    schema_issues.append(str(exc))
+                    actual_records = []
                 actual_digest = _records_digest(actual_records)
                 expected_record = expected_skills.get(name)
                 expected_digest = (
@@ -415,9 +427,14 @@ def validate_checkout(
             maintainer_dependencies = provenances[MAINTAINER_SKILL].get(
                 "dependency_digests", {}
             )
-            installed_algorithm_digest = _records_digest(
-                _managed_records(skill_root(skills_root, ALGORITHM_JOB_SKILL))
-            )
+            try:
+                installed_algorithm_records = _managed_records(
+                    skill_root(skills_root, ALGORITHM_JOB_SKILL)
+                )
+            except ValueError as exc:
+                schema_issues.append(str(exc))
+                installed_algorithm_records = []
+            installed_algorithm_digest = _records_digest(installed_algorithm_records)
             if maintainer_dependencies.get(ALGORITHM_JOB_SKILL) != installed_algorithm_digest:
                 schema_issues.append(
                     "installed maintainer dependency digest does not match "

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import zipfile
 from pathlib import Path
 
 import package_workspace as pw
 import pytest
+from vault_contract import CURRENT_LOCK_SCHEMA_VERSION, CURRENT_VAULT_CONTRACT_VERSION
 
 
 def test_workspace_package_excludes_local_state_and_includes_manifest(tmp_path: Path) -> None:
@@ -67,6 +69,73 @@ def test_workspace_package_rejects_same_output_and_manifest(tmp_path: Path) -> N
     output = tmp_path / "same"
     with pytest.raises(ValueError, match="different files"):
         pw.package(root, output, output)
+
+
+def test_workspace_lock_drift_names_dirty_checkout_and_digest_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    notes_root = tmp_path / "notes"
+    skills_root = tmp_path / "skills"
+    (notes_root / ".github").mkdir(parents=True)
+    skills_root.mkdir()
+    commit = "a" * 40
+    graph = {
+        "algorithm-job-notes-for-obsidian": [],
+        "solvenotes-vault-maintainer": ["algorithm-job-notes-for-obsidian"],
+    }
+    lock = {
+        "schema_version": CURRENT_LOCK_SCHEMA_VERSION,
+        "repository": "blacksheep1118/codex-obsidian-skills",
+        "commit": commit,
+        "maintainer_skill": "solvenotes-vault-maintainer",
+        "contract_version": CURRENT_VAULT_CONTRACT_VERSION,
+        "skills": {
+            name: {"content_digest": "b" * 64} for name in pw.REQUIRED_SKILLS
+        },
+        "dependency_graph_digest": pw.dependency_graph_digest(graph),
+    }
+    (notes_root / ".github" / "solvenotes-skills.lock.json").write_text(
+        json.dumps(lock), encoding="utf-8"
+    )
+    monkeypatch.setattr(pw, "git_commit", lambda _root: commit)
+    monkeypatch.setattr(pw, "git_is_clean", lambda _root: False)
+    monkeypatch.setattr(pw, "skill_content_digest", lambda _root, _name: "c" * 64)
+    monkeypatch.setattr(pw, "source_dependency_graph", lambda _root: graph)
+
+    with pytest.raises(ValueError) as exc_info:
+        pw.lock_metadata(notes_root, skills_root)
+
+    message = str(exc_info.value)
+    assert "Skills checkout is dirty" in message
+    assert "content digest mismatch for solvenotes-vault-maintainer" in message
+    assert "commit mismatch" not in message
+
+
+def test_workspace_package_cli_reports_expected_failure_without_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fail(*_args, **_kwargs):
+        raise ValueError("content digest mismatch")
+
+    monkeypatch.setattr(pw, "package", fail)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "package_workspace.py",
+            "--root",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "out.zip"),
+            "--manifest-output",
+            str(tmp_path / "manifest.json"),
+        ],
+    )
+
+    assert pw.main() == 1
+    captured = capsys.readouterr()
+    assert "workspace_package_error content digest mismatch" in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_workspace_package_rejects_symlinked_root_and_output(tmp_path: Path) -> None:
@@ -220,6 +289,22 @@ def test_verify_workspace_package_rejects_windows_absolute_entry() -> None:
     assert verifier.safe_entry("\\\\server\\share\\x") is False
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "notes/bad\x00name.md",
+        "notes/bad:name.md",
+        "notes/NUL.txt",
+        "notes/trailing-space ",
+        "notes/trailing-dot.",
+    ],
+)
+def test_archive_entry_contract_rejects_nonportable_components(name: str) -> None:
+    import verify_workspace_package as verifier
+
+    assert verifier.safe_entry(name) is False
+
+
 def test_verify_workspace_package_rejects_non_object_manifest(tmp_path: Path) -> None:
     import verify_workspace_package as verifier
 
@@ -231,6 +316,47 @@ def test_verify_workspace_package_rejects_non_object_manifest(tmp_path: Path) ->
     payload = verifier.verify(archive)
     assert payload["ok"] is False
     assert any("must contain a JSON object" in issue for issue in payload["issues"])
+
+
+def test_verify_workspace_package_reports_malformed_zip_without_traceback(tmp_path: Path) -> None:
+    import verify_workspace_package as verifier
+
+    archive = tmp_path / "malformed.zip"
+    archive.write_bytes(b"not a zip archive")
+
+    payload = verifier.verify(archive)
+
+    assert payload["ok"] is False
+    assert payload["entries"] == 0
+    assert any("invalid workspace ZIP" in issue for issue in payload["issues"])
+
+
+def test_verify_workspace_package_missing_archive_is_structured_failure(tmp_path: Path) -> None:
+    import verify_workspace_package as verifier
+
+    payload = verifier.verify(tmp_path / "missing.zip")
+
+    assert payload["ok"] is False
+    assert payload["entries"] == 0
+    assert payload["archive_sha256"] == ""
+    assert any("does not exist" in issue for issue in payload["issues"])
+
+
+def test_verify_workspace_package_reports_non_utf8_sidecar(tmp_path: Path) -> None:
+    import verify_workspace_package as verifier
+
+    root = tmp_path / "workspace"
+    (root / "notes").mkdir(parents=True)
+    (root / "notes" / "note.md").write_text("# Note\n", encoding="utf-8")
+    archive = tmp_path / "workspace.zip"
+    sidecar = tmp_path / "manifest.json"
+    pw.package(root, archive, sidecar, allow_lock_drift=True)
+    sidecar.write_bytes(b"\xff\xfe")
+
+    payload = verifier.verify(archive, sidecar)
+
+    assert payload["ok"] is False
+    assert any("invalid sidecar manifest" in issue for issue in payload["issues"])
 
 
 def test_verify_workspace_package_recomputes_lock_coherence(tmp_path: Path) -> None:

@@ -29,11 +29,17 @@ def _bootstrap_vault_root_from_argv() -> None:
         if argument.startswith("--root="):
             os.environ["SOLVENOTES_VAULT_ROOT"] = argument.split("=", 1)[1]
             return
+    if any(argument in {"-h", "--help"} for argument in sys.argv[1:]):
+        fixture = Path(__file__).resolve().parents[1] / "fixtures" / "solvenotes-mini-vault"
+        if fixture.is_dir():
+            # Import-time vault helpers still need a valid root, even though
+            # argparse exits before any package input is read.
+            os.environ["SOLVENOTES_VAULT_ROOT"] = str(fixture)
 
 
 _bootstrap_vault_root_from_argv()
 
-from archive_contract import records_digest, safe_entry  # noqa: E402
+from archive_contract import portable_path_collision_issues, records_digest, safe_entry  # noqa: E402
 from notes_utils import (  # noqa: E402
     ROOT,
     UnsafePathError,
@@ -160,19 +166,21 @@ def archive_timestamp(epoch: int) -> tuple[int, int, int, int, int, int]:
 
 def lock_metadata() -> dict[str, object]:
     lock_path = ROOT / ".github" / "solvenotes-skills.lock.json"
-    if not lock_path.is_file():
+    try:
+        lock_path.lstat()
+    except FileNotFoundError:
         return {"locked_skills_commit": None, "contract_version": None}
     try:
         lock_bytes, _metadata = read_bytes_with_metadata(lock_path, root=ROOT)
         payload = json.loads(lock_bytes.decode("utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise UnsafePathError(f"invalid Notes Skills lock: {lock_path}: {exc}") from exc
     commit = payload.get("commit") if isinstance(payload, dict) else None
     contract = payload.get("contract_version") if isinstance(payload, dict) else None
     if not isinstance(commit, str) or FULL_SHA_RE.fullmatch(commit) is None:
         raise UnsafePathError("Notes Skills lock commit must be a full lower-case SHA")
-    if isinstance(contract, bool) or not isinstance(contract, int):
-        raise UnsafePathError("Notes Skills lock contract_version must be an integer")
+    if isinstance(contract, bool) or not isinstance(contract, int) or contract < 1:
+        raise UnsafePathError("Notes Skills lock contract_version must be a positive integer")
     return {"locked_skills_commit": commit, "contract_version": contract}
 
 
@@ -258,6 +266,11 @@ def package(
         input_entries.append((relative, data, metadata.st_mode))
 
     records = [_entry_record(relative, data) for relative, data, _mode in input_entries]
+    collisions = portable_path_collision_issues(
+        [str(record["path"]) for record in records] + [MANIFEST_NAME]
+    )
+    if collisions:
+        raise UnsafePathError("; ".join(collisions))
     epoch = deterministic_epoch()
     manifest = _manifest(records, epoch=epoch)
     manifest_bytes = (

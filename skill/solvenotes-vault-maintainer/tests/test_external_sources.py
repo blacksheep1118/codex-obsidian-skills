@@ -53,6 +53,19 @@ def test_url_sources_ignores_code_examples(tmp_path: Path) -> None:
     assert audit.url_sources(root) == {"https://example.com/docs": ["note.md"]}
 
 
+def test_url_sources_ignores_tilde_and_long_backtick_fences(tmp_path: Path) -> None:
+    root = tmp_path / "vault"
+    root.mkdir()
+    (root / "note.md").write_text(
+        "正文见 https://example.com/docs。\n"
+        "~~~text\nhttps://tilde.invalid\n~~~\n"
+        "````text\n```\nhttps://still-fenced.invalid\n````\n",
+        encoding="utf-8",
+    )
+
+    assert audit.url_sources(root) == {"https://example.com/docs": ["note.md"]}
+
+
 def test_request_url_percent_encodes_unicode_paths() -> None:
     assert audit.request_url("https://example.com/课程/机器学习") == (
         "https://example.com/%E8%AF%BE%E7%A8%8B/%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0"

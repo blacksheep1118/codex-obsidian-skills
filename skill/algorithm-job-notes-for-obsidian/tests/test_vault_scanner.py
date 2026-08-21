@@ -74,6 +74,30 @@ def test_missing_direction_is_reported(tmp_path):
     assert any("AI Infra" in issue for issue in payload["issues"])
 
 
+def test_direction_only_in_code_or_larger_ascii_token_does_not_satisfy_navigation(tmp_path):
+    vault = make_vault(tmp_path)
+    path = vault / "算法岗学习笔记" / KEY_FILES[0]
+    text = path.read_text(encoding="utf-8").replace("## CV\n路线入口\n", "")
+    path.write_text(text + "\n```text\nCV\n```\nCVR 是另一个指标。\n", encoding="utf-8")
+
+    code, payload = run_scan(vault)
+
+    assert code == 1
+    assert any("missing canonical direction 'CV'" in issue for issue in payload["issues"])
+
+
+def test_direction_only_in_frontmatter_does_not_satisfy_navigation(tmp_path):
+    vault = make_vault(tmp_path)
+    path = vault / "算法岗学习笔记" / KEY_FILES[0]
+    body = path.read_text(encoding="utf-8").replace("## CV\n路线入口\n", "")
+    path.write_text("---\naliases: [CV]\n---\n" + body, encoding="utf-8")
+
+    code, payload = run_scan(vault)
+
+    assert code == 1
+    assert any("missing canonical direction 'CV'" in issue for issue in payload["issues"])
+
+
 def test_extra_route_is_reported_but_natural_topic_prose_is_allowed(tmp_path):
     vault = make_vault(tmp_path)
     map_path = vault / "算法岗学习笔记" / KEY_FILES[0]
@@ -88,6 +112,179 @@ def test_extra_route_is_reported_but_natural_topic_prose_is_allowed(tmp_path):
     )
     code, payload = run_scan(natural_vault)
     assert code == 0, payload
+
+
+def test_extra_route_in_topic_file_is_reported(tmp_path):
+    vault = make_vault(tmp_path)
+    topic = vault / "算法岗学习笔记" / "35_NLP_LLM_训练对齐Agent与评测.md"
+    topic.write_text(topic.read_text(encoding="utf-8") + "\n## 强化学习算法岗路线\n", encoding="utf-8")
+
+    code, payload = run_scan(vault)
+
+    assert code == 1
+    assert any("强化学习算法岗" in issue and topic.name in issue for issue in payload["issues"])
+
+
+def test_extra_route_in_plain_prose_and_only_bypass_are_reported(tmp_path):
+    vault = make_vault(tmp_path)
+    topic = vault / "算法岗学习笔记" / "35_NLP_LLM_训练对齐Agent与评测.md"
+    topic.write_text(
+        topic.read_text(encoding="utf-8")
+        + "\n下一阶段将强化学习算法岗路线作为新的求职入口。\n"
+        + "只能新增多模态算法岗路线。\n",
+        encoding="utf-8",
+    )
+
+    code, payload = run_scan(vault)
+
+    assert code == 1
+    assert any("强化学习算法岗" in issue for issue in payload["issues"])
+    assert any("多模态算法岗" in issue for issue in payload["issues"])
+
+
+def test_explicitly_rejected_extra_route_is_allowed(tmp_path):
+    vault = make_vault(tmp_path)
+    topic = vault / "算法岗学习笔记" / "35_NLP_LLM_训练对齐Agent与评测.md"
+    topic.write_text(
+        topic.read_text(encoding="utf-8")
+        + "\n强化学习算法岗不是独立方向。\n"
+        + "不要创建多模态算法岗路线。\n",
+        encoding="utf-8",
+    )
+
+    code, payload = run_scan(vault)
+
+    assert code == 0, payload
+
+
+def test_prefixed_rejection_verbs_do_not_create_false_extra_routes(tmp_path):
+    vault = make_vault(tmp_path)
+    topic = vault / "算法岗学习笔记" / "35_NLP_LLM_训练对齐Agent与评测.md"
+    topic.write_text(
+        topic.read_text(encoding="utf-8")
+        + "\n禁止创建强化学习算法岗路线。\n"
+        + "不得新增多模态算法岗路线。\n"
+        + "不应创建风控算法岗路线。\n",
+        encoding="utf-8",
+    )
+
+    code, payload = run_scan(vault)
+
+    assert code == 0, payload
+
+
+def test_non_route_table_column_and_not_constitute_wording_are_allowed(tmp_path):
+    vault = make_vault(tmp_path)
+    topic = vault / "算法岗学习笔记" / "35_NLP_LLM_训练对齐Agent与评测.md"
+    topic.write_text(
+        topic.read_text(encoding="utf-8")
+        + "\n| 看到的主题 | 归属方式 | 不能做的事 |\n"
+        + "|---|---|---|\n"
+        + "| 多模态 | 挂回九方向 | 创建多模态算法岗路线 |\n"
+        + "\n本页不构成独立的“遥感算法岗”路线。\n",
+        encoding="utf-8",
+    )
+
+    code, payload = run_scan(vault)
+
+    assert code == 0, payload
+
+
+def test_route_inside_tilde_fence_is_not_reported(tmp_path):
+    vault = make_vault(tmp_path)
+    topic = vault / "算法岗学习笔记" / "35_NLP_LLM_训练对齐Agent与评测.md"
+    topic.write_text(
+        topic.read_text(encoding="utf-8") + "\n~~~text\n## 强化学习算法岗路线\n~~~\n",
+        encoding="utf-8",
+    )
+
+    code, payload = run_scan(vault)
+
+    assert code == 0, payload
+
+
+def test_shorter_backtick_run_does_not_close_longer_fence(tmp_path):
+    vault = make_vault(tmp_path)
+    topic = vault / "算法岗学习笔记" / "35_NLP_LLM_训练对齐Agent与评测.md"
+    topic.write_text(
+        topic.read_text(encoding="utf-8")
+        + "\n````text\n```\n## 强化学习算法岗路线\n````\n",
+        encoding="utf-8",
+    )
+
+    code, payload = run_scan(vault)
+
+    assert code == 0, payload
+
+
+def test_indented_pseudo_fence_does_not_hide_visible_route(tmp_path):
+    vault = make_vault(tmp_path)
+    topic = vault / "算法岗学习笔记" / "35_NLP_LLM_训练对齐Agent与评测.md"
+    topic.write_text(
+        topic.read_text(encoding="utf-8")
+        + "\n    ```text\n## 强化学习算法岗路线\n    ```\n",
+        encoding="utf-8",
+    )
+
+    code, payload = run_scan(vault)
+
+    assert code == 1
+    assert any("强化学习算法岗" in issue for issue in payload["issues"])
+
+
+def test_backtick_in_fence_info_does_not_hide_visible_route(tmp_path):
+    vault = make_vault(tmp_path)
+    topic = vault / "算法岗学习笔记" / "35_NLP_LLM_训练对齐Agent与评测.md"
+    topic.write_text(
+        topic.read_text(encoding="utf-8")
+        + "\n```bad`info\n## 强化学习算法岗路线\n```\n",
+        encoding="utf-8",
+    )
+
+    code, payload = run_scan(vault)
+
+    assert code == 1
+    assert any("强化学习算法岗" in issue for issue in payload["issues"])
+
+
+def test_frontmatter_issue_reports_physical_line_number(tmp_path):
+    vault = make_vault(tmp_path)
+    entry = vault / "算法岗学习笔记" / ENTRIES[0]
+    entry.write_text("---\njob_track: risk_control\n---\n# 条目\n", encoding="utf-8")
+
+    code, payload = run_scan(vault)
+
+    assert code == 1
+    assert any("legacy frontmatter direction at line 2" in issue for issue in payload["issues"])
+
+
+def test_inline_frontmatter_direction_list_accepts_canonical_ids(tmp_path):
+    vault = make_vault(tmp_path)
+    entry = vault / "算法岗学习笔记" / ENTRIES[0]
+    entry.write_text(
+        "---\njob_tracks: [cv, ai_infra]\n---\n# 条目\n",
+        encoding="utf-8",
+    )
+
+    code, payload = run_scan(vault)
+
+    assert code == 0, payload
+
+
+def test_inline_frontmatter_unknown_direction_is_reported_once(tmp_path):
+    vault = make_vault(tmp_path)
+    entry = vault / "算法岗学习笔记" / ENTRIES[0]
+    entry.write_text(
+        "---\njob_tracks: [cv, mystery_track]\n---\n# 条目\n",
+        encoding="utf-8",
+    )
+
+    code, payload = run_scan(vault)
+
+    assert code == 1
+    matching = [issue for issue in payload["issues"] if "unknown frontmatter direction" in issue]
+    assert len(matching) == 1
+    assert "line 2" in matching[0]
 
 
 def test_combined_route_and_old_frontmatter_are_reported(tmp_path):

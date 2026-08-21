@@ -32,6 +32,10 @@ class InputRootError(ValueError):
         super().__init__(f"{path}: {self.REASON}")
 
 
+class InputTooLargeError(ValueError):
+    """Raised before an input reader can exceed its configured byte budget."""
+
+
 def _absolute_path(path: Path) -> Path:
     return Path(os.path.abspath(path.expanduser()))
 
@@ -203,8 +207,11 @@ def ensure_safe_input_file(path: Path) -> Path:
     return candidate
 
 
-def read_bytes_no_follow(path: Path) -> bytes:
+def read_bytes_no_follow(path: Path, *, max_bytes: int | None = None) -> bytes:
     """Read one stable regular file without following a leaf or ancestor link."""
+
+    if max_bytes is not None and max_bytes < 0:
+        raise ValueError("max_bytes must be non-negative")
 
     candidate = _normalize_top_level_alias(path)
     if _supports_dir_fd():
@@ -223,15 +230,23 @@ def read_bytes_no_follow(path: Path) -> bytes:
                 opened = os.fstat(file_descriptor)
                 if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
                     raise ValueError(f"input file changed before read: {candidate}")
+                if max_bytes is not None and opened.st_size > max_bytes:
+                    raise InputTooLargeError(
+                        f"input exceeds byte limit ({max_bytes} bytes): {candidate}"
+                    )
                 with os.fdopen(file_descriptor, "rb", closefd=True) as stream:
                     file_descriptor = -1
-                    data = stream.read()
+                    data = stream.read() if max_bytes is None else stream.read(max_bytes + 1)
                     after = os.fstat(stream.fileno())
                 if (
                     (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
                     != (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns)
                 ):
                     raise ValueError(f"input file changed during read: {candidate}")
+                if max_bytes is not None and len(data) > max_bytes:
+                    raise InputTooLargeError(
+                        f"input exceeds byte limit ({max_bytes} bytes): {candidate}"
+                    )
                 return data
             finally:
                 if file_descriptor >= 0:
@@ -247,7 +262,11 @@ def read_bytes_no_follow(path: Path) -> bytes:
         opened = os.fstat(stream.fileno())
         if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
             raise ValueError(f"input file changed before read: {candidate}")
-        data = stream.read()
+        if max_bytes is not None and opened.st_size > max_bytes:
+            raise InputTooLargeError(
+                f"input exceeds byte limit ({max_bytes} bytes): {candidate}"
+            )
+        data = stream.read() if max_bytes is None else stream.read(max_bytes + 1)
         after = os.fstat(stream.fileno())
     current = candidate.lstat()
     opened_identity = (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns)
@@ -255,6 +274,10 @@ def read_bytes_no_follow(path: Path) -> bytes:
     current_identity = (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns)
     if after_identity != opened_identity or current_identity != opened_identity:
         raise ValueError(f"input file changed during read: {candidate}")
+    if max_bytes is not None and len(data) > max_bytes:
+        raise InputTooLargeError(
+            f"input exceeds byte limit ({max_bytes} bytes): {candidate}"
+        )
     return data
 
 
@@ -360,3 +383,101 @@ def safe_write_text(
     with atomic_binary_writer(path, mode=mode) as handle:
         handle.write(text.encode(encoding))
     return ensure_safe_output_path(path, create_parent=False)
+
+
+def safe_create_text(
+    path: Path,
+    text: str,
+    *,
+    encoding: str = "utf-8",
+    mode: int | None = None,
+) -> Path:
+    """Publish a new text file atomically without replacing an existing path.
+
+    The payload is fully written and synced to a same-directory temporary
+    file.  A hard-link publication step then provides no-clobber semantics:
+    if another process creates the destination first, publication fails and
+    the competing file remains untouched.
+    """
+
+    payload = text.encode(encoding)
+    candidate = _normalize_top_level_alias(path)
+    if _supports_dir_fd():
+        parent, parent_fd = _open_directory_fd(candidate.parent, create=True)
+        candidate = parent / candidate.name
+        temporary_name = ""
+        temporary_fd = -1
+        try:
+            _validate_output_entry(parent_fd, candidate)
+            if _entry_mode(parent_fd, candidate.name) is not None:
+                raise FileExistsError(f"refusing to replace existing output file: {candidate}")
+            temporary_name, temporary_fd = _open_temporary_at(parent_fd, candidate)
+            _apply_output_mode(temporary_fd, mode)
+            with os.fdopen(temporary_fd, "wb", closefd=True) as stream:
+                temporary_fd = -1
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            if not _directory_identity_matches(parent_fd, parent):
+                raise ValueError(f"output parent directory changed while writing: {parent}")
+            try:
+                os.link(
+                    temporary_name,
+                    candidate.name,
+                    src_dir_fd=parent_fd,
+                    dst_dir_fd=parent_fd,
+                    follow_symlinks=False,
+                )
+            except FileExistsError:
+                raise FileExistsError(
+                    f"refusing to replace existing output file: {candidate}"
+                ) from None
+            os.unlink(temporary_name, dir_fd=parent_fd)
+            temporary_name = ""
+            try:
+                os.fsync(parent_fd)
+            except OSError:
+                # Some filesystems do not support syncing a directory fd.
+                pass
+        finally:
+            if temporary_fd >= 0:
+                os.close(temporary_fd)
+            if temporary_name:
+                try:
+                    os.unlink(temporary_name, dir_fd=parent_fd)
+                except FileNotFoundError:
+                    pass
+            os.close(parent_fd)
+        return ensure_safe_output_path(candidate, create_parent=False)
+
+    candidate = ensure_safe_output_path(candidate)
+    if candidate.exists():
+        raise FileExistsError(f"refusing to replace existing output file: {candidate}")
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{candidate.name}.", suffix=".tmp", dir=candidate.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        _apply_output_mode(descriptor, mode)
+        with os.fdopen(descriptor, "wb", closefd=True) as stream:
+            descriptor = -1
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        candidate = ensure_safe_output_path(candidate, create_parent=False)
+        if candidate.exists():
+            raise FileExistsError(f"refusing to replace existing output file: {candidate}")
+        try:
+            os.link(temporary, candidate, follow_symlinks=False)
+        except FileExistsError:
+            raise FileExistsError(
+                f"refusing to replace existing output file: {candidate}"
+            ) from None
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+    return ensure_safe_output_path(candidate, create_parent=False)
