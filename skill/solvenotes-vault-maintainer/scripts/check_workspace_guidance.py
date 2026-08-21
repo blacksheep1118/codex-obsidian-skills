@@ -10,6 +10,10 @@ from pathlib import Path
 
 ABSOLUTE_MACHINE_PATH = re.compile(r"(?:/Users/|/opt/anaconda3|/opt/homebrew|[A-Za-z]:\\Users\\)")
 SHA_RE = re.compile(r"(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])")
+NOTES_WORKFLOW_PACKAGE_MODE = re.compile(r"(?m)^\s*-\s*package\s*(?:#.*)?$")
+NOTES_WORKFLOW_PACKAGE_ENTRYPOINT = re.compile(
+    r"\b(?:package_(?:vault|workspace)|verify_(?:vault|workspace)_package)\.py\b"
+)
 
 
 def scan(workspace_root: Path) -> dict[str, object]:
@@ -41,13 +45,18 @@ def scan(workspace_root: Path) -> dict[str, object]:
     else:
         issues.append("missing Notes Skills lock")
     workflow = root / "notes" / ".github" / "workflows" / "vault-quality.yml"
-    if workflow.is_file() and locked_sha:
+    if workflow.is_file():
         workflow_text = workflow.read_text(encoding="utf-8")
-        for sha in SHA_RE.findall(workflow_text):
-            if sha != locked_sha:
-                issues.append(f"vault workflow contains a SHA not sourced from lock: {sha}")
-        if "solvenotes-skills.lock.json" not in workflow_text:
-            issues.append("vault workflow does not read the Skills lock")
+        if locked_sha:
+            for sha in SHA_RE.findall(workflow_text):
+                if sha != locked_sha:
+                    issues.append(f"vault workflow contains a SHA not sourced from lock: {sha}")
+            if "solvenotes-skills.lock.json" not in workflow_text:
+                issues.append("vault workflow does not read the Skills lock")
+        if NOTES_WORKFLOW_PACKAGE_MODE.search(workflow_text):
+            issues.append("vault workflow exposes forbidden package mode")
+        for entrypoint in sorted(set(NOTES_WORKFLOW_PACKAGE_ENTRYPOINT.findall(workflow_text))):
+            issues.append(f"vault workflow invokes forbidden package entry point: {entrypoint}")
     return {"ok": not issues, "root": str(root), "files_checked": len(guidance_paths), "issues": sorted(set(issues))}
 
 

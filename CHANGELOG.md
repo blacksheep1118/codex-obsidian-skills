@@ -4,6 +4,7 @@ All notable changes to this repository are documented here.
 
 ## Unreleased
 
+- Made the workspace guidance gate reject Notes workflows that expose package mode or invoke vault/workspace package entry points, preserving the local-learning and GitHub-backup boundary.
 - Made local Markdown and wiki-link validation resolve relative paths and heading anchors (including Chinese, encoded, and duplicate headings) while ignoring fenced-code pseudo-links and external URLs; kept the standalone link inventory compatible with the shared parser and improved sibling-root command diagnostics.
 - Bounded captured validation output with early process-tree termination, hardened PDF extraction with stable input snapshots and page/text budgets, and corrected algorithm-route rejection handling for prose and negative table columns.
 - Fixed Web staging dry-runs, control-character titles, local-source symlink handling, algorithm route/frontmatter diagnostics, C++ compile timeouts, direct courseware input safety, PPTX visual-coverage warnings, naturalness sentence detection, semantic example counts, and installed provenance schema/commit-tree verification.
