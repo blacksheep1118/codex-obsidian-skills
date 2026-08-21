@@ -13,22 +13,20 @@ from urllib.parse import unquote
 
 try:
     from .safe_io import InputRootError, safe_write_text, validate_input_root
-    from .markdown_links import MARKDOWN_IMAGE_RE
+    from .markdown_links import MARKDOWN_IMAGE_RE, split_destination_suffix
     from .check_obsidian_links import (
         MARKDOWN_LINK_RE,
         is_external as is_external_target,
-        split_destination_suffix,
         text_without_code,
         unescape_markdown_destination,
     )
     from .check_vault_quality import markdown_files as safe_markdown_files
 except ImportError:
     from safe_io import InputRootError, safe_write_text, validate_input_root
-    from markdown_links import MARKDOWN_IMAGE_RE
+    from markdown_links import MARKDOWN_IMAGE_RE, split_destination_suffix
     from check_obsidian_links import (
         MARKDOWN_LINK_RE,
         is_external as is_external_target,
-        split_destination_suffix,
         text_without_code,
         unescape_markdown_destination,
     )

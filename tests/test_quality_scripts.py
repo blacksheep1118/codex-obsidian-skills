@@ -164,7 +164,10 @@ def test_root_link_checker_cli_accepts_commonmark_nested_and_encoded_destination
     vault = tmp_path / "vault"
     (vault / "folder").mkdir(parents=True)
     for target in ("foo(and(bar)).md", "encoded(1).md", "folder/My Note.md"):
-        (vault / target).write_text("# Target\n", encoding="utf-8")
+        content = "# Target\n"
+        if target == "encoded(1).md":
+            content += "\n## part\n"
+        (vault / target).write_text(content, encoding="utf-8")
     (vault / "index.md").write_text(
         '[Nested](foo(and(bar)).md "title")\n'
         "[Encoded](encoded%281%29.md#part)\n"

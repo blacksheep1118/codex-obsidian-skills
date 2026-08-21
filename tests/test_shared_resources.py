@@ -335,6 +335,30 @@ def test_shared_link_resolver_requires_regular_nonsymlink_target(tmp_path: Path)
         assert resolve_target(vault, source, invalid, by_stem) == []
 
 
+def test_shared_link_checker_scopes_markdown_paths_and_validates_anchors(tmp_path: Path):
+    nested = tmp_path / "vault" / "nested"
+    nested.mkdir(parents=True)
+    (tmp_path / "vault" / "target.md").write_text("# Root Heading\n", encoding="utf-8")
+    source = nested / "source.md"
+    source.write_text(
+        "# Local Anchor\n"
+        "[Wrong relative path](target.md)\n"
+        "[Valid parent path](../target.md#root-heading)\n"
+        "[Missing heading](../target.md#does-not-exist)\n"
+        "[Valid local anchor](#local-anchor)\n",
+        encoding="utf-8",
+    )
+
+    broken, self_links, checked = check_links(tmp_path / "vault")
+
+    assert checked == 4
+    assert [issue.target for issue in broken] == [
+        "target.md",
+        "../target.md#does-not-exist",
+    ]
+    assert self_links == []
+
+
 def test_shared_link_checker_cli_rejects_nonregular_and_symlink_targets(
     tmp_path: Path,
 ):

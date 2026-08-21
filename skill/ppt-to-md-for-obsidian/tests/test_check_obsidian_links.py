@@ -40,7 +40,10 @@ def test_check_links_reports_broken_and_self_links(tmp_path: Path):
 
 def test_check_links_accepts_spaces_url_encoding_anchors_and_root_paths(tmp_path: Path):
     (tmp_path / "folder").mkdir()
-    (tmp_path / "folder" / "My Note.md").write_text("# My Note\n", encoding="utf-8")
+    (tmp_path / "folder" / "My Note.md").write_text(
+        "# My Note\n\n## Section\n",
+        encoding="utf-8",
+    )
     (tmp_path / "index.md").write_text("# Index\n", encoding="utf-8")
     (tmp_path / "folder" / "topic.md").write_text(
         "\n".join(
@@ -83,7 +86,10 @@ def test_check_links_accepts_commonmark_destination_forms_and_titles(tmp_path: P
     ):
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("# Target\n", encoding="utf-8")
+        content = "# Target\n"
+        if name == "encoded(1).md":
+            content += "\n## section\n"
+        target.write_text(content, encoding="utf-8")
     (tmp_path / "index.md").write_text(
         "\n".join(
             [
@@ -145,11 +151,12 @@ def test_root_relative_link_does_not_fall_back_to_source_directory(tmp_path: Pat
     assert self_links == []
 
 
-def test_check_links_ignores_external_anchor_mailto_obsidian_and_images(tmp_path: Path):
+def test_check_links_checks_local_anchors_but_ignores_external_and_images(tmp_path: Path):
     page = tmp_path / "a.md"
     page.write_text(
         "\n".join(
             [
+                "# Local",
                 "[Web](https://example.com/missing.md)",
                 "[Mail](mailto:test@example.com)",
                 "[App](obsidian://open?vault=x)",
@@ -165,7 +172,59 @@ def test_check_links_ignores_external_anchor_mailto_obsidian_and_images(tmp_path
 
     broken, self_links, checked = check_links(tmp_path)
 
-    assert checked == 0
+    assert checked == 1
+    assert broken == []
+    assert self_links == []
+
+
+def test_check_links_reports_missing_heading_anchors(tmp_path: Path):
+    target = tmp_path / "target.md"
+    target.write_text("# Present\n", encoding="utf-8")
+    (tmp_path / "index.md").write_text(
+        "[Present](target.md#present)\n"
+        "[Missing](target.md#missing)\n"
+        "[Local](#missing-local)\n",
+        encoding="utf-8",
+    )
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 3
+    assert [issue.target for issue in broken] == ["target.md#missing", "#missing-local"]
+    assert self_links == []
+
+
+def test_check_links_accepts_chinese_encoded_and_duplicate_heading_anchors(tmp_path: Path):
+    (tmp_path / "target.md").write_text(
+        "# 中文 标题\n## 重复 标题\n## 重复 标题\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "index.md").write_text(
+        "[unencoded](target.md#中文-标题)\n"
+        "[encoded](target.md#%E4%B8%AD%E6%96%87-%E6%A0%87%E9%A2%98)\n"
+        "[duplicate](target.md#重复-标题-1)\n"
+        "[missing](target.md#重复-标题-2)\n",
+        encoding="utf-8",
+    )
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 4
+    assert [issue.target for issue in broken] == ["target.md#重复-标题-2"]
+    assert self_links == []
+
+
+def test_check_links_does_not_check_markdown_pseudo_links_inside_code(tmp_path: Path):
+    (tmp_path / "index.md").write_text(
+        "```markdown\n[false](missing.md#missing)\n```\n"
+        "[true](#visible)\n# Visible\n"
+        "[external](https://example.com/missing.md#missing)\n",
+        encoding="utf-8",
+    )
+
+    broken, self_links, checked = check_links(tmp_path)
+
+    assert checked == 1
     assert broken == []
     assert self_links == []
 

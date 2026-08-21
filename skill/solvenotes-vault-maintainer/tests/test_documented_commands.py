@@ -38,6 +38,22 @@ def test_documented_command_missing_path_is_reported(tmp_path: Path) -> None:
     assert payload["issues"][0]["token"] == "scripts/missing.py"
 
 
+def test_missing_skill_command_is_reported_with_separate_roots(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    skills = tmp_path / "skills"
+    (skills / "skill" / "demo").mkdir(parents=True)
+    (skills / "skill" / "demo" / "SKILL.md").write_text(
+        "run `scripts/missing.py`\n",
+        encoding="utf-8",
+    )
+
+    payload = check_documented_commands.scan(workspace, skills)
+
+    assert payload["issue_count"] == 1
+    assert payload["issues"][0]["path"] == "skill/demo/SKILL.md"
+    assert payload["issues"][0]["token"] == "scripts/missing.py"
+
+
 def test_installed_skill_layout_resolves_source_style_skill_paths(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     installed = tmp_path / "installed-skills"

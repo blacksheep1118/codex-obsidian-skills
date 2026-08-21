@@ -9,32 +9,29 @@ from pathlib import Path
 import re
 import stat
 import sys
+import unicodedata
 from urllib.parse import unquote
 
 try:
     from .markdown_links import (
         MARKDOWN_LINK_RE,
-        split_destination_suffix,
         unescape_markdown_destination,
     )
 except ImportError:
     try:
         from .shared.markdown_links import (
             MARKDOWN_LINK_RE,
-            split_destination_suffix,
             unescape_markdown_destination,
         )
     except ImportError:
         try:
             from markdown_links import (
                 MARKDOWN_LINK_RE,
-                split_destination_suffix,
                 unescape_markdown_destination,
             )
         except ImportError:
             from shared.markdown_links import (
                 MARKDOWN_LINK_RE,
-                split_destination_suffix,
                 unescape_markdown_destination,
             )
 
@@ -50,9 +47,13 @@ except ImportError:
             from shared.safe_io import ensure_safe_input_directory
 
 WIKI_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
+WIKI_LINK_CHECK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
 LINE_ENDING_PATTERN = r"(?:\r\n|\r(?!\n)|(?<!\r)\n)"
 BLANK_LINE_RE = re.compile(LINE_ENDING_PATTERN + r"[ \t]*" + LINE_ENDING_PATTERN)
 URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+ATX_HEADING_RE = re.compile(r"^[ \t]{0,3}#{1,6}(?:[ \t]+|$)(?P<title>.*?)\s*$")
+SETEXT_HEADING_RE = re.compile(r"^[ \t]{0,3}(?P<marker>=+|-+)[ \t]*$")
+EXPLICIT_HEADING_ID_RE = re.compile(r"\s*\{#([^}\s]+)\}\s*$")
 FENCE_OPEN_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*$")
 FENCE_CLOSE_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[ \t]*$")
 BLOCK_MATH_DELIMITER_RE = re.compile(r"^[ \t]*\$\$[ \t]*$")
@@ -533,20 +534,117 @@ def is_external(target: str) -> bool:
     stripped = target.strip()
     return (
         not stripped
-        or stripped.startswith(("#", "//"))
+        or stripped.startswith("//")
         or bool(URI_SCHEME_RE.match(stripped))
     )
 
 
-def clean_target(target: str) -> str | None:
+def _unescaped_marker_index(value: str) -> int | None:
+    for index, char in enumerate(value):
+        if char in "?#":
+            backslashes = 0
+            cursor = index - 1
+            while cursor >= 0 and value[cursor] == "\\":
+                backslashes += 1
+                cursor -= 1
+            if backslashes % 2 == 0:
+                return index
+    return None
+
+
+def _clean_target_parts(target: str) -> tuple[str | None, str | None]:
     target = target.strip()
     if target.startswith("<") and target.endswith(">"):
         target = target[1:-1]
     if is_external(target):
-        return None
-    target = split_destination_suffix(target)
-    target = unquote(unescape_markdown_destination(target)).strip()
-    return target or None
+        return None, None
+
+    suffix_index = _unescaped_marker_index(target)
+    path_part = target if suffix_index is None else target[:suffix_index]
+    fragment_part = None
+    if suffix_index is not None:
+        marker = target[suffix_index]
+        if marker == "#":
+            fragment_part = target[suffix_index + 1 :]
+        else:
+            fragment_index = _unescaped_marker_index(target[suffix_index + 1 :])
+            if fragment_index is not None and target[suffix_index + 1 + fragment_index] == "#":
+                fragment_part = target[suffix_index + 2 + fragment_index :]
+
+    path_part = unquote(unescape_markdown_destination(path_part)).strip()
+    if fragment_part is not None:
+        fragment_part = unquote(unescape_markdown_destination(fragment_part)).strip()
+    if not path_part and not fragment_part:
+        return None, None
+    return path_part, fragment_part
+
+
+def clean_target(target: str) -> str | None:
+    path, _fragment = _clean_target_parts(target)
+    return path
+
+
+def _slugify_heading(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value).casefold().strip()
+    normalized = re.sub(r"[^\w\s-]", "", normalized, flags=re.UNICODE)
+    return re.sub(r"[-\s]+", "-", normalized).strip("-")
+
+
+def _anchor_keys(value: str) -> set[str]:
+    normalized = unquote(unescape_markdown_destination(value)).strip()
+    if not normalized:
+        return set()
+    keys = {normalized.casefold()}
+    slug = _slugify_heading(normalized)
+    if slug:
+        keys.add(slug)
+    return keys
+
+
+def _heading_anchor_keys(path: Path, cache: dict[Path, set[str]]) -> set[str]:
+    resolved = path.resolve()
+    if resolved in cache:
+        return cache[resolved]
+
+    try:
+        text = text_without_code(path.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        cache[resolved] = set()
+        return cache[resolved]
+
+    keys: set[str] = set()
+    duplicate_counts: dict[str, int] = {}
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = ATX_HEADING_RE.match(line)
+        title = match.group("title") if match else None
+        if title is None and index and SETEXT_HEADING_RE.fullmatch(line):
+            previous = lines[index - 1].strip()
+            if previous:
+                title = previous
+        if title is None:
+            continue
+        title = re.sub(r"[ \t]+#+[ \t]*$", "", title).strip()
+        if not title:
+            continue
+        explicit_id = EXPLICIT_HEADING_ID_RE.search(title)
+        if explicit_id:
+            keys.update(_anchor_keys(explicit_id.group(1)))
+            title = title[: explicit_id.start()].rstrip()
+        keys.update(_anchor_keys(title))
+        slug = _slugify_heading(title)
+        if slug:
+            count = duplicate_counts.get(slug, 0)
+            if count:
+                keys.add(f"{slug}-{count}")
+            duplicate_counts[slug] = count + 1
+
+    cache[resolved] = keys
+    return keys
+
+
+def _has_heading_anchor(path: Path, fragment: str, cache: dict[Path, set[str]]) -> bool:
+    return bool(_anchor_keys(fragment) & _heading_anchor_keys(path, cache))
 
 
 def build_stem_index(files: list[Path]) -> dict[str, list[Path]]:
@@ -592,8 +690,15 @@ def is_regular_file_without_symlink_components(root: Path, path: Path) -> bool:
         return False
 
 
-def resolve_target(root: Path, source: Path, raw_target: str, by_stem: dict[str, list[Path]]) -> list[Path]:
-    target = clean_target(raw_target)
+def resolve_target(
+    root: Path,
+    source: Path,
+    raw_target: str,
+    by_stem: dict[str, list[Path]],
+    *,
+    allow_vault_fallback: bool = True,
+) -> list[Path]:
+    target, _fragment = _clean_target_parts(raw_target)
     if target is None:
         return []
 
@@ -603,17 +708,25 @@ def resolve_target(root: Path, source: Path, raw_target: str, by_stem: dict[str,
 
     root = root.resolve()
     candidates = []
-    bases = (root,) if root_relative else (source.parent, root)
-    for base in bases:
-        candidate = base / target
-        if is_within_root(root, candidate):
-            candidates.append(candidate)
-        if not target.endswith(".md"):
-            candidate = base / f"{target}.md"
+    if not target and not root_relative:
+        candidates.append(source)
+    else:
+        if root_relative:
+            bases = (root,)
+        elif allow_vault_fallback:
+            bases = (source.parent, root)
+        else:
+            bases = (source.parent,)
+        for base in bases:
+            candidate = base / target
             if is_within_root(root, candidate):
                 candidates.append(candidate)
+            if target and not target.endswith(".md"):
+                candidate = base / f"{target}.md"
+                if is_within_root(root, candidate):
+                    candidates.append(candidate)
 
-    if not root_relative and "/" not in target and target in by_stem:
+    if allow_vault_fallback and not root_relative and "/" not in target and target in by_stem:
         candidates.extend(
             candidate
             for candidate in by_stem[target]
@@ -649,19 +762,36 @@ def check_links(root: Path) -> tuple[list[LinkIssue], list[LinkIssue], int]:
     broken: list[LinkIssue] = boundary_issues
     self_links: list[LinkIssue] = []
     checked = 0
+    anchor_cache: dict[Path, set[str]] = {}
 
     for source in files:
         text = text_without_code(source.read_text(encoding="utf-8", errors="replace"))
-        for regex in (MARKDOWN_LINK_RE, WIKI_LINK_RE):
+        for regex, allow_vault_fallback in (
+            (MARKDOWN_LINK_RE, False),
+            (WIKI_LINK_CHECK_RE, True),
+        ):
             for match in regex.finditer(text):
                 target = match.group(1)
-                if clean_target(target) is None:
+                cleaned_path, fragment = _clean_target_parts(target)
+                if cleaned_path is None:
                     continue
                 checked += 1
-                hits = resolve_target(root, source, target, by_stem)
+                hits = resolve_target(
+                    root,
+                    source,
+                    target,
+                    by_stem,
+                    allow_vault_fallback=allow_vault_fallback,
+                )
+                if fragment is not None:
+                    hits = [
+                        hit
+                        for hit in hits
+                        if _has_heading_anchor(hit, fragment, anchor_cache)
+                    ]
                 if not hits:
                     broken.append(LinkIssue(source, target, "broken"))
-                elif hits[0] == source.resolve():
+                elif cleaned_path and hits[0] == source.resolve():
                     self_links.append(LinkIssue(source, target, "self"))
 
     return broken, self_links, checked

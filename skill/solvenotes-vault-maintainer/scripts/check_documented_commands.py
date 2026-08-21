@@ -80,6 +80,17 @@ def resolve_token(
     return None
 
 
+def display_path(source: Path, workspace_root: Path, skills_root: Path) -> str:
+    """Return a stable guidance path even when the roots are siblings."""
+
+    for root in (workspace_root, skills_root):
+        try:
+            return str(source.relative_to(root))
+        except ValueError:
+            continue
+    return str(source)
+
+
 def scan(workspace_root: Path, skills_root: Path) -> dict[str, object]:
     issues: list[dict[str, object]] = []
     references = 0
@@ -107,7 +118,7 @@ def scan(workspace_root: Path, skills_root: Path) -> dict[str, object]:
                 if not target.is_file():
                     issues.append(
                         {
-                            "path": str(source.relative_to(workspace_root)),
+                            "path": display_path(source, workspace_root, skills_root),
                             "line": line_number,
                             "token": token,
                             "resolved": str(target),
