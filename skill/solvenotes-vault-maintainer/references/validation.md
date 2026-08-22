@@ -16,6 +16,7 @@ bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh tool-quick
 bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh tool-full
 bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-quick
 bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-full
+bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-runtime
 bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh github-ready
 ```
 
@@ -31,6 +32,16 @@ runs source-manifest, link, frontmatter, formula, table, heading,
 example, language, algorithm-job, and C++ checks; `github-ready` adds hygiene,
 large-file, public-readiness, and Git-status checks.
 
+`vault-runtime` is a separate, explicit gate for reviewed dependency-backed
+Python examples. It uses the interpreter selected by
+`SOLVENOTES_PYTHON_BIN`, requires the pinned optional environment from the
+algorithm skill's `requirements-runtime.txt`, and executes only fences with an
+exact `python-e2e` marker. Its dependencies do not belong in
+`requirements-dev.txt` or ordinary public CI. Missing dependencies, Java below
+17, absent marked coverage, timeout, excessive output, and nonzero exit are
+failures rather than skips. See the algorithm skill's
+`references/python-runtime-validation.md` for the marker and setup contract.
+
 The skill-local pytest suite is standalone and uses
 `fixtures/solvenotes-mini-vault` by default, matching public GitHub CI. To run
 the same tests against a real vault, opt in explicitly:
@@ -45,8 +56,9 @@ The default must never probe a sibling `notes/` directory; otherwise a local
 workspace can hide a missing public test fixture.
 
 Only code blocks immediately preceded by `<!-- runnable: cpp17 -->` are
-compiled. Python fences are parsed for syntax; unknown code blocks are never
-executed by the gate.
+compiled. Ordinary Python fences are parsed for syntax; unknown code blocks
+are never executed. The separate `vault-runtime` command executes only exact,
+reviewed `python-e2e` blocks.
 
 ## Source and template boundaries
 

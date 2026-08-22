@@ -1,0 +1,8 @@
+# Known-good dependency-backed note runtime, validated together.
+PyYAML==6.0.3
+numpy==1.26.4
+torch==2.11.0
+onnx==1.22.0
+onnxruntime==1.28.0
+onnxscript==0.7.1
+pyspark==4.2.0

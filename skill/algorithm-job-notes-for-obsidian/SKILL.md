@@ -93,6 +93,12 @@ Before editing, separate facts, local conventions, and assumptions:
 - Mark a code block as runnable only when it is self-contained, has its
   dependencies stated, and has been run or compiled. Do not extract and run
   every unknown Markdown fence.
+- Dependency-backed Python examples use the exact `python-e2e` marker and the
+  explicit runtime gate; ordinary Python fences remain syntax-only. When such
+  execution is in scope, read
+  [references/python-runtime-validation.md](references/python-runtime-validation.md)
+  before running anything. Missing dependencies are a failure of that explicit
+  gate, not a passing skip.
 - Keep technical mentions of RL, multimodal, GNN, advertising, medicine, or
   time-series when they are part of a course, paper, project, or application;
   the prohibition concerns top-level job classification, not vocabulary.
@@ -182,6 +188,11 @@ python3 -m pytest skill/algorithm-job-notes-for-obsidian/tests
 python3 skill/algorithm-job-notes-for-obsidian/scripts/validate_skill.py
 ```
 
+When the request explicitly requires dependency-backed Python execution, use
+the separate `vault-runtime` profile with a reviewed environment. Do not add
+ONNX, PyTorch, or PySpark to `requirements-dev.txt` or ordinary public CI; the
+known-good optional set lives in `requirements-runtime.txt`.
+
 The scanner tests use small temporary Vault fixtures covering a valid nine-
 direction map, a missing direction, an extra RL route, natural RL prose, a
 combined route, stale frontmatter, and missing DSA/C++ entries. Unknown code
@@ -219,6 +230,11 @@ perform a deterministic rule scan and report that it is a file-level check.
   blocks preceded by `<!-- runnable: cpp17 -->`; unknown Markdown fences are
   never executed. Its synchronized `scripts/run_with_timeout.py` helper kills
   the complete compiler/example process tree on timeout.
+- `scripts/check_python_runtime_examples.py` and
+  `references/python-runtime-validation.md`: execute only reviewed
+  `python-e2e` blocks in isolated temporary working directories, with declared
+  dependency and Java checks, bounded process trees, and hard failure on
+  missing runtime coverage.
 - `scripts/`: use the repository-level validators and install scripts; do not
   create a second installation mechanism inside this skill.
 - `references/`: read the vault's local profile and validation notes before

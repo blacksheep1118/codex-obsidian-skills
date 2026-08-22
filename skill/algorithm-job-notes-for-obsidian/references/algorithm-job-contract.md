@@ -63,6 +63,12 @@ Runnable code requires an explicit marker, self-contained inputs, stated
 dependencies, and a recorded compile/test command. Unknown code fences are not
 automatically executable.
 
+Ordinary Python fences are syntax-checked only. Dependency-backed examples use
+the exact `python-e2e` marker and the separate runtime gate described in
+`python-runtime-validation.md`; that gate must fail on missing dependencies,
+unsupported Java, timeout, or nonzero exit rather than reporting a skip as
+coverage.
+
 The read-only `scripts/check_algorithm_job_vault.py` checks route-shaped
 navigation, frontmatter and required entries. It must allow technical prose
 to mention a cross-topic while rejecting that same topic when it is configured

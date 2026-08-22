@@ -15,6 +15,7 @@ from typing import Any
 
 PROFILE_PATH = Path(__file__).resolve().parents[1] / "references" / "validation-profiles.json"
 LEGACY_PROFILE_ALIASES = {"quick": "vault-quick", "full": "vault-full"}
+EXACT_REQUIREMENT_RE = re.compile(r"^([A-Za-z0-9_.-]+)==(\S+)$")
 
 
 def load_contract(path: Path = PROFILE_PATH) -> dict[str, Any]:
@@ -45,6 +46,8 @@ def command_version(command: str) -> str | None:
         )
     except (OSError, subprocess.TimeoutExpired):
         return path
+    if result.returncode:
+        return None
     detail = (result.stdout or result.stderr).strip().splitlines()
     return f"{path} ({detail[0]})" if detail else path
 
@@ -116,6 +119,18 @@ def version_tuple(value: str) -> tuple[int, ...]:
     return tuple(int(part) for part in match.group(1).split(".")) if match else ()
 
 
+def java_major(value: str) -> int | None:
+    match = re.search(
+        r"(?:openjdk|java)(?:\s+version)?\s+\"?(\d+)(?:\.(\d+))?",
+        value,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    first = int(match.group(1))
+    return int(match.group(2)) if first == 1 and match.group(2) else first
+
+
 def python_support(_skills_root: Path | None = None) -> dict[str, str]:
     python_contract = load_contract()["python"]
     validated = python_contract.get("validated", [])
@@ -140,6 +155,36 @@ def requirement_text(name: str, requirement: dict[str, str]) -> str:
     if requirement.get("maximum_exclusive"):
         text += f",<{requirement['maximum_exclusive']}"
     return text
+
+
+def normalize_distribution_name(value: str) -> str:
+    return re.sub(r"[-_.]+", "-", value).lower()
+
+
+def exact_version_matches(installed: str, expected: str) -> bool:
+    """Apply PEP 440 local-version semantics for one exact public pin."""
+    candidate = installed if "+" in expected else installed.split("+", 1)[0]
+    return candidate == expected
+
+
+def exact_requirement_versions(path: Path) -> dict[str, str]:
+    pins: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise ValueError(f"cannot read exact requirements: {path}: {exc}") from exc
+    for line_number, raw_line in enumerate(lines, 1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = EXACT_REQUIREMENT_RE.fullmatch(line)
+        if match is None:
+            raise ValueError(f"{path}:{line_number}: expected one exact plain name==version pin")
+        name = normalize_distribution_name(match.group(1))
+        if name in pins:
+            raise ValueError(f"{path}:{line_number}: duplicate requirement {name}")
+        pins[name] = match.group(2)
+    return pins
 
 
 def report(
@@ -179,7 +224,13 @@ def report(
     else:
         python_minor = ".".join(probe["version"].split(".")[:2])
         validated = {str(item) for item in contract["python"].get("validated", [])}
-        minimum = str(contract["python"]["minimum"])
+        minimum = max(
+            (
+                str(contract["python"]["minimum"]),
+                str(profile_contract.get("minimum_python", "0")),
+            ),
+            key=version_tuple,
+        )
         if version_tuple(python_minor) < version_tuple(minimum):
             statuses["python"] = "UNSUPPORTED"
             issues.append(f"Python >= {minimum} required (found {probe['version']})")
@@ -214,6 +265,34 @@ def report(
             status = "SUPPORTED"
         statuses[name] = status
 
+    if profile_contract.get("requirements_file"):
+        requirements_path = requirements_path_for_profile(
+            selected, skills_root, contract
+        )
+        try:
+            pinned_versions = exact_requirement_versions(requirements_path)
+        except ValueError as exc:
+            issues.append(str(exc))
+            pinned_versions = {}
+        for name in sorted(required_modules):
+            requirement = contract["modules"].get(name)
+            if requirement is None:
+                issues.append(f"module contract for {name}")
+                continue
+            distribution = normalize_distribution_name(requirement["distribution"])
+            expected = pinned_versions.get(distribution)
+            if expected is None:
+                issues.append(f"exact runtime pin for {distribution}")
+                continue
+            installed_version = modules.get(name, "MISSING")
+            if installed_version != "MISSING" and not exact_version_matches(
+                installed_version, expected
+            ):
+                statuses[name] = "VERSION_MISMATCH"
+                issues.append(
+                    f"{distribution}=={expected} required (found {installed_version})"
+                )
+
     required_commands = set(profile_contract.get("required_commands", []))
     optional_commands = set(profile_contract.get("optional_commands", []))
     command_results: dict[str, str | None] = {}
@@ -235,6 +314,15 @@ def report(
         )
         if not available and group in required_commands:
             issues.append(" or ".join(alternatives) or group)
+
+    minimum_java_major = profile_contract.get("minimum_java_major")
+    if minimum_java_major is not None and statuses.get("java") == "SUPPORTED":
+        java_detail = command_results.get("java") or ""
+        detected_java_major = java_major(java_detail)
+        if detected_java_major is None or detected_java_major < int(minimum_java_major):
+            statuses["java"] = "VERSION_MISMATCH"
+            found = str(detected_java_major) if detected_java_major is not None else "unknown"
+            issues.append(f"Java >={minimum_java_major} required (found {found})")
 
     if profile_contract.get("requires_notes_root") and (
         notes_root is None or not (notes_root / "AGENT.md").is_file()
@@ -258,6 +346,24 @@ def report(
 
 def python_bin_for_hint(python_bin: str) -> str:
     return str(Path(python_bin).expanduser()) if "/" in python_bin else python_bin
+
+
+def requirements_path_for_profile(
+    selected: str,
+    skills_root: Path | None,
+    contract: dict[str, Any] | None = None,
+) -> Path:
+    payload = contract or load_contract()
+    profile = payload["profiles"][selected]
+    configured = profile.get("requirements_file")
+    root = skills_root.resolve() if skills_root else Path.cwd().resolve()
+    if configured is None:
+        return root / "requirements-dev.txt"
+    relative = Path(str(configured))
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"unsafe requirements_file for profile {selected}: {configured}")
+    skill_base = root / "skill" if (root / "skill").is_dir() else root
+    return skill_base / relative
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -294,9 +400,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{key} {value}")
     print("issues " + (", ".join(issues) if issues else "none"))
     if issues:
-        requirements = (
-            (args.skills_root.resolve() if args.skills_root else Path.cwd())
-            / "requirements-dev.txt"
+        requirements = requirements_path_for_profile(
+            selected,
+            args.skills_root,
+            contract,
         )
         print(
             f"install_hint {python_bin_for_hint(args.python_bin)} "

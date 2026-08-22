@@ -70,13 +70,14 @@ trap on_exit EXIT
 
 usage() {
   cat <<'EOF'
-Usage: SOLVENOTES_VAULT_ROOT=/path/to/notes bash scripts/dev_check.sh <tool-quick|tool-full|vault-quick|vault-full|quick|full|online|github-ready|gc> [options]
+Usage: SOLVENOTES_VAULT_ROOT=/path/to/notes bash scripts/dev_check.sh <tool-quick|tool-full|vault-quick|vault-full|vault-runtime|quick|full|online|github-ready|gc> [options]
 
 Commands:
   tool-quick    compile and validate the maintenance Skill entry points
   tool-full     run Skill lint and tests; use this in the Skills repository CI
   vault-quick   run fast external-vault content checks
   vault-full    run the complete external-vault content gate
+  vault-runtime execute only reviewed, dependency-backed python-e2e blocks
   quick         compatibility alias for vault-quick
   full          compatibility alias for vault-full
   online        read-only external URL audit; results/cache stay outside the vault
@@ -98,12 +99,18 @@ require_vault() {
   export SOLVENOTES_VAULT_ROOT="$VAULT_ROOT"
 }
 
-run_step() {
+run_step_with_timeout() {
+  local command_timeout="$1"
+  shift
   CURRENT_STEP="$*"
   printf '\n==> %s\n' "$CURRENT_STEP"
   "$PYTHON_BIN" "$SKILL_ROOT/scripts/run_with_timeout.py" \
-    --timeout "$STEP_TIMEOUT" --label "$CURRENT_STEP" -- "$@"
+    --timeout "$command_timeout" --label "$CURRENT_STEP" -- "$@"
   CURRENT_STEP=""
+}
+
+run_step() {
+  run_step_with_timeout "$STEP_TIMEOUT" "$@"
 }
 
 run_vault_python() {
@@ -116,6 +123,34 @@ run_skill_python() {
 
 run_algorithm_python() {
   run_step env SOLVENOTES_VAULT_ROOT="$VAULT_ROOT" PYTHONPATH="$PYTHONPATH" "$PYTHON_BIN" "$ALGORITHM_SCRIPTS/$1" "${@:2}"
+}
+
+run_algorithm_python_with_timeout() {
+  local command_timeout="$1"
+  local script="$2"
+  shift 2
+  run_step_with_timeout "$command_timeout" env SOLVENOTES_VAULT_ROOT="$VAULT_ROOT" PYTHONPATH="$PYTHONPATH" "$PYTHON_BIN" "$ALGORITHM_SCRIPTS/$script" "$@"
+}
+
+validate_runtime_timeouts() {
+  local gate_timeout="$1"
+  local example_timeout="$2"
+  "$PYTHON_BIN" -c '
+import math
+import sys
+
+try:
+    gate, example = (float(value) for value in sys.argv[1:])
+except ValueError:
+    raise SystemExit("runtime timeouts must be finite positive numbers")
+if not all(math.isfinite(value) and value > 0 for value in (gate, example)):
+    raise SystemExit("runtime timeouts must be finite positive numbers")
+if gate < example:
+    raise SystemExit(
+        "SOLVENOTES_RUNTIME_GATE_TIMEOUT must be greater than or equal to "
+        "SOLVENOTES_RUNTIME_EXAMPLE_TIMEOUT"
+    )
+' "$gate_timeout" "$example_timeout"
 }
 
 check_script() {
@@ -232,6 +267,33 @@ vault_full() {
   fi
 }
 
+vault_runtime() {
+  require_vault
+  if [[ "${SOLVENOTES_RUNTIME_REVIEWED:-}" != "1" ]]; then
+    printf '%s\n' 'vault-runtime executes trusted local code; set SOLVENOTES_RUNTIME_REVIEWED=1 only after reviewing every python-e2e block.' >&2
+    exit 2
+  fi
+  local gate_timeout="${SOLVENOTES_RUNTIME_GATE_TIMEOUT:-3600}"
+  local example_timeout="${SOLVENOTES_RUNTIME_EXAMPLE_TIMEOUT:-180}"
+  validate_runtime_timeouts "$gate_timeout" "$example_timeout"
+  check_environment vault-runtime
+  check_skill_lock
+  check_workspace_guidance
+  check_script check_python_examples.py --root "$VAULT_ROOT"
+  run_algorithm_python_with_timeout "$gate_timeout" \
+    check_python_runtime_examples.py \
+    --root "$VAULT_ROOT" \
+    --require-marked \
+    --reviewed-local-code \
+    --timeout "$example_timeout"
+  run_step git -C "$VAULT_ROOT" diff --check
+  if git -C "$SKILLS_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    run_step git -C "$SKILLS_ROOT" diff --check
+  else
+    printf 'skill_source_git_check skipped installed mirror is not a Git worktree: %s\n' "$SKILLS_ROOT"
+  fi
+}
+
 github_ready() {
   vault_full
   require_vault
@@ -279,6 +341,7 @@ case "$command" in
   tool-full) tool_full ;;
   vault-quick|quick) vault_quick ;;
   vault-full|full) vault_full ;;
+  vault-runtime) vault_runtime ;;
   online) online "$@" ;;
   github-ready) github_ready ;;
   gc) gc_repo "${@:2}" ;;

@@ -98,9 +98,23 @@ def test_tool_and_vault_gates_are_separate_with_compatibility_aliases() -> None:
     assert "tool-full" in script
     assert "vault-quick" in script
     assert "vault-full" in script
+    assert "vault-runtime" in script
     assert "vault-full|full) vault_full" in script
     assert "vault-quick|quick) vault_quick" in script
 
-    vault_section = script.split("vault_full()", 1)[1].split("github_ready()", 1)[0]
+    vault_section = script.split("vault_full()", 1)[1].split("vault_runtime()", 1)[0]
     assert "pytest" not in vault_section
     assert "ruff" not in vault_section
+    assert "check_python_runtime_examples.py" not in vault_section
+
+    runtime_section = script.split("vault_runtime()", 1)[1].split("github_ready()", 1)[0]
+    assert "check_environment vault-runtime" in runtime_section
+    assert "check_skill_lock" in runtime_section
+    assert "check_python_runtime_examples.py" in runtime_section
+    assert "--require-marked" in runtime_section
+    assert "SOLVENOTES_RUNTIME_REVIEWED" in runtime_section
+    assert "SOLVENOTES_RUNTIME_GATE_TIMEOUT:-3600" in runtime_section
+    assert "SOLVENOTES_RUNTIME_EXAMPLE_TIMEOUT:-180" in runtime_section
+    assert "validate_runtime_timeouts" in script
+    assert "must be greater than or equal to" in script
+    assert "--reviewed-local-code" in runtime_section

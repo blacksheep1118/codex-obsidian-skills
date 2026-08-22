@@ -66,7 +66,8 @@ path, and Skills path without using machine-specific fallbacks.
 3. Use the generic Obsidian skill for link/frontmatter/structure work, the
    courseware skill for source-manifest and course coverage work, and the
    algorithm skill for the nine-direction algorithm-job contract and C++
-   runnable examples.
+   runnable examples. Use its separate runtime contract when explicitly
+   marked dependency-backed Python examples must actually execute.
 4. Edit notes semantically. Preserve source manifests and move unique content
    before deleting obsolete pages or routes.
 5. Run the full gate from this skill, compile only explicitly marked runnable
@@ -94,6 +95,13 @@ SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
 
 SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
   bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-full
+
+SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
+SOLVENOTES_PYTHON_BIN=/absolute/path/to/solvenotes-runtime/bin/python \
+SOLVENOTES_RUNTIME_REVIEWED=1 \
+JAVA_HOME=/absolute/path/to/jdk-17 \
+PATH="/absolute/path/to/jdk-17/bin:$PATH" \
+  bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-runtime
 
 SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
   bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh online \
@@ -126,6 +134,12 @@ lock, packages and independently verifies the vault, and leaves the formal
 lock unchanged. Only then use
 `update_notes_skill_lock.py --write`.
 
+Candidate validation deliberately runs `vault-full`, not reviewed local code.
+When the release closes a dependency-backed execution gap, update the formal
+lock after the candidate passes, then run `vault-runtime` against the clean
+Skills commit and updated lock before committing Notes. Report the two gates
+separately; a passing candidate package does not imply ONNX or Spark execution.
+
 The Notes learning package embeds a deterministic file manifest and excludes
 Git metadata, macOS sidecar files, Obsidian local workspace/graph state, hidden
 CI infrastructure, caches, compiled files, and previous exports. Verify it
@@ -148,6 +162,15 @@ temporary failures, and confirmed missing resources. Use
 `--offline-cache-only` for a repeatable cache-only report. Unit tests use
 mocked responses; transport status alone is not a semantic or visual review.
 `--timeout` bounds one request and `--total-timeout` bounds the whole scan.
+
+`vault-runtime` is likewise explicit and separate from `vault-full` and
+ordinary public CI. It first checks the pinned optional environment, then
+executes only Python fences immediately preceded by an exact `python-e2e`
+marker. Missing dependencies, unsupported Java, no marked coverage, timeout,
+excessive output, or a nonzero example exit must fail; none may be reported as
+a passing skip. It is a reviewed-local-code gate rather than an OS sandbox and
+must not run on untrusted pull requests. Read the algorithm skill's
+`references/python-runtime-validation.md` before using this mode.
 
 For the complete workspace surface, run
 `check_workspace_guidance.py --workspace-root /path/to/solvenotes`. It checks
@@ -196,9 +219,10 @@ unless it actually did.
 
 Run the quick gate before editing and the full gate after editing. Run the
 algorithm Skill scanner and its isolated tests when algorithm-job notes are in
-scope. Compile only marked C++17 examples. Run the package builder and inspect
-its ZIP listing before delivering an export. Keep generated reports and caches
-outside `/notes`.
+scope. Compile only marked C++17 examples. When dependency-level execution is
+requested, also run `vault-runtime` and report its executed-block count. Run
+the package builder and inspect its ZIP listing before delivering an export.
+Keep generated reports and caches outside `/notes`.
 
 ## Handoff Boundaries
 
@@ -207,7 +231,8 @@ outside `/notes`.
 - `$ppt-to-md-for-obsidian` owns local courseware extraction and source
   coverage methods.
 - `$algorithm-job-notes-for-obsidian` owns the nine-direction taxonomy,
-  algorithm-job route checks, and marked C++ examples.
+  algorithm-job route checks, marked C++ examples, and the reviewed
+  dependency-backed Python runtime marker.
 - The singular `/agent` directory owns Solvenotes execution order; this Skill
   owns the reusable external maintenance implementation.
 
@@ -228,7 +253,9 @@ The maintenance gate must check, as applicable:
   and empty notes;
 - the nine-direction algorithm contract, DSA/C++ entry points, and explicit
   runnable C++17 blocks;
-- Python fenced examples are parsed with `ast` without executing them;
+- Ordinary Python fenced examples are parsed with `ast` without executing
+  them; the separate `vault-runtime` gate may execute only reviewed
+  `python-e2e` blocks and must fail if declared dependencies are unavailable;
 - context-sensitive naturalness candidates, high-confidence placeholders, and
   exact repeated paragraphs, sentences, and language-like list items without
   mechanically rewriting formal prose;

@@ -22,13 +22,38 @@
       "distribution": "ruff",
       "minimum": "0.8.0",
       "maximum_exclusive": "1.0"
+    },
+    "numpy": {
+      "import_name": "numpy",
+      "distribution": "numpy"
+    },
+    "torch": {
+      "import_name": "torch",
+      "distribution": "torch"
+    },
+    "onnx": {
+      "import_name": "onnx",
+      "distribution": "onnx"
+    },
+    "onnxruntime": {
+      "import_name": "onnxruntime",
+      "distribution": "onnxruntime"
+    },
+    "onnxscript": {
+      "import_name": "onnxscript",
+      "distribution": "onnxscript"
+    },
+    "pyspark": {
+      "import_name": "pyspark",
+      "distribution": "pyspark"
     }
   },
   "commands": {
     "git": ["git"],
     "compiler": ["g++", "clang++"],
     "unzip": ["unzip"],
-    "bash": ["bash"]
+    "bash": ["bash"],
+    "java": ["java"]
   },
   "profiles": {
     "tool-quick": {
@@ -62,6 +87,25 @@
       "requires_notes_root": true,
       "requires_skills_root": true,
       "allows_network": false
+    },
+    "vault-runtime": {
+      "required_modules": [
+        "PyYAML",
+        "numpy",
+        "torch",
+        "onnx",
+        "onnxruntime",
+        "onnxscript",
+        "pyspark"
+      ],
+      "required_commands": ["git", "java"],
+      "optional_commands": ["compiler", "unzip", "bash"],
+      "requires_notes_root": true,
+      "requires_skills_root": true,
+      "allows_network": false,
+      "minimum_python": "3.10",
+      "minimum_java_major": 17,
+      "requirements_file": "algorithm-job-notes-for-obsidian/requirements-runtime.txt"
     },
     "github-ready": {
       "required_modules": ["PyYAML"],
