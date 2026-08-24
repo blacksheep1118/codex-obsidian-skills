@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 import check_cpp_examples
-from check_cpp_examples import marked_blocks, positive_timeout
+from check_cpp_examples import DEFAULT_TIMEOUT_SECONDS, marked_blocks, positive_timeout
 
 
 def test_only_explicit_cpp17_blocks_are_selected() -> None:
@@ -29,6 +29,10 @@ int main() { return 0; }
 def test_timeout_must_be_positive(value: str) -> None:
     with pytest.raises(argparse.ArgumentTypeError, match="greater than zero"):
         positive_timeout(value)
+
+
+def test_default_timeout_allows_cold_ci_compiler_startup() -> None:
+    assert DEFAULT_TIMEOUT_SECONDS == 15.0
 
 
 def test_compile_timeout_is_reported_without_traceback(

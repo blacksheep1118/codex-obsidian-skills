@@ -16,6 +16,7 @@ except ImportError:
 
 MARKER = "<!-- runnable: cpp17 -->"
 CPP_BLOCK_RE = re.compile(r"```cpp[^\n]*\n(.*?)^```\s*$", re.MULTILINE | re.DOTALL)
+DEFAULT_TIMEOUT_SECONDS = 15.0
 
 
 def positive_timeout(value: str) -> float:
@@ -37,7 +38,7 @@ def marked_blocks(text: str) -> list[tuple[int, str]]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True, help="notes vault root")
-    parser.add_argument("--timeout", type=positive_timeout, default=5.0)
+    parser.add_argument("--timeout", type=positive_timeout, default=DEFAULT_TIMEOUT_SECONDS)
     args = parser.parse_args()
     compiler = shutil.which("g++")
     paths = sorted(args.root.rglob("*.md"))
