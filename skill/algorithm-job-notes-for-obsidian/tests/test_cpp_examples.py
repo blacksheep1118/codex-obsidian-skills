@@ -25,9 +25,9 @@ int main() { return 0; }
     assert "int main" in blocks[0][1]
 
 
-@pytest.mark.parametrize("value", ["0", "-1"])
-def test_timeout_must_be_positive(value: str) -> None:
-    with pytest.raises(argparse.ArgumentTypeError, match="greater than zero"):
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "-inf"])
+def test_timeout_must_be_positive_and_finite(value: str) -> None:
+    with pytest.raises(argparse.ArgumentTypeError, match="finite number greater than zero"):
         positive_timeout(value)
 
 

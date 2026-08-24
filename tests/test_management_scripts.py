@@ -639,6 +639,19 @@ def test_validate_all_lists_stable_step_ids():
         assert step_id in steps
 
 
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "-inf", "1.5"])
+def test_validate_all_rejects_invalid_timeout_without_traceback(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv(validate_all.VALIDATE_ALL_TIMEOUT_OVERRIDE, value)
+
+    result = run_script("scripts/validate_all.py", "--list-steps", check=False)
+
+    assert result.returncode != 0
+    assert "VALIDATE_ALL_TIMEOUT_SECONDS must be a positive integer" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def test_validate_all_runs_doctor_before_any_validation_step(
     monkeypatch,
 ) -> None:

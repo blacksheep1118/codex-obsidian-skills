@@ -4,6 +4,7 @@ All notable changes to this repository are documented here.
 
 ## Unreleased
 
+- Rejected non-finite or non-positive validation timeouts in shared helpers, the root validator, and C++ example execution so invalid configuration cannot disable the bounded execution contract or leak a traceback.
 - Raised the marked C++ example timeout from 5 to 15 seconds so cold CI compiler startup does not create false failures while genuine hangs still fail closed.
 - Corrected the Notes-CI/export boundary, made candidate package verification explicit opt-in, required separate authorization before installed-mirror writes, and documented one task-specific temporary directory with exact cleanup.
 - Documented fast-forward-only source updates, replaced an installed-mirror dry-run command that fails on existing destinations, and completed the validation/runtime dependency table.

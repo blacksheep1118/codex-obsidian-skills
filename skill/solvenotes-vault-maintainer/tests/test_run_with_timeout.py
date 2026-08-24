@@ -5,6 +5,7 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
 import run_with_timeout
 
 
@@ -24,6 +25,16 @@ def test_run_capture_returns_bounded_bytes() -> None:
     assert result.stdout == b"out\n"
     assert result.stderr == b"err\n"
     assert result.timed_out is False
+
+
+@pytest.mark.parametrize("timeout", [0.0, -1.0, float("nan"), float("inf"), float("-inf")])
+def test_run_helpers_reject_non_positive_or_non_finite_timeout(timeout: float) -> None:
+    command = [sys.executable, "-c", "pass"]
+    message = "finite number greater than zero"
+    with pytest.raises(ValueError, match=message):
+        run_with_timeout.run_capture(command, timeout, "capture-timeout")
+    with pytest.raises(ValueError, match=message):
+        run_with_timeout.run(command, timeout, "run-timeout")
 
 
 def test_run_capture_reports_output_limit_without_returning_unbounded_data() -> None:

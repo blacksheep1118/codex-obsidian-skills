@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import codecs
+import math
 import os
 import signal
 import subprocess
@@ -196,8 +197,8 @@ def run_capture(
 
     if not command:
         raise ValueError("a command is required")
-    if timeout <= 0:
-        raise ValueError("timeout must be positive")
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("timeout must be a finite number greater than zero")
     creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
     with tempfile.TemporaryFile(mode="w+b") as stdout_spool, tempfile.TemporaryFile(
         mode="w+b"
@@ -268,6 +269,8 @@ def run(
 ) -> int:
     if not command:
         raise ValueError("a command is required")
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("timeout must be a finite number greater than zero")
     creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
     with tempfile.TemporaryFile(mode="w+b") as stdout_spool, tempfile.TemporaryFile(
         mode="w+b"
@@ -317,8 +320,8 @@ def main() -> int:
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
-    if args.timeout <= 0:
-        parser.error("--timeout must be positive")
+    if not math.isfinite(args.timeout) or args.timeout <= 0:
+        parser.error("--timeout must be a finite number greater than zero")
     try:
         return run(command, args.timeout, args.label)
     except OSError as exc:

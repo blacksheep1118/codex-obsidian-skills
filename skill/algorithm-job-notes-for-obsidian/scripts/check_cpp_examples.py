@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import re
 import shutil
 import tempfile
@@ -21,8 +22,8 @@ DEFAULT_TIMEOUT_SECONDS = 15.0
 
 def positive_timeout(value: str) -> float:
     timeout = float(value)
-    if timeout <= 0:
-        raise argparse.ArgumentTypeError("timeout must be greater than zero")
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise argparse.ArgumentTypeError("timeout must be a finite number greater than zero")
     return timeout
 
 

@@ -32,7 +32,7 @@ WEB_SKILL = ROOT / "skill" / "web-course-notes-for-obsidian"
 NOTES_PPT_SKILL = ROOT / "skill" / "notes-to-scientific-ppt"
 ALGORITHM_JOB_SKILL = ROOT / "skill" / "algorithm-job-notes-for-obsidian"
 SOLVENOTES_VAULT_SKILL = ROOT / "skill" / "solvenotes-vault-maintainer"
-DEFAULT_TIMEOUT_SECONDS = int(os.environ.get("VALIDATE_ALL_TIMEOUT_SECONDS", "180"))
+VALIDATE_ALL_TIMEOUT_OVERRIDE = "VALIDATE_ALL_TIMEOUT_SECONDS"
 PYTHON_BIN_OVERRIDE = "SOLVENOTES_PYTHON_BIN"
 PYTEST_PLUGIN_AUTOLOAD_OVERRIDE = "VALIDATE_ALL_ENABLE_PYTEST_PLUGIN_AUTOLOAD"
 TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -45,6 +45,22 @@ SKILL_ALIASES = {
     "solvenotes-vault-maintainer": "solvenotes-vault",
 }
 SKILL_ALIAS_TO_FULL = {alias: full_name for full_name, alias in SKILL_ALIASES.items()}
+
+
+def validation_timeout() -> int:
+    raw_value = os.environ.get(VALIDATE_ALL_TIMEOUT_OVERRIDE, "180")
+    try:
+        timeout = int(raw_value)
+    except ValueError:
+        raise SystemExit(
+            f"{VALIDATE_ALL_TIMEOUT_OVERRIDE} must be a positive integer"
+        ) from None
+    if timeout <= 0:
+        raise SystemExit(f"{VALIDATE_ALL_TIMEOUT_OVERRIDE} must be a positive integer")
+    return timeout
+
+
+DEFAULT_TIMEOUT_SECONDS = validation_timeout()
 
 
 @dataclass(frozen=True)
