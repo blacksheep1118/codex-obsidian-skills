@@ -78,6 +78,7 @@ def validate_candidate(
     verify_level: str,
     python_bin: str,
     allow_local_source: bool,
+    verify_package: bool = False,
 ) -> dict[str, object]:
     verify_repository_identity(skills_root, allow_local_source=allow_local_source)
     commit = resolve_commit(skills_root, ref)
@@ -131,50 +132,53 @@ def validate_candidate(
                 label="candidate real Notes vault-full",
             )
 
-            notes_zip = temporary / "notes.zip"
-            notes_manifest = temporary / "notes-PACKAGE-MANIFEST.json"
-            package_script = installed / MAINTAINER_SKILL / "scripts" / "package_vault.py"
-            verifier_script = (
-                installed / MAINTAINER_SKILL / "scripts" / "verify_vault_package.py"
-            )
-            _run(
-                [
-                    python_bin,
-                    str(package_script),
-                    "--root",
-                    str(notes_root),
-                    "--output",
-                    str(notes_zip),
-                    "--manifest-output",
-                    str(notes_manifest),
-                ],
-                cwd=temporary,
-                env=environment,
-                timeout=300,
-                label="candidate Notes package",
-            )
-            _run(
-                [
-                    python_bin,
-                    str(verifier_script),
-                    str(notes_zip),
-                    "--sidecar",
-                    str(notes_manifest),
-                ],
-                cwd=temporary,
-                env=environment,
-                timeout=120,
-                label="candidate Notes package verification",
-            )
-            package_entries = json.loads(notes_manifest.read_text(encoding="utf-8"))[
-                "archive_entry_count"
-            ]
+            package_entries: int | None = None
+            if verify_package:
+                notes_zip = temporary / "notes.zip"
+                notes_manifest = temporary / "notes-PACKAGE-MANIFEST.json"
+                package_script = installed / MAINTAINER_SKILL / "scripts" / "package_vault.py"
+                verifier_script = (
+                    installed / MAINTAINER_SKILL / "scripts" / "verify_vault_package.py"
+                )
+                _run(
+                    [
+                        python_bin,
+                        str(package_script),
+                        "--root",
+                        str(notes_root),
+                        "--output",
+                        str(notes_zip),
+                        "--manifest-output",
+                        str(notes_manifest),
+                    ],
+                    cwd=temporary,
+                    env=environment,
+                    timeout=300,
+                    label="candidate Notes package",
+                )
+                _run(
+                    [
+                        python_bin,
+                        str(verifier_script),
+                        str(notes_zip),
+                        "--sidecar",
+                        str(notes_manifest),
+                    ],
+                    cwd=temporary,
+                    env=environment,
+                    timeout=120,
+                    label="candidate Notes package verification",
+                )
+                package_entries = json.loads(notes_manifest.read_text(encoding="utf-8"))[
+                    "archive_entry_count"
+                ]
             return {
                 "ok": True,
                 "commit": commit,
                 "contract_version": target["contract_version"],
                 "skills": target["skills"],
                 "dependency_graph_digest": target["dependency_graph_digest"],
+                "package_verified": verify_package,
                 "notes_package_entries": package_entries,
                 "formal_lock_modified": False,
             }
@@ -190,6 +194,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verify-level", choices=("metadata", "smoke", "full"), default="full")
     parser.add_argument("--python-bin", default=os.environ.get("SOLVENOTES_PYTHON_BIN", sys.executable))
     parser.add_argument("--allow-local-source", action="store_true")
+    parser.add_argument(
+        "--verify-package",
+        action="store_true",
+        help=(
+            "also build and verify a temporary Notes package; use only when the user "
+            "requests an export and local workspace guidance permits package mode"
+        ),
+    )
     parser.add_argument("--json-out", type=Path)
     args = parser.parse_args(argv)
     try:
@@ -200,6 +212,7 @@ def main(argv: list[str] | None = None) -> int:
             verify_level=args.verify_level,
             python_bin=args.python_bin,
             allow_local_source=args.allow_local_source,
+            verify_package=args.verify_package,
         )
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         parser.error(str(exc))

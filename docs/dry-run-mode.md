@@ -24,19 +24,19 @@ Validation:
 
 ## Script Support
 
-The repository management scripts support dry-run flags. Use the install dry-run only when the selected destination skill directories do not exist; use the update dry-run to inspect an existing installation.
+The repository management scripts support dry-run flags. Use the install dry-run only when the selected destination Skill subdirectories do not exist; the dry-run does not create the destination. Use the update dry-run to inspect an existing installation.
 
 macOS/Linux:
 
 ```bash
-python3 scripts/install_skill.py --all --dry-run --self-check
+python3 scripts/install_skill.py --all --destination /absolute/path/to/empty/codex-skills --dry-run --self-check
 python3 scripts/update_installed_skills.py --all --dry-run --prune --self-check
 ```
 
 Windows PowerShell:
 
 ```powershell
-py scripts\install_skill.py --all --dry-run --self-check
+py scripts\install_skill.py --all --destination C:\path\to\empty\codex-skills --dry-run --self-check
 py scripts\update_installed_skills.py --all --dry-run --prune --self-check
 ```
 

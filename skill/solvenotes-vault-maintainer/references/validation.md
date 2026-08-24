@@ -66,11 +66,14 @@ reviewed `python-e2e` blocks.
 but the formal statistics and learning views exclude it. Templates are kept
 under `.obsidian/templates/` with `note_type: template`; they are writing
 scaffolds, not course notes. Generated reports and intermediate inventories go
-to `/tmp`.
+to one task-specific `RUN_TMP` outside the workspace. Point `TMPDIR` at it when
+invoking helpers that use system temporary directories, and remove that exact
+directory after the final checks.
 
 ## Clean export
 
-Create a package outside the vault:
+Only when the user requests an export and local workspace guidance permits
+package mode, create the package outside the vault:
 
 ```bash
 python3 skill/solvenotes-vault-maintainer/scripts/package_vault.py \

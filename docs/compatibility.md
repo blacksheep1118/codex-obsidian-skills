@@ -11,5 +11,7 @@
 | PDF extraction | `.pdf` | Uses `pypdf`; can use `pdfplumber` when installed. |
 | Web source collection | URLs, local HTML files, direct PDF/PPT/book/transcript URLs | `web-course-notes-for-obsidian` uses the Python standard library for page titles, descriptions, learning-resource link discovery, direct-resource classification, note-folder creation, and platform-aware `file://` path handling. |
 | Notes-to-PPT planning | Markdown files, Obsidian notes, note folders | `notes-to-scientific-ppt` uses the Python standard library to inventory headings, links, tables, images, formulas, and source coverage before PPTX construction. |
-| Validation dependencies | `pytest`, `PyYAML` | Installed from skill-local `requirements-dev.txt`. |
-| Runtime dependencies | `python-pptx`, `PyYAML`, `pypdf` | Installed from `skill/ppt-to-md-for-obsidian/requirements.txt`. |
+| Validation dependencies | `pytest`, `PyYAML`, `ruff` | Installed from the root or skill-local `requirements-dev.txt` as applicable; the tool profiles require all three. |
+| PPT/PDF extraction runtime | `python-pptx`, `PyYAML`, `pypdf` | Installed from `skill/ppt-to-md-for-obsidian/requirements.txt`. |
+| Notes-to-PPT runtime | `python-pptx` | Installed from `skill/notes-to-scientific-ppt/requirements.txt`. |
+| Dependency-backed note runtime | Python 3.10+, Java 17+, pinned NumPy/PyTorch/ONNX/ONNX Runtime/ONNXScript/PySpark | Kept separate in `skill/algorithm-job-notes-for-obsidian/requirements-runtime.txt`; used only by the explicit `vault-runtime` profile. |

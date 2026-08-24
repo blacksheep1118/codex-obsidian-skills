@@ -64,8 +64,12 @@ python3 scripts/check_repo_hygiene.py
 python3 scripts/check_repo_hygiene.py --scan-worktree
 python3 scripts/check_openai_yaml_sync.py
 python3 scripts/sync_shared_resources.py --check
-python3 scripts/install_skill.py --all --dry-run --self-check
+python3 scripts/update_installed_skills.py --all --dry-run --prune --self-check
 ```
+
+The update dry-run checks an existing installed mirror. Use
+`install_skill.py --dry-run` only with a destination where the selected Skill
+directories do not yet exist.
 
 `scripts/check_repo_hygiene.py` checks Git-tracked files by default so local ignored caches do not block CI-style validation. Use `--scan-worktree` before handoff or upload when you want to find ignored or untracked cache directories, logs, scratch files, and generated outputs in the local checkout.
 

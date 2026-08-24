@@ -14,7 +14,7 @@ The project is distributed through GitHub commits, branches, tags, and CI. Do no
 | --- | --- | --- |
 | [`web-course-notes-for-obsidian`](skill/web-course-notes-for-obsidian) | The task starts from course video websites, PPT/slide websites, book websites, direct PDF/PPT URLs, or mixed online learning URLs. | Source manifests, classified note folders, URL-linked learning maps, detailed note scaffolds, chapter notes, reading notes, review pages. |
 | [`ppt-to-md-for-obsidian`](skill/ppt-to-md-for-obsidian) | The task starts from local PPT, PPTX, PDF courseware, or slide-derived files. | Extracted text, cleaned Markdown input, chapter notes, course maps, review pages, Obsidian links. |
-| [`obsidian-vault-organizer`](skill/obsidian-vault-organizer) | The task starts from an existing Obsidian vault or Markdown note directory. | Link audits, repaired references, merged duplicate notes, navigation pages, vault cleanup reports. |
+| [`obsidian-vault-organizer`](skill/obsidian-vault-organizer) | The task starts from an existing Obsidian vault or Markdown note directory. | Link findings, repaired references, merged duplicate notes, navigation pages, and vault cleanup. |
 | [`notes-to-scientific-ppt`](skill/notes-to-scientific-ppt) | The task starts from Obsidian or Markdown notes and asks for a PPT/PPTX research presentation. | Source inventories, evidence ledgers, scientific claim spines, draft slide backlogs, rigorous PPTX deck plans, speaker-note guidance. |
 | [`algorithm-job-notes-for-obsidian`](skill/algorithm-job-notes-for-obsidian) | The task maintains algorithm-job learning notes, internship/recruiting maps, interview preparation, or direction-aware Obsidian vaults. | Nine-direction taxonomy, route migration, P0/P1/P2 learning plans, DSA/C++17 practice, evidence-backed JD and interview workflows. |
 | [`solvenotes-vault-maintainer`](skill/solvenotes-vault-maintainer) | The task maintains this specific Solvenotes workspace from outside the vault. | Offline/online validation, source-manifest boundaries, naturalness candidates, clean exports, and orchestration of the other note Skills. |
@@ -38,9 +38,10 @@ See [Skill Routing](docs/routing.md) for cross-skill boundaries and mixed workfl
 
 The public Skills repository validates only its own source, tests, metadata, and
 non-sensitive fixtures. Its Actions do not checkout or depend on a private
-Solvenotes Notes vault. The real-vault `quick`/`full` gate and clean export run
-from the Notes repository's hidden `.github/workflows/vault-quality.yml`, which
-pins the Skills source to an explicit commit. This keeps public pull requests
+Solvenotes Notes vault. The real-vault `quick`/`full` gate runs from the Notes
+repository's hidden `.github/workflows/vault-quality.yml`, which pins the Skills
+source to an explicit commit. Clean export remains a separate local operation
+and is not part of that ordinary Notes workflow. This keeps public pull requests
 reproducible without exposing private note paths or requiring cross-repository
 secrets.
 
@@ -99,14 +100,14 @@ py scripts\install_skill.py --skill algorithm-job-notes-for-obsidian --self-chec
 py scripts\install_skill.py --skill solvenotes-vault-maintainer --self-check-level full
 ```
 
-Check a first install into a fresh destination without writing files. For an existing install, use `update_installed_skills.py --dry-run` instead:
+Check a first install against a fresh destination whose selected Skill subdirectories do not exist. The dry-run does not create that destination. For an existing install, use `update_installed_skills.py --dry-run` instead:
 
 ```bash
-python3 scripts/install_skill.py --all --dry-run --self-check
+python3 scripts/install_skill.py --all --destination /absolute/path/to/empty/codex-skills --dry-run --self-check
 ```
 
 ```powershell
-py scripts\install_skill.py --all --dry-run --self-check
+py scripts\install_skill.py --all --destination C:\path\to\empty\codex-skills --dry-run --self-check
 ```
 
 Install PPT/PDF extraction dependencies only when you need to run the bundled conversion scripts:
@@ -134,13 +135,13 @@ py -m pip install -r requirements-dev.txt
 Update installed skills from a fresh checkout:
 
 ```bash
-git pull
+git pull --ff-only
 python3 scripts/update_installed_skills.py --all --dry-run --prune --self-check
 python3 scripts/update_installed_skills.py --all --prune --self-check
 ```
 
 ```powershell
-git pull
+git pull --ff-only
 py scripts\update_installed_skills.py --all --dry-run --prune --self-check
 py scripts\update_installed_skills.py --all --prune --self-check
 ```
@@ -295,7 +296,11 @@ python3 skill/solvenotes-vault-maintainer/scripts/doctor.py \
 
 ## Validation
 
-GitHub Actions runs repository hygiene and root tests across Ubuntu, macOS, and Windows. Skill-local tests run in a separate matrix where each job installs only that skill's own `requirements-dev.txt`, so missing skill dependencies are not hidden by another skill's requirements.
+GitHub Actions runs the full repository-hygiene and root-test suite on Ubuntu,
+with targeted root smoke tests on macOS and Windows. Skill-local tests run in a
+separate Ubuntu matrix where each job installs only that skill's own
+`requirements-dev.txt`, so missing skill dependencies are not hidden by another
+skill's requirements.
 
 Before committing, run:
 
@@ -355,7 +360,7 @@ python3 scripts/check_repo_hygiene.py
 python3 scripts/check_repo_hygiene.py --scan-worktree
 python3 scripts/check_openai_yaml_sync.py
 python3 scripts/sync_shared_resources.py --check
-python3 scripts/install_skill.py --all --dry-run --self-check
+python3 scripts/update_installed_skills.py --all --dry-run --prune --self-check
 ```
 
 ```powershell
@@ -363,8 +368,11 @@ py scripts\check_repo_hygiene.py
 py scripts\check_repo_hygiene.py --scan-worktree
 py scripts\check_openai_yaml_sync.py
 py scripts\sync_shared_resources.py --check
-py scripts\install_skill.py --all --dry-run --self-check
+py scripts\update_installed_skills.py --all --dry-run --prune --self-check
 ```
+
+The update dry-run expects the selected Skills to be installed already. For an
+absent destination, use the first-install dry-run shown under **Install**.
 
 To validate a single skill in isolation, use a fresh environment when possible, install only that skill's `requirements-dev.txt`, then run that skill's tests and validator:
 

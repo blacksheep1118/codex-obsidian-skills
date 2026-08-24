@@ -4,6 +4,8 @@ All notable changes to this repository are documented here.
 
 ## Unreleased
 
+- Corrected the Notes-CI/export boundary, made candidate package verification explicit opt-in, required separate authorization before installed-mirror writes, and documented one task-specific temporary directory with exact cleanup.
+- Documented fast-forward-only source updates, replaced an installed-mirror dry-run command that fails on existing destinations, and completed the validation/runtime dependency table.
 - Made the workspace guidance gate reject Notes workflows that expose package mode or invoke vault/workspace package entry points, preserving the local-learning and GitHub-backup boundary.
 - Made local Markdown and wiki-link validation resolve relative paths and heading anchors (including Chinese, encoded, and duplicate headings) while ignoring fenced-code pseudo-links and external URLs; kept the standalone link inventory compatible with the shared parser and improved sibling-root command diagnostics.
 - Bounded captured validation output with early process-tree termination, hardened PDF extraction with stable input snapshots and page/text budgets, and corrected algorithm-route rejection handling for prose and negative table columns.

@@ -18,8 +18,10 @@ orchestrator for a learning vault; it does not replace the reusable
   and temporary diagnostics. Do not recreate these under `/notes`.
 - Templates live in the hidden, versioned `.obsidian/templates/` directory and
   use `note_type: template`; they are not learning notes or navigation targets.
-- Temporary reports, extracted inventories, and package files belong under
-  `/tmp` or another explicitly external output directory.
+- Create one task-specific `RUN_TMP` outside the workspace. Route temporary
+  reports, extracted inventories, caches, subprocess homes, and any explicitly
+  authorized package files into that directory; remove that exact directory at
+  handoff after checking that it contains no requested deliverable.
 - The public Skills repository must remain self-contained: its CI uses source
   code and non-sensitive fixtures only, and never checks out a private Notes
   vault. The real-vault quick/full gate belongs to the Notes repository's
@@ -61,8 +63,9 @@ path, and Skills path without using machine-specific fallbacks.
 ## Quick Start
 
 1. Read the workspace and vault `AGENT.md` files and inspect Git status.
-2. Run the read-only baseline checks before editing. Keep diagnostics outside
-   the vault.
+2. Create one task-specific `RUN_TMP`, point temporary-output settings such as
+   `TMPDIR` at it, then run the read-only baseline checks. Keep diagnostics
+   outside the vault and clean the exact task directory before handoff.
 3. Use the generic Obsidian skill for link/frontmatter/structure work, the
    courseware skill for source-manifest and course coverage work, and the
    algorithm skill for the nine-direction algorithm-job contract and C++
@@ -70,11 +73,13 @@ path, and Skills path without using machine-specific fallbacks.
    marked dependency-backed Python examples must actually execute.
 4. Edit notes semantically. Preserve source manifests and move unique content
    before deleting obsolete pages or routes.
-5. Run the full gate from this skill, compile only explicitly marked runnable
-   code, and inspect the generated clean package.
-6. Validate the source skill repository, then update the installed mirror with
-   the official repository scripts. Compare source and installed metadata and
-   run the installed scanner against the real vault.
+5. Run the full gate from this skill and compile only explicitly marked
+   runnable code. Build and verify a clean package outside the vault only when
+   the user requests an export and local guidance permits package mode.
+6. Validate the source skill repository and use the official update script in
+   dry-run mode to compare source and installed metadata. Update the real
+   installed mirror, then run its scanner against the vault, only when the user
+   explicitly authorizes synchronization.
 7. Report actual commands and PASS/FAIL/SKIP results. Do not commit or push
    unless the user explicitly authorizes it.
 
@@ -87,7 +92,9 @@ expensive vault scan.
 
 ## Main commands
 
-From the Skills repository:
+From the Skills repository. The package and verification commands in this block
+are conditional: use them only when the user requests an export and local
+guidance permits package mode.
 
 ```bash
 SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
@@ -130,15 +137,17 @@ Before changing the formal Notes lock, run
 `validate_notes_candidate.py --notes-root ... --skills-root ... --skills-ref ...`.
 It installs the target commit and its dependency closure in a temporary
 location, runs `vault-full` against the real Notes vault through an override
-lock, packages and independently verifies the vault, and leaves the formal
-lock unchanged. Only then use
-`update_notes_skill_lock.py --write`.
+lock, and leaves the formal lock unchanged. Package construction is not part of
+the default candidate gate. Add `--verify-package` only when the user requests
+an export and local guidance permits package mode. Only after the applicable
+candidate checks pass should `update_notes_skill_lock.py --write` be used.
 
 Candidate validation deliberately runs `vault-full`, not reviewed local code.
 When the release closes a dependency-backed execution gap, update the formal
 lock after the candidate passes, then run `vault-runtime` against the clean
 Skills commit and updated lock before committing Notes. Report the two gates
-separately; a passing candidate package does not imply ONNX or Spark execution.
+separately; neither a passing candidate full gate nor an optional package check
+implies ONNX or Spark execution.
 
 The Notes learning package embeds a deterministic file manifest and excludes
 Git metadata, macOS sidecar files, Obsidian local workspace/graph state, hidden
