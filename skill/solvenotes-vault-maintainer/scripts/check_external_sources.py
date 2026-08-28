@@ -2,9 +2,10 @@
 """Audit external URLs referenced by a vault without writing into the vault.
 
 The online mode is deliberately separate from the deterministic local gate.
-It uses a small JSON cache under /tmp by default, follows normal redirects,
-and distinguishes access restrictions from confirmed missing resources.  Unit
-tests inject a fake opener; CI never needs the public Internet.
+It uses a small JSON cache under the configured task or system temporary
+directory, follows normal redirects, and distinguishes access restrictions
+from confirmed missing resources. Unit tests inject a fake opener; CI never
+needs the public Internet.
 """
 
 from __future__ import annotations
@@ -12,8 +13,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
+import tempfile
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -29,7 +32,10 @@ URL_RE = re.compile(r"https?://[^\s<>'\"\]\[|]+", re.I)
 NON_URL_PROSE_RE = re.compile(r"[\u3400-\u9fff]")
 URL_PROSE_TERMINATOR_RE = re.compile(r"[)\]}>）】》」』：；，。！？、]")
 TRAILING_PUNCTUATION = ",.;:!?，。；：！？、)（）】》」』\"'`"
-DEFAULT_CACHE_DIR = Path("/tmp/solvenotes-web-cache")
+DEFAULT_TMP_ROOT = Path(
+    os.environ.get("SOLVENOTES_TMP_ROOT", tempfile.gettempdir())
+)
+DEFAULT_CACHE_DIR = DEFAULT_TMP_ROOT / "solvenotes-web-cache"
 STATUSES = (
     "OK",
     "REDIRECT",

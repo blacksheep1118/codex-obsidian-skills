@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from check_examples import generic_prompt
+from check_examples import explanation_text, generic_prompt
 from notes_utils import (
     infer_note_type,
     markdown_files,
@@ -29,7 +29,8 @@ from notes_utils import (
     split_table_row,
 )
 
-TABLE_HEADING = "## PPT/PDF 例题辅助理解"
+TABLE_TITLE = "PPT/PDF 例题辅助理解"
+TABLE_HEADING = f"## {TABLE_TITLE}"
 SKIP_NOTE_TYPES = {
     "agent_rule",
     "audit_record",
@@ -53,8 +54,40 @@ CODE_MARKER_RE = re.compile(
     re.I,
 )
 STRONG_PROBLEM_RE = re.compile(
-    r"(?:题目|问题|Question|(?<!要)求|计算|证明|给定|已知|输入|输出|请(?:求|计算|证明|判断|说明)|\?)",
+    r"(?:题目|问题|Question|(?<![需要])求|计算(?!机)|证明|给定|已知|输入|输出|请(?:求|计算|证明|判断|说明)|\?)",
     re.I,
+)
+EXPLICIT_EXERCISE_RE = re.compile(
+    r"(?:题目|问题|Question|(?<![需要])求|计算(?!机)|证明|给定|已知|"
+    r"请(?:求|计算|证明|判断|说明)|\?)",
+    re.I,
+)
+NEGATED_CONCRETE_TASK_RE = re.compile(
+    r"(?:没有|不含|不包含|缺少|不涉及|未涉及|并未涉及)\s*(?:给出|提供)?\s*"
+    r"(?:任何|具体的?|明确的?|实际的?|可核验的?|可复算的?)?\s*"
+    r"(?:题目|例题|练习|案例|示例|条件|失败情形|依据|计算|推导|证明)"
+    r"|(?:没有|不含|不包含|缺少|不涉及|未涉及|并未涉及)\s*(?:给出|提供)?\s*"
+    r"(?:可核验的?|可复算的?|具体的?|明确的?)\s*(?:输入|数值|数据)",
+    re.S,
+)
+CONCRETE_TASK_RE = re.compile(
+    r"(?:题目|给定|已知|输入|要求|假设|条件|如果|若|当且仅当|当.{1,40}时|"
+    r"计算|推导|证明|判断|比较|区分|检查|观察|核对|验证|评估|代入|求解|输出|边界|易错|反例|构造|"
+    r"模拟|扫描|标记|状态|分支|接受|拒绝|归纳|反设|等价|定理|语言|"
+    r"自动机|字符串|只需|=|≈|\\frac|\\sum|\\begin|\\to|\$|ε|→|\d)",
+    re.S,
+)
+BOUNDARY_RE = re.compile(
+    r"(?:易错|边界|条件|陷阱|注意|如果|若|(?:当|时)?且仅当|仅当|当.{1,40}时|"
+    r"只有|除非|否则|不能|不可|不会|不等于|不成立|不意味着|不表示|不代表|"
+    r"不足以|并非|不是|区别|才(?:算|能|会|可|进入|构成|支持|成立|说明|表明|属于|接受|拒绝|得到)|"
+    r"但是|然而|仍(?:需|要)|还要|需.{0,16}(?:核对|验证|判断))",
+    re.S,
+)
+FORMAL_ARGUMENT_RE = re.compile(
+    r"(?:证明|推导|归纳|反设|构造|不变量|等价|(?:当|时)?且仅当|矛盾|"
+    r"充分|必要|保持.{0,20}不变)",
+    re.S,
 )
 
 
@@ -116,7 +149,7 @@ def _heading_ranges(lines: list[str]) -> list[tuple[int, int, int, str]]:
 
     candidates: list[tuple[int, int, int, str]] = []
     for position, (start, level, title) in enumerate(headings):
-        if title == TABLE_HEADING or not HEADING_EXAMPLE_RE.search(title):
+        if title == TABLE_TITLE or not HEADING_EXAMPLE_RE.search(title):
             continue
         # A subsection ends at the next heading of the same or higher level.
         end = len(lines)
@@ -325,6 +358,15 @@ def _has_steps(text: str, kind: str) -> bool:
             "监控",
             "管理",
             "每个",
+            "扫描",
+            "标记",
+            "移动",
+            "写入",
+            "归约",
+            "递归",
+            "猜测",
+            "计数",
+            "保存",
             "相加",
             "乘",
             "除",
@@ -349,6 +391,7 @@ def _has_result(text: str, kind: str) -> bool:
         "可知",
         "接受",
         "不接受",
+        "拒绝",
         "区别",
         "含义",
         "输出",
@@ -367,7 +410,16 @@ def _has_result(text: str, kind: str) -> bool:
 
 
 def _has_boundary(text: str) -> bool:
-    return any(word in text for word in ["易错", "边界", "条件", "陷阱", "注意", "若", "当", "但", "只有", "不能", "不", "仅", "区别"])
+    return bool(BOUNDARY_RE.search(text))
+
+
+def _has_concrete_task(text: str) -> bool:
+    """Require an actual condition, datum, or formal relation, not process prose."""
+
+    formal_data = bool(re.search(r"(?:=|≈|\\frac|\\sum|\\begin|\\to|\$|ε|→|\d)", text))
+    if NEGATED_CONCRETE_TASK_RE.search(text) and not formal_data:
+        return False
+    return bool(CONCRETE_TASK_RE.search(text))
 
 
 def grade(line: str, kind: str = "table") -> str:
@@ -377,27 +429,33 @@ def grade(line: str, kind: str = "table") -> str:
         return "D"
     # Table rows keep the established contract: grade the explanation cell,
     # not the topic/source columns.
-    text = line.split("解析：", 1)[1] if kind == "table" and "解析：" in line else line
+    text = explanation_text(line) if kind == "table" else line
     compact = _compact(text, kind)
     has_steps = _has_steps(text, kind)
     has_result = _has_result(text, kind)
     has_boundary = _has_boundary(text)
+    has_concrete_task = _has_concrete_task(text)
+    has_formal_argument = bool(FORMAL_ARGUMENT_RE.search(text))
     has_computation = bool(re.search(r"(?:\\begin|\\frac|=|\d)\s*", text))
     has_structure = "```" in text or bool(re.search(r"(?:=>|->|\n\s*\|)", text))
-    if len(compact) >= 70 and has_steps and has_result and has_boundary:
+    if len(compact) >= 70 and has_steps and has_result and has_boundary and has_concrete_task:
         return "A"
-    if len(compact) >= 45 and ((has_steps and has_result) or (has_computation and has_result)):
+    if (
+        len(compact) >= 45
+        and has_concrete_task
+        and ((has_steps and has_result) or (has_computation and has_result))
+    ):
         # A long procedural paragraph is not automatically a reproducible
         # example.  B requires either a concrete computation or an explicit
         # condition/boundary; generic step/result boilerplate stays reviewable
         # at C instead of passing the worked-example gate.
-        return "B" if has_boundary or has_computation else "C"
-    if len(compact) >= 25 and has_structure:
+        return "B" if has_boundary or has_computation or has_formal_argument else "C"
+    if len(compact) >= 25 and has_structure and (kind != "table" or has_concrete_task):
         return "B"
     if kind == "code" and len(compact) >= 50 and (has_steps or has_result):
         return "B" if has_result else "C"
     if len(compact) >= 70 and has_steps and has_result:
-        return "B"
+        return "C"
     if len(compact) >= 30:
         return "C"
     return "D"
@@ -409,6 +467,8 @@ def _requires_solution(example: Example) -> bool:
     title = example.title
     if example.kind == "table":
         return True
+    if re.search(r"不是.{0,30}(?:例子|示例|案例)", title):
+        return False
     if re.search(r"例题|练习|Question|题目|算例", title, re.I):
         if re.search(r"第一个练习|练习：拆|例题思路|复习", title):
             return bool(re.search(r"(?:计算|求解|答案|结论|最终|得到|=)", example.text)) and "思路" not in title
@@ -421,7 +481,7 @@ def _requires_solution(example: Example) -> bool:
     if re.search(r"示例|例子|案例", title, re.I):
         if "案例" in title and not re.search(r"(?:计算|求解|答案|结论|最终|得到|=|\d)", example.text):
             return False
-        return bool(STRONG_PROBLEM_RE.search(example.text) and _has_result(example.text, example.kind))
+        return bool(EXPLICIT_EXERCISE_RE.search(example.text) and _has_result(example.text, example.kind))
     return bool(STRONG_PROBLEM_RE.search(example.text))
 
 

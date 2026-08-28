@@ -78,12 +78,12 @@ package mode, create the package outside the vault:
 ```bash
 python3 skill/solvenotes-vault-maintainer/scripts/package_vault.py \
   --root "$SOLVENOTES_VAULT_ROOT" \
-  --output /tmp/solvenotes-notes-clean.zip \
-  --manifest-output /tmp/solvenotes-notes-PACKAGE-MANIFEST.json
+  --output "$RUN_TMP/solvenotes-notes-clean.zip" \
+  --manifest-output "$RUN_TMP/solvenotes-notes-PACKAGE-MANIFEST.json"
 
 python3 skill/solvenotes-vault-maintainer/scripts/verify_vault_package.py \
-  /tmp/solvenotes-notes-clean.zip \
-  --sidecar /tmp/solvenotes-notes-PACKAGE-MANIFEST.json
+  "$RUN_TMP/solvenotes-notes-clean.zip" \
+  --sidecar "$RUN_TMP/solvenotes-notes-PACKAGE-MANIFEST.json"
 ```
 
 The package excludes `.git`, caches, `__MACOSX`, `.DS_Store`, `._*`, compiled

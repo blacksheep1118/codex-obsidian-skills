@@ -8,7 +8,8 @@ Use this guide when a task could match more than one skill. Route by the user's 
 | --- | --- | --- | --- |
 | URL, webpage course, online book, public reading list, local HTML, or direct PDF/PPT/transcript URL | Collect accessible sources, create `source_manifest.md`, scaffold or write Obsidian web-course notes | `web-course-notes-for-obsidian` | `ppt-to-md-for-obsidian` unless a permitted file has already been downloaded locally |
 | Local PPT/PPTX/PDF lecture files or courseware folders | Extract slide/page text, build source coverage, write course notes and review pages | `ppt-to-md-for-obsidian` | `web-course-notes-for-obsidian` unless the input is still a web page or URL list |
-| Existing algorithm-job Obsidian notes, recruiting maps, interview routes, or direction cleanup | Enforce the nine canonical directions, migrate extra routes, strengthen DSA/C++17/ML evidence, and validate JD mappings | `algorithm-job-notes-for-obsidian` | `obsidian-vault-organizer` as the first route when algorithm-job taxonomy is not in scope |
+| Solvenotes workspace with its Notes and Skills repositories | Run repository-wide validation, maintain lock/provenance and packaging boundaries, migrate maintenance tooling, or coordinate several note skills | `solvenotes-vault-maintainer` | `obsidian-vault-organizer` when the scope includes Skills, version locks, packages, or workspace-level release checks |
+| Existing algorithm-job Obsidian notes, recruiting maps, interview routes, or direction cleanup | Enforce the nine canonical directions, migrate extra routes, strengthen DSA/C++17/ML evidence, and validate JD mappings | `algorithm-job-notes-for-obsidian` | `obsidian-vault-organizer` when the request changes the nine-direction taxonomy; generic cleanup that leaves the taxonomy untouched may start there |
 | Existing Obsidian vault or Markdown note collection | Repair links, merge duplicates, improve navigation, validate note quality, clean stale files | `obsidian-vault-organizer` | `ppt-to-md-for-obsidian` unless source extraction is still required |
 | Existing Markdown/Obsidian notes or notes folder | Create a scientific deck brief or editable PPTX research deck | `notes-to-scientific-ppt` | Source-collection skills unless the notes do not exist yet |
 
@@ -24,6 +25,10 @@ Use $ppt-to-md-for-obsidian for these local PPT/PPTX/PDF courseware files. Extra
 
 ```text
 Use $obsidian-vault-organizer for this existing vault. Audit links, duplicate stems, navigation, and note quality before editing; keep source files read-only.
+```
+
+```text
+Use $solvenotes-vault-maintainer for this Solvenotes workspace. Keep maintenance artifacts outside Notes, run the repository-wide gates, and preserve the Notes-to-Skills version lock until the Skills changes are committed.
 ```
 
 ```text
@@ -90,6 +95,7 @@ Use $algorithm-job-notes-for-obsidian to collapse this vault to the nine algorit
 
 - If the input is a web address, route to `web-course-notes-for-obsidian`.
 - If the input is a local slide/PDF courseware file, route to `ppt-to-md-for-obsidian`.
+- If the task spans the Solvenotes Notes and Skills repositories, version locks, clean packages, or release gates, route to `solvenotes-vault-maintainer` and let it coordinate the narrower note skills.
 - If the input is an existing vault and the requested change concerns algorithm-job routes, JD categories, interview maps, or nine-direction migration, route to `algorithm-job-notes-for-obsidian`.
 - If the input is already a vault or note folder and the desired output is still notes, route to `obsidian-vault-organizer`.
 - If the input is already notes and the desired output is a deck, route to `notes-to-scientific-ppt`.

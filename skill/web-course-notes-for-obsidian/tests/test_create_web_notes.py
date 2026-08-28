@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -78,23 +80,45 @@ def run_script_raw(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def test_help_describes_the_platform_temporary_directory() -> None:
+    result = run_script_raw("--help")
+    help_text = re.sub(r"\s+", " ", result.stdout)
+
+    assert "platform temporary directory" in help_text
+    assert "defaults to /tmp" not in help_text
+
+
 def test_create_web_notes_defaults_to_external_staging(tmp_path: Path):
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir()
+    staging_root: Path | None = None
+    try:
+        result = run_script_raw(
+            "https://example.com/readings/staged.pdf",
+            "--notes-dir",
+            str(notes_dir),
+            "--title",
+            "Staged Course",
+        )
 
-    result = run_script_raw(
-        "https://example.com/readings/staged.pdf",
-        "--notes-dir",
-        str(notes_dir),
-        "--title",
-        "Staged Course",
-    )
-
-    assert "staged_web_notes" in result.stdout
-    assert not (notes_dir / "Web Resources" / "Staged Course").exists()
-    staged_path = Path(next(line for line in result.stdout.splitlines() if line.startswith("staged_web_notes ")).split(" ", 1)[1])
-    assert staged_path.is_dir()
-    assert (staged_path / "00_Learning_Map.md").exists()
+        assert "staged_web_notes" in result.stdout
+        assert not (notes_dir / "Web Resources" / "Staged Course").exists()
+        staged_path = Path(
+            next(
+                line
+                for line in result.stdout.splitlines()
+                if line.startswith("staged_web_notes ")
+            ).split(" ", 1)[1]
+        )
+        candidate_root = staged_path.parents[1]
+        staging_root = candidate_root
+        assert candidate_root.parent == Path(tempfile.gettempdir()).resolve()
+        assert candidate_root.name.startswith("solvenotes-web-staging-")
+        assert staged_path.is_dir()
+        assert (staged_path / "00_Learning_Map.md").exists()
+    finally:
+        if staging_root is not None:
+            shutil.rmtree(staging_root)
 
 
 def test_create_web_notes_staging_does_not_require_notes_dir(tmp_path: Path):
@@ -143,7 +167,7 @@ def test_create_web_notes_defaults_to_english_for_english_source(tmp_path: Path)
     )
 
     collection_dir = notes_dir / "Web Resources" / "Zhu From Noise Modeling CVPR 2016 paper"
-    assert f"published_web_notes {collection_dir}" in result.stdout
+    assert f"wrote_vault_scaffolds_web_notes {collection_dir}" in result.stdout
     assert (collection_dir / "00_Learning_Map.md").exists()
     assert not (notes_dir / "网络资源").exists()
     assert not (collection_dir / "00_学习地图.md").exists()
@@ -261,7 +285,7 @@ def test_create_web_notes_dry_run_allows_missing_notes_root_without_creating_it(
         "--dry-run",
     )
 
-    assert "would_publish_web_notes" in result.stdout
+    assert "would_write_vault_scaffolds_web_notes" in result.stdout
     assert not notes_dir.exists()
 
 

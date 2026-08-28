@@ -50,6 +50,7 @@ def main() -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     required = (
+        SKILL_ROOT / "LICENSE",
         SKILL_ROOT / "scripts" / "dev_check.sh",
         SKILL_ROOT / "scripts" / "check_all_notes.py",
         SKILL_ROOT / "scripts" / "doctor.py",

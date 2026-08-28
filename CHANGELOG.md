@@ -4,6 +4,11 @@ All notable changes to this repository are documented here.
 
 ## Unreleased
 
+- Corrected the algorithm-job routing condition, documented every PDF extraction fallback, and aligned the web-note staging and direct-to-vault scaffold lifecycle with the command's actual behavior.
+- Replaced an internal generated-example label with reader-facing provenance wording, taught the example gates to accept substantive natural table explanations without a fixed `解析` label, and stopped the default-staging test from leaving temporary collections behind.
+- Added the missing standalone license to `solvenotes-vault-maintainer`, enforced a license in every installable package, and documented examples as optional supporting resources.
+- Made example provenance fail closed, removed table/narrative double counting, and added negative tests for unlabeled or ambiguously labeled examples.
+- Routed maintainer caches, online reports, and default packages through the task temporary root; corrected cross-platform staging help and removed unused placeholder examples from the install payload.
 - Rejected non-finite or non-positive validation timeouts in shared helpers, the root validator, and C++ example execution so invalid configuration cannot disable the bounded execution contract or leak a traceback.
 - Raised the marked C++ example timeout from 5 to 15 seconds so cold CI compiler startup does not create false failures while genuine hangs still fail closed.
 - Corrected the Notes-CI/export boundary, made candidate package verification explicit opt-in, required separate authorization before installed-mirror writes, and documented one task-specific temporary directory with exact cleanup.

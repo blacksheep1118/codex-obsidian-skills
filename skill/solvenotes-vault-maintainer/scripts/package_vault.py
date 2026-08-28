@@ -11,6 +11,7 @@ import re
 import stat
 import subprocess
 import sys
+import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,7 +52,15 @@ from notes_utils import (  # noqa: E402
 )
 
 DEFAULT_OUTPUT = Path(
-    os.environ.get("SOLVENOTES_VAULT_EXPORT", "/tmp/solvenotes-notes-clean.zip")
+    os.environ.get(
+        "SOLVENOTES_VAULT_EXPORT",
+        str(
+            Path(
+                os.environ.get("SOLVENOTES_TMP_ROOT", tempfile.gettempdir())
+            )
+            / "solvenotes-notes-clean.zip"
+        ),
+    )
 )
 MANIFEST_NAME = "PACKAGE-MANIFEST.json"
 MANIFEST_SCHEMA_VERSION = 1
@@ -339,7 +348,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--output",
-        help="zip output path; defaults to /tmp/solvenotes-notes-clean.zip",
+        help=f"zip output path; default: {DEFAULT_OUTPUT}",
     )
     parser.add_argument(
         "--manifest-output",

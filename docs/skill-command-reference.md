@@ -14,23 +14,25 @@ python3 skill/web-course-notes-for-obsidian/scripts/collect_web_sources.py \
   --out source_manifest.md
 ```
 
-Create a language-aware collection scaffold inside an existing notes directory:
+Create a language-aware collection scaffold in an external staging directory:
 
 ```bash
 python3 skill/web-course-notes-for-obsidian/scripts/create_web_notes.py \
   https://example.com/course \
-  --notes-dir /path/to/notes \
+  --staging-dir /tmp/web-course-staging \
   --language auto
 ```
 
-Use `--category`, `--root-folder-name`, or `--map-note-name` to override placement. The generated files are scaffolds, not finished notes. After reading accessible sources and replacing every placeholder, validate every user-supplied source:
+The command prints the staged collection path. Use `--category`, `--root-folder-name`, or `--map-note-name` to mirror the eventual vault layout. Read the accessible sources, replace every placeholder, and validate every user-supplied source:
 
 ```bash
 python3 skill/web-course-notes-for-obsidian/scripts/check_web_notes.py \
-  /path/to/collection \
+  /tmp/web-course-staging/Web\ Resources/course \
   --source https://example.com/course \
   --per-link-notes
 ```
+
+After validation, move or copy the completed collection into the chosen vault category. The compatibility form `--publish --notes-dir /path/to/notes` creates a new scaffold directly in the vault; use it only when the user explicitly wants an in-vault draft.
 
 Direct PDF, PPT, transcript, and book URLs are inventoried without parsing binary content as HTML. Once a permitted source becomes a local PPT/PPTX/PDF file, hand it to `ppt-to-md-for-obsidian`.
 

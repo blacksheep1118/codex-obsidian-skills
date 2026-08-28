@@ -21,6 +21,40 @@ SKIP_NOTE_TYPES = {
     "template",
     "vault_audit",
 }
+GENERATED_SOURCE_MARKERS = (
+    "自拟教学例：源课件未提供可独立还原的对应例题",
+    "生成：PPT/PDF 未提供独立可抽取例题",
+)
+NATURAL_GENERATED_SOURCE_PATTERNS = (
+    re.compile(
+        r"(?:自拟|自编|原创).{0,120}(?:源课件|课件|源资料|论文|讲义).{0,120}"
+        r"(?:未提供|没有提供|未给出|没有给出|未包含|没有包含).{0,80}"
+        r"(?:例题|练习|题目|案例|示例|数值|数据|条件|答案|解法|对应)",
+        re.S,
+    ),
+    re.compile(
+        r"(?:源课件|课件|源资料|论文|讲义).{0,120}"
+        r"(?:未提供|没有提供|未给出|没有给出|未包含|没有包含).{0,80}"
+        r"(?:例题|练习|题目|案例|示例|数值|数据|条件|答案|解法|对应).{0,120}"
+        r"(?:自拟|自编|原创)",
+        re.S,
+    ),
+    re.compile(
+        r"(?:自拟|自编|原创).{0,80}(?:并非|不是|不属于|非)\s*"
+        r"(?:源课件|课件|源资料|论文|讲义).{0,40}(?:原题|例题|练习|题目|案例|示例)",
+        re.S,
+    ),
+)
+NEGATED_SELF_WRITTEN_RE = re.compile(
+    r"(?:不是|并非|不属于|不算|不能算|称不上|谈不上|非)\s*"
+    r"(?:(?:真正(?:意义上)?|所谓|严格意义上|课件中|课程中|源课件中|源资料中|论文中)的?\s*)?"
+    r"(?:一(?:个|道|项|份))?\s*"
+    r"(?:自拟|自编|原创)(?:教学)?(?:题|例|例题|练习|案例|示例)?"
+)
+TRACEABLE_SOURCE_FILE_RE = re.compile(
+    r"\.(?:pdf|pptx?)(?:\b|(?=[`#?]))",
+    re.I,
+)
 
 GENERIC_PROMPT_PATTERNS = (
     re.compile(r"完整练习：写出题目已知条件"),
@@ -28,6 +62,22 @@ GENERIC_PROMPT_PATTERNS = (
     re.compile(r"识别变量.{0,20}写步骤.{0,20}解释结果.{0,20}改输入重算"),
 )
 QUOTED_TOPIC_RE = re.compile(r"“[^”]{1,100}”")
+NEGATED_SUBSTANCE_RE = re.compile(
+    r"(?:没有|不含|不包含|缺少|不涉及|未涉及|并未涉及)\s*(?:给出|提供)?\s*"
+    r"(?:任何|具体的?|明确的?|实际的?|可核验的?|可复算的?)?\s*"
+    r"(?:步骤|结论|依据|题目|例题|练习|案例|示例|条件|失败情形|计算|推导|证明)"
+    r"|(?:没有|不含|不包含|缺少|不涉及|未涉及|并未涉及)\s*(?:给出|提供)?\s*"
+    r"(?:可核验的?|可复算的?|具体的?|明确的?)\s*(?:输入|数值|数据)",
+    re.S,
+)
+DETAIL_SIGNAL_RE = re.compile(
+    r"(?:题目|给定|已知|输入|要求|假设|条件|如果|若|当且仅当|当.{1,40}时|"
+    r"计算|推导|证明|判断|比较|代入|首先|然后|步骤|结论|因此|所以|可知|"
+    r"意味着|输出|边界|易错|反例|构造|模拟|扫描|标记|状态|分支|接受|"
+    r"拒绝|归纳|反设|等价|说明|解释|只需|保持|读入|=|≈|\\frac|\\sum|"
+    r"\\begin|\\to|\$|ε|→|\d)",
+    re.S,
+)
 
 
 def section_lines(lines: list[str], heading: str) -> list[str]:
@@ -44,12 +94,13 @@ def section_lines(lines: list[str], heading: str) -> list[str]:
 
 
 def explanation_text(line: str) -> str:
-    if "解析：" not in line:
-        return ""
-    explanation = line.split("解析：", 1)[1]
-    if "|" in explanation:
-        explanation = explanation.split("|", 1)[0]
-    return explanation
+    cells = split_table_row(line)
+    if len(cells) >= 3:
+        explanation = cells[-2]
+        return explanation.split("解析：", 1)[1] if "解析：" in explanation else explanation
+    if "解析：" in line:
+        return line.split("解析：", 1)[1]
+    return ""
 
 
 def compact_explanation(line: str) -> str:
@@ -60,7 +111,10 @@ def compact_explanation(line: str) -> str:
 
 
 def explanation_is_detailed(line: str) -> bool:
-    return len(compact_explanation(line)) >= 30
+    explanation = explanation_text(line)
+    if len(compact_explanation(line)) < 30 or NEGATED_SUBSTANCE_RE.search(explanation):
+        return False
+    return bool(DETAIL_SIGNAL_RE.search(explanation))
 
 
 def generic_prompt(line: str) -> str | None:
@@ -83,6 +137,27 @@ def normalized_explanation(line: str) -> str:
 
 def regular_note(path) -> bool:
     return infer_note_type(path) not in SKIP_NOTE_TYPES
+
+
+def has_generated_source_marker(text: str) -> bool:
+    candidate = NEGATED_SELF_WRITTEN_RE.sub("", text)
+    if any(marker in candidate for marker in GENERATED_SOURCE_MARKERS):
+        return True
+    return any(pattern.search(candidate) for pattern in NATURAL_GENERATED_SOURCE_PATTERNS)
+
+
+def example_source_kind(line: str) -> str:
+    """Classify one example row without guessing that an unlabeled row is sourced."""
+
+    cells = split_table_row(line)
+    source_cell = cells[-1] if len(cells) >= 3 else ""
+    if has_generated_source_marker(source_cell):
+        return "generated"
+    if "生成辅助题" in line:
+        return "generated_unmarked"
+    if TRACEABLE_SOURCE_FILE_RE.search(source_cell):
+        return "source"
+    return "unclassified"
 
 
 def main() -> int:
@@ -115,24 +190,25 @@ def main() -> int:
                 continue
             example_rows += 1
             if not explanation_is_detailed(line):
-                issues.append(f"{rel(path)}: example row lacks detailed 解析")
+                issues.append(f"{rel(path)}: example row lacks a detailed teaching explanation")
             prompt = generic_prompt(line)
             if prompt:
                 issues.append(f"{rel(path)}: example row contains generic prompt: {prompt}")
             normalized = normalized_explanation(line)
             if len(normalized) >= 80:
                 explanation_locations[normalized].append(f"{rel(path)} | {cells[0]}")
-            source_cell = cells[-1]
-            generated = "生成：PPT/PDF 未提供独立可抽取例题" in source_cell or "生成辅助题" in line
-            source_example = not generated and ("源资料" in source_cell or "源课件例题" in line or "源资料例题" in line)
-            if generated:
+            source_kind = example_source_kind(line)
+            if source_kind in {"generated", "generated_unmarked"}:
                 generated_examples += 1
-            else:
+            elif source_kind == "source":
                 source_examples += 1
-            if generated and "生成：PPT/PDF 未提供独立可抽取例题" not in source_cell:
+            else:
+                issues.append(
+                    f"{rel(path)}: example row source is unclassified; use a traceable source file "
+                    "or an explicit self-written-example rationale"
+                )
+            if source_kind == "generated_unmarked":
                 issues.append(f"{rel(path)}: generated example missing standard source marker")
-            if source_example and "（/" not in line:
-                issues.append(f"{rel(path)}: source example missing （/课程/来源） marker")
 
     for locations in explanation_locations.values():
         if len(locations) < 3:

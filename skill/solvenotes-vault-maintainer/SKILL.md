@@ -1,6 +1,6 @@
 ---
 name: solvenotes-vault-maintainer
-description: Use when maintaining the Solvenotes Obsidian vault from outside the vault, including repository-wide validation, migration of maintenance tooling, clean export packaging, source-manifest checks, template hygiene, navigation consistency, and orchestration of the other Solvenotes note skills. Use $obsidian-vault-organizer for reusable vault cleanup, $ppt-to-md-for-obsidian for courseware extraction, and $algorithm-job-notes-for-obsidian for algorithm-job taxonomy. It keeps learning content in /notes and sends scripts, tests, and temporary outputs to Skills or /tmp.
+description: Use when maintaining the Solvenotes Obsidian vault from outside the vault, including repository-wide validation, migration of maintenance tooling, clean export packaging, source-manifest checks, template hygiene, navigation consistency, and orchestration of the other Solvenotes note skills. Use $obsidian-vault-organizer for reusable vault cleanup, $ppt-to-md-for-obsidian for courseware extraction, and $algorithm-job-notes-for-obsidian for algorithm-job taxonomy. It keeps learning content in /notes and sends scripts, tests, and temporary outputs to Skills or one task-specific temporary directory.
 ---
 
 # Solvenotes Vault Maintainer
@@ -45,6 +45,8 @@ Set the vault explicitly before invoking a maintenance command:
 
 ```bash
 export SOLVENOTES_VAULT_ROOT=/absolute/path/to/solvenotes/notes
+RUN_TMP="$(mktemp -d)"
+export RUN_TMP TMPDIR="$RUN_TMP" SOLVENOTES_TMP_ROOT="$RUN_TMP"
 ```
 
 Each maintenance subprocess is bounded by `SOLVENOTES_STEP_TIMEOUT` seconds
@@ -116,21 +118,21 @@ SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
 
 python3 skill/solvenotes-vault-maintainer/scripts/package_vault.py \
   --root /absolute/path/to/notes \
-  --output /tmp/solvenotes-notes-clean.zip \
-  --manifest-output /tmp/solvenotes-notes-PACKAGE-MANIFEST.json
+  --output "$RUN_TMP/solvenotes-notes-clean.zip" \
+  --manifest-output "$RUN_TMP/solvenotes-notes-PACKAGE-MANIFEST.json"
 
 python3 skill/solvenotes-vault-maintainer/scripts/verify_vault_package.py \
-  /tmp/solvenotes-notes-clean.zip \
-  --sidecar /tmp/solvenotes-notes-PACKAGE-MANIFEST.json
+  "$RUN_TMP/solvenotes-notes-clean.zip" \
+  --sidecar "$RUN_TMP/solvenotes-notes-PACKAGE-MANIFEST.json"
 
 python3 skill/solvenotes-vault-maintainer/scripts/package_workspace.py \
   --root /path/to/solvenotes \
-  --output /tmp/solvenotes-workspace.zip \
-  --manifest-output /tmp/solvenotes-workspace-BUILD-MANIFEST.json
+  --output "$RUN_TMP/solvenotes-workspace.zip" \
+  --manifest-output "$RUN_TMP/solvenotes-workspace-BUILD-MANIFEST.json"
 
 python3 skill/solvenotes-vault-maintainer/scripts/verify_workspace_package.py \
-  /tmp/solvenotes-workspace.zip \
-  --sidecar /tmp/solvenotes-workspace-BUILD-MANIFEST.json
+  "$RUN_TMP/solvenotes-workspace.zip" \
+  --sidecar "$RUN_TMP/solvenotes-workspace-BUILD-MANIFEST.json"
 ```
 
 Before changing the formal Notes lock, run
@@ -165,7 +167,7 @@ path; both outputs should remain outside the workspace.
 
 `online` is an explicit, read-only external URL audit. It is separate from
 `quick`, `full`, and ordinary CI. It deduplicates HTTP(S) URLs from Markdown,
-stores response records under `/tmp/solvenotes-web-cache` by default, and
+stores response records under `$SOLVENOTES_TMP_ROOT/solvenotes-web-cache` by default, and
 distinguishes redirects, authentication/paywalls, robots or rate limits,
 temporary failures, and confirmed missing resources. Use
 `--offline-cache-only` for a repeatable cache-only report. Unit tests use

@@ -1304,7 +1304,22 @@ def resolve_wikilink(target: str, source: Path, index: dict[str, list[Path]]) ->
 def split_table_row(line: str) -> list[str]:
     if not line.startswith("|") or not line.endswith("|"):
         return []
-    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+    cells: list[str] = []
+    current: list[str] = []
+    backslash_run = 0
+    for char in line[1:-1]:
+        if char == "|" and backslash_run % 2 == 0:
+            cells.append("".join(current).strip())
+            current = []
+            backslash_run = 0
+            continue
+        current.append(char)
+        if char == "\\":
+            backslash_run += 1
+        else:
+            backslash_run = 0
+    cells.append("".join(current).strip())
+    return cells
 
 
 def is_table_separator(line: str) -> bool:

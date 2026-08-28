@@ -16,8 +16,10 @@ fi
 ALGORITHM_SCRIPTS="$ALGORITHM_SKILL_ROOT/scripts"
 
 export PYTHONUNBUFFERED=1
-export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-/tmp/solvenotes-pycache}"
-export RUFF_CACHE_DIR="${RUFF_CACHE_DIR:-/tmp/solvenotes-ruff-cache}"
+SOLVENOTES_TMP_ROOT="${SOLVENOTES_TMP_ROOT:-${TMPDIR:-/tmp}}"
+export SOLVENOTES_TMP_ROOT
+export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-$SOLVENOTES_TMP_ROOT/solvenotes-pycache}"
+export RUFF_CACHE_DIR="${RUFF_CACHE_DIR:-$SOLVENOTES_TMP_ROOT/solvenotes-ruff-cache}"
 export PYTHONPATH="$ALGORITHM_SCRIPTS:$SKILL_ROOT/scripts${PYTHONPATH:+:$PYTHONPATH}"
 STEP_TIMEOUT="${SOLVENOTES_STEP_TIMEOUT:-180}"
 
@@ -319,7 +321,7 @@ online() {
     check_script check_external_sources.py --root "$VAULT_ROOT" "${extra_args[@]}"
   else
     check_script check_external_sources.py --root "$VAULT_ROOT" \
-      --json-out "${SOLVENOTES_ONLINE_JSON_OUT:-/tmp/solvenotes-external-sources.json}" \
+      --json-out "${SOLVENOTES_ONLINE_JSON_OUT:-$SOLVENOTES_TMP_ROOT/solvenotes-external-sources.json}" \
       "${extra_args[@]}"
   fi
 }

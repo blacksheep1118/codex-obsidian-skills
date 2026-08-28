@@ -867,10 +867,17 @@ def main() -> int:
     configure_output_encoding()
     parser = argparse.ArgumentParser(description="Create an Obsidian note folder from web learning resource URLs.")
     parser.add_argument("sources", nargs="+", help="URL or local HTML file")
-    parser.add_argument("--notes-dir", type=Path, help="Obsidian notes directory; required only with --publish")
-    parser.add_argument("--publish", action="store_true", help="Publish finished output into --notes-dir; default writes scaffolds to external staging")
-    parser.add_argument("--staging-dir", type=Path, help="External staging directory; defaults to /tmp/solvenotes-web-staging-*")
-    parser.add_argument("--category", help="Existing or new top-level category folder under --notes-dir")
+    parser.add_argument("--notes-dir", type=Path, help="Obsidian notes directory; used only with --publish")
+    parser.add_argument("--publish", action="store_true", help="Write newly generated scaffolds into --notes-dir; default writes them to external staging")
+    parser.add_argument(
+        "--staging-dir",
+        type=Path,
+        help=(
+            "External staging directory; defaults to a solvenotes-web-staging-* "
+            "directory under the platform temporary directory"
+        ),
+    )
+    parser.add_argument("--category", help="Existing or new top-level category folder under the selected output root")
     parser.add_argument("--folder", help="Collection folder name under the selected category")
     parser.add_argument("--title", help="Collection title used for the entry map note")
     parser.add_argument("--timeout", type=float, default=15.0, help="HTTP timeout in seconds")
@@ -892,7 +899,7 @@ def main() -> int:
         default="auto",
         help="Scaffold language. Defaults to auto: Chinese for Chinese inputs or collected metadata, English otherwise.",
     )
-    parser.add_argument("--root-folder-name", help="Fallback root folder under --notes-dir when no existing category matches")
+    parser.add_argument("--root-folder-name", help="Fallback root folder under the selected output root when no existing category matches")
     parser.add_argument("--map-note-name", help="Entry map note filename. Defaults by language: 00_学习地图.md or 00_Learning_Map.md")
     parser.add_argument("--dry-run", action="store_true", help="Print target paths without writing files")
     args = parser.parse_args()
@@ -919,9 +926,9 @@ def main() -> int:
         return 1
 
     if args.dry_run:
-        action = "would_publish" if args.publish else "would_stage"
+        action = "would_write_vault_scaffolds" if args.publish else "would_stage"
     else:
-        action = "published" if args.publish else "staged"
+        action = "wrote_vault_scaffolds" if args.publish else "staged"
     print(f"{action}_web_notes {created.collection_dir}")
     for path in created.files:
         print(path)

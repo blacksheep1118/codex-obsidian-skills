@@ -118,3 +118,12 @@ def test_tool_and_vault_gates_are_separate_with_compatibility_aliases() -> None:
     assert "validate_runtime_timeouts" in script
     assert "must be greater than or equal to" in script
     assert "--reviewed-local-code" in runtime_section
+
+
+def test_task_temp_root_controls_caches_and_online_report() -> None:
+    script = DEV_CHECK.read_text(encoding="utf-8")
+
+    assert 'SOLVENOTES_TMP_ROOT="${SOLVENOTES_TMP_ROOT:-${TMPDIR:-/tmp}}"' in script
+    assert "$SOLVENOTES_TMP_ROOT/solvenotes-pycache" in script
+    assert "$SOLVENOTES_TMP_ROOT/solvenotes-ruff-cache" in script
+    assert "$SOLVENOTES_TMP_ROOT/solvenotes-external-sources.json" in script

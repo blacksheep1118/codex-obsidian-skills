@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
 
 import check_external_sources as audit
+
+
+def test_default_cache_uses_the_configured_or_system_temp_root() -> None:
+    assert audit.DEFAULT_CACHE_DIR.parent == Path(
+        os.environ.get("SOLVENOTES_TMP_ROOT", tempfile.gettempdir())
+    )
 
 
 class FakeResponse:

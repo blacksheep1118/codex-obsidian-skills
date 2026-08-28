@@ -58,6 +58,26 @@ def test_package_cli_help_does_not_require_environment() -> None:
     assert "--root" in result.stdout
 
 
+def test_package_cli_default_output_follows_task_temp_root(tmp_path) -> None:
+    env = os.environ.copy()
+    env.pop("SOLVENOTES_VAULT_ROOT", None)
+    env["SOLVENOTES_TMP_ROOT"] = str(tmp_path)
+
+    result = subprocess.run(
+        [sys.executable, str(Path(pv.__file__)), "--help"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=20,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert str(tmp_path / "solvenotes-notes-clean.zip") in "".join(
+        result.stdout.split()
+    )
+
+
 def test_package_does_not_follow_external_symlink_file(tmp_path, monkeypatch) -> None:
     root = tmp_path / "vault"
     root.mkdir()

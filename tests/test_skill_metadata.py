@@ -60,6 +60,15 @@ def test_structured_skill_metadata_accepts_current_schema(tmp_path: Path):
     assert install_skill.self_check_skill(skill) == []
 
 
+def test_every_installable_skill_carries_its_license():
+    skill_directories = sorted(
+        path for path in (ROOT / "skill").iterdir() if (path / "SKILL.md").is_file()
+    )
+
+    assert skill_directories
+    assert [path.name for path in skill_directories if not (path / "LICENSE").is_file()] == []
+
+
 @pytest.mark.parametrize(
     ("frontmatter", "message"),
     [

@@ -4,7 +4,7 @@
 
 Codex skills for turning courseware and Markdown note collections into organized Obsidian vaults and research presentations. The repository focuses on practical study-note workflows: extracting slide content, rewriting it into readable Markdown, maintaining navigation pages, repairing links, turning notes into rigorous PPTX decks, and keeping existing vaults coherent.
 
-This is a skill collection, not a single monolithic skill. Each installable skill lives under [`skill/`](skill/) and keeps its own `SKILL.md`, agents metadata, scripts, references, examples, and LICENSE so it can be copied directly into `CODEX_HOME/skills` or the default Codex skills directory. Repository-facing command documentation stays under root-level [`docs/`](docs/) rather than inside installable skill packages.
+This is a skill collection, not a single monolithic skill. Each installable skill lives under [`skill/`](skill/) and keeps its own `SKILL.md`, agents metadata, required scripts and references, and `LICENSE` so it can be copied directly into `CODEX_HOME/skills` or the default Codex skills directory. Examples and other supporting assets are included when that skill needs them. Repository-facing command documentation stays under root-level [`docs/`](docs/) rather than inside installable skill packages.
 
 The project is distributed through GitHub commits, branches, tags, and CI. Do not hand-compress the repository or commit generated archives; keep the Git tree clean and let CI block caches, macOS resource files, and generated outputs.
 
@@ -228,6 +228,7 @@ When a task crosses sources, notes, cleanup, and deck creation, follow the hando
     │   └── tests/
     └── solvenotes-vault-maintainer/
         ├── SKILL.md
+        ├── LICENSE
         ├── agents/
         ├── assets/
         ├── fixtures/
@@ -241,7 +242,7 @@ When a task crosses sources, notes, cleanup, and deck creation, follow the hando
 The web course notes skill includes:
 
 - `collect_web_sources.py`: collect titles, descriptions, and learning-resource links from course video, slide, book, and mixed learning URLs.
-- `create_web_notes.py`: classify URL collections into existing note folders, write `source_manifest.md`, and create detailed note scaffolds that must be expanded from source content before delivery.
+- `create_web_notes.py`: classify URL collections in a temporary staging tree, write `source_manifest.md`, and create detailed note scaffolds for source-backed expansion; add `--publish` only when the destination is ready to receive the generated files.
 - `check_web_notes.py`: validate source coverage, scaffold residue, entry/detail notes, and per-link note coverage.
 - `validate_skill.py`: validate skill metadata and bundled-resource references.
 

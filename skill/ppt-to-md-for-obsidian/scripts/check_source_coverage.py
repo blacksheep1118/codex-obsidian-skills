@@ -23,7 +23,37 @@ except ImportError:
 
 SOURCE_EXTENSIONS = {".pdf", ".ppt", ".pptx"}
 SOURCE_EXAMPLE_LABELS = ("源资料例题", "源课件例题")
-GENERATED_MARKER = "生成：PPT/PDF 未提供独立可抽取例题"
+GENERATED_MARKER = "自拟教学例：源课件未提供可独立还原的对应例题"
+GENERATED_MARKERS = (
+    GENERATED_MARKER,
+    "生成：PPT/PDF 未提供独立可抽取例题",
+)
+NATURAL_GENERATED_SOURCE_PATTERNS = (
+    re.compile(
+        r"(?:自拟|自编|原创).{0,120}(?:源课件|课件|源资料|论文|讲义).{0,120}"
+        r"(?:未提供|没有提供|未给出|没有给出|未包含|没有包含).{0,80}"
+        r"(?:例题|练习|题目|案例|示例|数值|数据|条件|答案|解法|对应)",
+        re.S,
+    ),
+    re.compile(
+        r"(?:源课件|课件|源资料|论文|讲义).{0,120}"
+        r"(?:未提供|没有提供|未给出|没有给出|未包含|没有包含).{0,80}"
+        r"(?:例题|练习|题目|案例|示例|数值|数据|条件|答案|解法|对应).{0,120}"
+        r"(?:自拟|自编|原创)",
+        re.S,
+    ),
+    re.compile(
+        r"(?:自拟|自编|原创).{0,80}(?:并非|不是|不属于|非)\s*"
+        r"(?:源课件|课件|源资料|论文|讲义).{0,40}(?:原题|例题|练习|题目|案例|示例)",
+        re.S,
+    ),
+)
+NEGATED_SELF_WRITTEN_RE = re.compile(
+    r"(?:不是|并非|不属于|不算|不能算|称不上|谈不上|非)\s*"
+    r"(?:(?:真正(?:意义上)?|所谓|严格意义上|课件中|课程中|源课件中|源资料中|论文中)的?\s*)?"
+    r"(?:一(?:个|道|项|份))?\s*"
+    r"(?:自拟|自编|原创)(?:教学)?(?:题|例|例题|练习|案例|示例)?"
+)
 EXAMPLE_CONTENT_MARKERS = ("例题", "例子", "练习", "worked example", "worked examples")
 NO_EXAMPLE_DECLARATIONS = (
     "未提供独立",
@@ -33,7 +63,12 @@ NO_EXAMPLE_DECLARATIONS = (
     "无可独立",
 )
 SUPPLEMENT_HEADING = "## PPT/PDF 页级补充索引"
+EXAMPLE_HEADING = "## PPT/PDF 例题辅助理解"
 SOURCE_REF_RE = re.compile(r"`([^`]+\.(?:pdf|pptx?|PDF|PPTX?))`")
+SOURCE_FILE_MARKER_RE = re.compile(
+    r"\.(?:pdf|pptx?)(?:\b|(?=[`#?]))",
+    re.I,
+)
 WIKI_LINK_RE = re.compile(r"\[\[([^]|#]+)(?:#[^]|]+)?(?:\|[^\]]+)?\]\]")
 CHAPTER_RE = re.compile(r"第\s*([零〇一二三四五六七八九十百\d]+)\s*[章节章]")
 LECTURE_RE = re.compile(r"第\s*([零〇一二三四五六七八九十百\d]+)\s*[讲講]|lecture\s*0*(\d+[a-z]?)", re.I)
@@ -1091,6 +1126,13 @@ def is_external_source_ref(value: str) -> bool:
     return normalize_path_text(value).startswith(("http://", "https://", "mailto:"))
 
 
+def has_generated_source_marker(text: str) -> bool:
+    candidate = NEGATED_SELF_WRITTEN_RE.sub("", text)
+    if any(marker in candidate for marker in GENERATED_MARKERS):
+        return True
+    return any(pattern.search(candidate) for pattern in NATURAL_GENERATED_SOURCE_PATTERNS)
+
+
 def has_source_or_generated_example(line: str) -> bool:
     has_source_label = any(label in line for label in SOURCE_EXAMPLE_LABELS)
     has_source_example = has_source_label and (
@@ -1099,7 +1141,7 @@ def has_source_or_generated_example(line: str) -> bool:
         or "源资料：`" in line
         or line.lstrip().startswith("#")
     )
-    has_generated_example = GENERATED_MARKER in line and (
+    has_generated_example = has_generated_source_marker(line) and (
         "补充题（/" in line or "来源说明" in line or line.lstrip().startswith("#")
     )
     return has_source_example or has_generated_example
@@ -1117,7 +1159,6 @@ def check_example_evidence(
     for notes_dir in sorted({path.resolve() for path in notes_dirs}):
         local_source_examples = 0
         local_generated_lines = 0
-        local_has_example_content = False
         files = [
             path
             for path in markdown_files(notes_dir, include_ignored=include_ignored)
@@ -1130,14 +1171,25 @@ def check_example_evidence(
         for path in files:
             text = path.read_text(encoding="utf-8", errors="replace")
             in_supplement = False
+            in_example_table = False
             if SUPPLEMENT_HEADING in text:
                 supplement_notes += 1
             for line_number, line in enumerate(text.splitlines(), start=1):
                 if line.startswith("## "):
                     in_supplement = line.strip() == SUPPLEMENT_HEADING
+                    in_example_table = line.strip() == EXAMPLE_HEADING
                     continue
-                if any(marker in line.lower() for marker in EXAMPLE_CONTENT_MARKERS):
-                    local_has_example_content = True
+                generated_line = has_generated_source_marker(line)
+                table_source_cell = (
+                    line.rsplit("|", 2)[-2] if line.count("|") >= 2 else ""
+                )
+                table_source_line = (
+                    not generated_line
+                    and in_example_table
+                    and line.startswith("|")
+                    and not line.startswith("|---")
+                    and SOURCE_FILE_MARKER_RE.search(table_source_cell) is not None
+                )
                 if in_supplement and line.startswith("- "):
                     supplement_bullets += 1
                     if "来源：`" not in line or "页/slide：" not in line or "主题：" not in line:
@@ -1145,7 +1197,10 @@ def check_example_evidence(
                     if not has_source_or_generated_example(line):
                         issues.append(CoverageIssue("bad_supplement_example", path, f"line {line_number} lacks source example or generated-question evidence"))
 
-                if any(label in line for label in SOURCE_EXAMPLE_LABELS):
+                if not generated_line and (
+                    table_source_line
+                    or any(label in line for label in SOURCE_EXAMPLE_LABELS)
+                ):
                     source_example_lines += 1
                     local_source_examples += 1
                     if (
@@ -1161,10 +1216,10 @@ def check_example_evidence(
                                 status="MANUAL_REVIEW_REQUIRED",
                             )
                         )
-                if GENERATED_MARKER in line or "生成辅助题" in line or "补充题（/" in line:
+                if generated_line or "生成辅助题" in line or "补充题（/" in line:
                     generated_lines += 1
                     local_generated_lines += 1
-                    if GENERATED_MARKER not in line and not any(label in line for label in SOURCE_EXAMPLE_LABELS):
+                    if not has_generated_source_marker(line) and not any(label in line for label in SOURCE_EXAMPLE_LABELS):
                         issues.append(
                             CoverageIssue(
                                 "bad_generated_example",
@@ -1185,7 +1240,6 @@ def check_example_evidence(
         if (
             files
             and local_source_examples + local_generated_lines == 0
-            and not local_has_example_content
             and not explicit_no_example_boundary
         ):
             issues.append(

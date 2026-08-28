@@ -12,7 +12,7 @@
 
 ## Vault Placement
 
-When a notes directory is provided, put each imported collection in one deterministic folder. Reuse an existing top-level category when the source clearly matches it, such as `计算机视觉` for CVPR/image papers. If no category fits, use the resolved scaffold language: Chinese creates `网络资源/<collection-title>/`, and English creates `Web Resources/<collection-title>/`.
+Mirror the final vault layout while working in external staging. Reuse an existing top-level category when the source clearly matches it, such as `计算机视觉` for CVPR/image papers. If no category fits, use the resolved scaffold language: Chinese creates `网络资源/<collection-title>/`, and English creates `Web Resources/<collection-title>/`. Move or copy the collection into the vault only after the completion checks pass, unless the user explicitly requested an in-vault draft.
 
 Each collection folder should contain:
 
@@ -24,12 +24,13 @@ Each collection folder should contain:
 
 ## Scaffold Lifecycle
 
-Treat script-created notes as work in progress until all four steps are complete:
+Treat script-created notes as work in progress until all five steps are complete:
 
 1. Read or extract the accessible source content.
 2. Replace placeholders with source-linked explanations that match nearby notes.
 3. Run `scripts/check_web_notes.py` with every required `--source` and, when applicable, `--per-link-notes` argument.
 4. Resolve scaffold residue and validation errors before reporting the collection as complete.
+5. Move or copy the validated collection from staging into the chosen vault category, then run the vault link checker on its final path.
 
 ## Detailed Note Standard
 

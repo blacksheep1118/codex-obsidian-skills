@@ -15,6 +15,7 @@ sys.path.insert(0, str(SKILL_ROOT))
 from scripts.check_source_coverage import (  # noqa: E402
     SourceEntry,
     exact_regular_source_target,
+    has_source_or_generated_example,
     page_source_evidence,
     resolve_beneath,
     resolve_note_target,
@@ -22,6 +23,36 @@ from scripts.check_source_coverage import (  # noqa: E402
     source_files,
     visible_source_references,
 )
+
+
+def test_generated_example_evidence_accepts_natural_and_legacy_wording() -> None:
+    assert has_source_or_generated_example(
+        "来源说明：自拟教学例：源课件未提供可独立还原的对应例题"
+    )
+    assert has_source_or_generated_example(
+        "来源说明：自拟教学例；课件只给出背景，没有给出这组数值。"
+    )
+    assert has_source_or_generated_example(
+        "来源说明：自拟教学例；课件只给出背景，没有给出重复 ID 案例。"
+    )
+    assert has_source_or_generated_example(
+        "来源说明：生成：PPT/PDF 未提供独立可抽取例题"
+    )
+    assert not has_source_or_generated_example(
+        "来源说明：这是自拟题，沿用课件背景，但答案不是唯一。"
+    )
+    assert not has_source_or_generated_example(
+        "来源说明：这是自拟题，没有采用课件中的第二种解法。"
+    )
+    assert not has_source_or_generated_example(
+        "来源说明：本题不是自拟题；课件没有给出答案。"
+    )
+    assert not has_source_or_generated_example(
+        "来源说明：本题不是真正的自拟题；课件没有给出答案。"
+    )
+    assert not has_source_or_generated_example(
+        "来源说明：本题不算自拟题；课件没有给出对应答案。"
+    )
 
 
 def run_checker(*args: str) -> subprocess.CompletedProcess[str]:
@@ -234,7 +265,7 @@ def test_check_source_coverage_passes_with_mapping_and_examples(tmp_path: Path) 
                 "",
                 "## PPT/PDF 页级补充索引",
                 "",
-                "- 来源：`课程A/ch1.pdf`，页/slide：1；主题：导论；生成：PPT/PDF 未提供独立可抽取例题；补充题（/课程A/ch1 p.1）：解释导论。",
+                "- 来源：`课程A/ch1.pdf`，页/slide：1；主题：导论；自拟教学例：源课件未提供可独立还原的对应例题；补充题（/课程A/ch1 p.1）：解释导论。",
             ]
         ),
     )
@@ -255,6 +286,34 @@ def test_check_source_coverage_passes_with_mapping_and_examples(tmp_path: Path) 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "course_source_files 1" in result.stdout
     assert "coverage_evidence_issues 0" in result.stdout
+
+
+def test_unmarked_example_content_does_not_replace_provenance(tmp_path: Path) -> None:
+    source_root = tmp_path / "sources"
+    notes_root = tmp_path / "notes"
+    write(source_root / "course" / "lecture.pdf", "fake pdf")
+    write(
+        notes_root / "course" / "source_manifest.md",
+        "| source | note |\n|---|---|\n| `course/lecture.pdf` | [[course/01_intro]] |\n",
+    )
+    write(
+        notes_root / "course" / "01_intro.md",
+        "---\nsource_files:\n  - course/lecture.pdf\n---\n\n"
+        "# Intro\n\n对应源资料：`course/lecture.pdf`，page 1。\n\n"
+        "例题：给定一个图，判断它是否连通。\n",
+    )
+
+    result = run_checker(
+        "--source-root",
+        str(source_root),
+        "--notes-root",
+        str(notes_root),
+        "--mapping",
+        "course=course",
+    )
+
+    assert result.returncode == 1
+    assert "NO_EXAMPLE_EVIDENCE" in result.stdout
 
 
 def test_check_source_coverage_reports_missing_mapping_and_bad_example(tmp_path: Path) -> None:
@@ -567,7 +626,7 @@ def test_strict_mode_excludes_standalone_note_systems_from_reconciliation(tmp_pa
     assert "source_dir_reconciliation_issues 0" in result.stdout
 
 
-def test_example_content_in_an_earlier_file_applies_to_the_whole_notes_directory(
+def test_unattributed_example_content_does_not_apply_to_the_whole_notes_directory(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "sources"
@@ -585,7 +644,7 @@ def test_example_content_in_an_earlier_file_applies_to_the_whole_notes_directory
         "course=course",
     )
 
-    assert "NO_EXAMPLE_EVIDENCE" not in result.stdout
+    assert "NO_EXAMPLE_EVIDENCE" in result.stdout
 
 
 def test_default_scan_ignores_scripts_and_caches_but_can_include_them(tmp_path: Path) -> None:
