@@ -1207,6 +1207,7 @@ def check_example_evidence(
                         not line.lstrip().startswith("#")
                         and "（/" not in line
                         and "源资料：`" not in line
+                        and not table_source_line
                     ):
                         issues.append(
                             CoverageIssue(

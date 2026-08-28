@@ -14,6 +14,7 @@ sys.path.insert(0, str(SKILL_ROOT))
 
 from scripts.check_source_coverage import (  # noqa: E402
     SourceEntry,
+    check_example_evidence,
     exact_regular_source_target,
     has_source_or_generated_example,
     page_source_evidence,
@@ -70,6 +71,29 @@ def run_checker(*args: str) -> subprocess.CompletedProcess[str]:
 def write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def test_example_table_source_file_is_a_complete_traceable_marker(
+    tmp_path: Path,
+) -> None:
+    notes_dir = tmp_path / "notes" / "course"
+    write(
+        notes_dir / "01_intro.md",
+        "# Intro\n\n"
+        "## PPT/PDF 例题辅助理解\n\n"
+        "| 知识点 | 例题与解析 | 来源 |\n"
+        "|---|---|---|\n"
+        "| 图连通性 | 从首个顶点开始扫描边并标记相邻顶点；一轮无新增时停止。"
+        "全部顶点均被标记，当且仅当图连通。 | `course/lecture.ppt` |\n",
+    )
+
+    _, _, source_examples, generated_examples, issues = check_example_evidence(
+        [notes_dir]
+    )
+
+    assert source_examples == 1
+    assert generated_examples == 0
+    assert not issues
 
 
 def make_root_shape(tmp_path: Path, label: str, kind: str) -> Path:
