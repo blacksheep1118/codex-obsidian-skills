@@ -6,6 +6,7 @@ All notable changes to this repository are documented here.
 
 - Corrected the algorithm-job routing condition, documented every PDF extraction fallback, and aligned the web-note staging and direct-to-vault scaffold lifecycle with the command's actual behavior.
 - Treated a PDF/PPT path in an example table's source column as complete traceable provenance, instead of requiring an additional legacy prefix for the same row.
+- Accepted Markdown example tables with optional outer pipes and resolved topic, explanation, and provenance cells from the header instead of fixed column positions.
 - Replaced an internal generated-example label with reader-facing provenance wording, taught the example gates to accept substantive natural table explanations without a fixed `解析` label, and stopped the default-staging test from leaving temporary collections behind.
 - Added the missing standalone license to `solvenotes-vault-maintainer`, enforced a license in every installable package, and documented examples as optional supporting resources.
 - Made example provenance fail closed, removed table/narrative double counting, and added negative tests for unlabeled or ambiguously labeled examples.

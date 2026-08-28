@@ -15,6 +15,7 @@ from analyze_example_quality import (
 )
 from check_examples import (
     example_source_kind,
+    example_table_columns,
     explanation_is_detailed,
     explanation_text,
     generic_prompt,
@@ -84,6 +85,60 @@ def test_table_parser_keeps_escaped_pipe_inside_explanation() -> None:
         "`课程/逻辑.pptx`",
     ]
     assert explanation_text(line).startswith(r"判断 $p\|q$")
+
+
+def test_table_parser_accepts_optional_outer_pipes() -> None:
+    expected = ["知识点", "例题与解析", "来源"]
+
+    assert split_table_row("| 知识点 | 例题与解析 | 来源") == expected
+    assert split_table_row("知识点 | 例题与解析 | 来源 |") == expected
+    assert split_table_row("知识点 | 例题与解析 | 来源") == expected
+    assert split_table_row(r"知识点 | 判断 $p\|q$ | 来源") == [
+        "知识点",
+        r"判断 $p\|q$",
+        "来源",
+    ]
+
+
+def test_reordered_example_columns_are_resolved_from_header() -> None:
+    header = "来源 | 知识点 | 例题与解析"
+    row = (
+        "`课程/第七讲.ppt` | 图连通性 | 已知有限无向图，从首个顶点开始扫描边并标记相邻顶点；"
+        "一轮无新增时停止。因此全部顶点均被标记，当且仅当图连通；易错点是遗漏孤立顶点。"
+    )
+    columns = example_table_columns(split_table_row(header))
+
+    assert columns is not None
+    assert explanation_text(row, columns).startswith("已知有限无向图")
+    assert example_source_kind(row, columns) == "source"
+
+    examples = list(
+        _iter_table_examples(
+            Path("course.md"),
+            [TABLE_HEADING, "", header, "---|---|---", row],
+        )
+    )
+    assert len(examples) == 1
+    assert examples[0].title == "图连通性"
+    assert example_source_kind(examples[0].text) == "source"
+    assert grade(examples[0].text) in {"A", "B"}
+
+
+def test_header_like_data_row_does_not_replace_resolved_columns() -> None:
+    lines = [
+        TABLE_HEADING,
+        "",
+        "来源 | 知识点 | 例题与解析 | 备注",
+        "---|---|---|---",
+        "`课程/第七讲.ppt` | 知识点 | 例题与解析 | 来源",
+    ]
+
+    examples = list(_iter_table_examples(Path("course.md"), lines))
+
+    assert len(examples) == 1
+    assert examples[0].title == "知识点"
+    assert explanation_text(examples[0].text) == "例题与解析"
+    assert example_source_kind(examples[0].text) == "source"
 
 
 def test_example_source_identity_fails_closed() -> None:

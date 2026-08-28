@@ -8,8 +8,17 @@ import json
 import re
 import sys
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Iterable
 
-from notes_utils import infer_note_type, markdown_files, read_text, rel, split_table_row
+from notes_utils import (
+    infer_note_type,
+    is_table_separator,
+    markdown_files,
+    read_text,
+    rel,
+    split_table_row,
+)
 
 EXAMPLE_HEADING = "## PPT/PDF 例题辅助理解"
 SUPPLEMENT_HEADING = "## PPT/PDF 页级补充索引"
@@ -78,6 +87,78 @@ DETAIL_SIGNAL_RE = re.compile(
     r"\\begin|\\to|\$|ε|→|\d)",
     re.S,
 )
+EXAMPLE_COLUMN_HEADER_RE = re.compile(
+    r"(?:例题(?:[/／]辅助题)?|辅助题)(?:[与及](?:详细)?(?:解析|解答))?"
+)
+SOURCE_COLUMN_HEADER_RE = re.compile(r"(?:资料)?来源(?:说明|文件)?|源(?:资料|文件)")
+
+
+@dataclass(frozen=True)
+class ExampleTableColumns:
+    topic: int
+    explanation: int
+    source: int
+
+
+def example_table_columns(cells: list[str]) -> ExampleTableColumns | None:
+    """Resolve the example-table contract from its header, independent of order."""
+
+    headers = [re.sub(r"\s+", "", cell).strip("`*_ ") for cell in cells]
+    topic = [index for index, header in enumerate(headers) if header in {"知识点", "主题", "考点"}]
+    explanation = [
+        index
+        for index, header in enumerate(headers)
+        if EXAMPLE_COLUMN_HEADER_RE.fullmatch(header)
+    ]
+    source = [
+        index
+        for index, header in enumerate(headers)
+        if SOURCE_COLUMN_HEADER_RE.fullmatch(header)
+    ]
+    if len(topic) != 1 or len(explanation) != 1 or len(source) != 1:
+        return None
+    resolved = ExampleTableColumns(topic[0], explanation[0], source[0])
+    if len({resolved.topic, resolved.explanation, resolved.source}) != 3:
+        return None
+    return resolved
+
+
+def default_example_table_columns(cells: list[str]) -> ExampleTableColumns | None:
+    if len(cells) < 3:
+        return None
+    return ExampleTableColumns(0, len(cells) - 2, len(cells) - 1)
+
+
+def canonical_example_row(cells: list[str], columns: ExampleTableColumns) -> str:
+    return "| " + " | ".join(
+        (cells[columns.topic], cells[columns.explanation], cells[columns.source])
+    ) + " |"
+
+
+def resolved_example_table_rows(
+    indexed_lines: Iterable[tuple[int, str]],
+) -> Iterable[tuple[int, str, list[str], ExampleTableColumns]]:
+    """Yield data rows after resolving the first table row as the header once."""
+
+    table_columns: ExampleTableColumns | None = None
+    header_checked = False
+    for line_number, line in indexed_lines:
+        cells = split_table_row(line)
+        if not cells or is_table_separator(line):
+            continue
+        if not header_checked:
+            header_checked = True
+            table_columns = example_table_columns(cells)
+            if table_columns is not None:
+                continue
+        active_columns = table_columns or default_example_table_columns(cells)
+        if active_columns is None or max(
+            active_columns.topic,
+            active_columns.explanation,
+            active_columns.source,
+        ) >= len(cells):
+            continue
+        yield line_number, line, cells, active_columns
 
 
 def section_lines(lines: list[str], heading: str) -> list[str]:
@@ -93,26 +174,27 @@ def section_lines(lines: list[str], heading: str) -> list[str]:
     return lines[start + 1 : end]
 
 
-def explanation_text(line: str) -> str:
+def explanation_text(line: str, columns: ExampleTableColumns | None = None) -> str:
     cells = split_table_row(line)
-    if len(cells) >= 3:
-        explanation = cells[-2]
+    active_columns = columns or default_example_table_columns(cells)
+    if active_columns is not None and active_columns.explanation < len(cells):
+        explanation = cells[active_columns.explanation]
         return explanation.split("解析：", 1)[1] if "解析：" in explanation else explanation
     if "解析：" in line:
         return line.split("解析：", 1)[1]
     return ""
 
 
-def compact_explanation(line: str) -> str:
-    explanation = explanation_text(line)
+def compact_explanation(line: str, columns: ExampleTableColumns | None = None) -> str:
+    explanation = explanation_text(line, columns)
     explanation = re.sub(r"`[^`]*`", "", explanation)
     explanation = re.sub(r"<br\s*/?>", " ", explanation)
     return re.sub(r"\s+", "", explanation)
 
 
-def explanation_is_detailed(line: str) -> bool:
-    explanation = explanation_text(line)
-    if len(compact_explanation(line)) < 30 or NEGATED_SUBSTANCE_RE.search(explanation):
+def explanation_is_detailed(line: str, columns: ExampleTableColumns | None = None) -> bool:
+    explanation = explanation_text(line, columns)
+    if len(compact_explanation(line, columns)) < 30 or NEGATED_SUBSTANCE_RE.search(explanation):
         return False
     return bool(DETAIL_SIGNAL_RE.search(explanation))
 
@@ -125,10 +207,10 @@ def generic_prompt(line: str) -> str | None:
     return None
 
 
-def normalized_explanation(line: str) -> str:
+def normalized_explanation(line: str, columns: ExampleTableColumns | None = None) -> str:
     """Normalize a solution so copied domain templates group together."""
 
-    explanation = explanation_text(line)
+    explanation = explanation_text(line, columns)
     explanation = QUOTED_TOPIC_RE.sub("“{主题}”", explanation)
     explanation = re.sub(r"`[^`]*`", "", explanation)
     explanation = re.sub(r"<br\s*/?>", " ", explanation)
@@ -146,11 +228,16 @@ def has_generated_source_marker(text: str) -> bool:
     return any(pattern.search(candidate) for pattern in NATURAL_GENERATED_SOURCE_PATTERNS)
 
 
-def example_source_kind(line: str) -> str:
+def example_source_kind(line: str, columns: ExampleTableColumns | None = None) -> str:
     """Classify one example row without guessing that an unlabeled row is sourced."""
 
     cells = split_table_row(line)
-    source_cell = cells[-1] if len(cells) >= 3 else ""
+    active_columns = columns or default_example_table_columns(cells)
+    source_cell = (
+        cells[active_columns.source]
+        if active_columns is not None and active_columns.source < len(cells)
+        else ""
+    )
     if has_generated_source_marker(source_cell):
         return "generated"
     if "生成辅助题" in line:
@@ -182,22 +269,22 @@ def main() -> int:
                 "retain necessary extraction limits in source_manifest.md"
             )
 
-        for line in section_lines(lines, EXAMPLE_HEADING):
-            if not line.startswith("|") or line.startswith("|---"):
-                continue
-            cells = split_table_row(line)
-            if len(cells) < 3 or cells[0] == "知识点":
-                continue
+        indexed_lines = enumerate(section_lines(lines, EXAMPLE_HEADING), start=1)
+        for _line_number, line, cells, active_columns in resolved_example_table_rows(
+            indexed_lines
+        ):
             example_rows += 1
-            if not explanation_is_detailed(line):
+            if not explanation_is_detailed(line, active_columns):
                 issues.append(f"{rel(path)}: example row lacks a detailed teaching explanation")
             prompt = generic_prompt(line)
             if prompt:
                 issues.append(f"{rel(path)}: example row contains generic prompt: {prompt}")
-            normalized = normalized_explanation(line)
+            normalized = normalized_explanation(line, active_columns)
             if len(normalized) >= 80:
-                explanation_locations[normalized].append(f"{rel(path)} | {cells[0]}")
-            source_kind = example_source_kind(line)
+                explanation_locations[normalized].append(
+                    f"{rel(path)} | {cells[active_columns.topic]}"
+                )
+            source_kind = example_source_kind(line, active_columns)
             if source_kind in {"generated", "generated_unmarked"}:
                 generated_examples += 1
             elif source_kind == "source":

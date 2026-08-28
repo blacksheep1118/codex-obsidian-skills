@@ -73,18 +73,54 @@ def write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+@pytest.mark.parametrize(
+    ("header", "separator", "row"),
+    (
+        (
+            "| 知识点 | 例题与解析 | 来源 |",
+            "|---|---|---|",
+            "| 图连通性 | 从首个顶点开始扫描边并标记相邻顶点；一轮无新增时停止。"
+            "全部顶点均被标记，当且仅当图连通。 | `course/lecture.ppt` |",
+        ),
+        (
+            "| 知识点 | 例题与解析 | 来源",
+            "|---|---|---",
+            "| 图连通性 | 从首个顶点开始扫描边并标记相邻顶点；一轮无新增时停止。"
+            "全部顶点均被标记，当且仅当图连通。 | `course/lecture.ppt`",
+        ),
+        (
+            "来源 | 知识点 | 例题与解析",
+            "---|---|---",
+            "`course/lecture.ppt` | 图连通性 | 从首个顶点开始扫描边并标记相邻顶点；"
+            "一轮无新增时停止。全部顶点均被标记，当且仅当图连通。",
+        ),
+        (
+            "来源 | 知识点 | 例题与解析 | 备注",
+            "---|---|---|---",
+            "`course/lecture.ppt` | 知识点 | 例题与解析 | 来源",
+        ),
+    ),
+    ids=(
+        "outer-pipes",
+        "no-trailing-pipe",
+        "reordered-no-outer-pipes",
+        "header-like-data-row",
+    ),
+)
 def test_example_table_source_file_is_a_complete_traceable_marker(
     tmp_path: Path,
+    header: str,
+    separator: str,
+    row: str,
 ) -> None:
     notes_dir = tmp_path / "notes" / "course"
     write(
         notes_dir / "01_intro.md",
         "# Intro\n\n"
         "## PPT/PDF 例题辅助理解\n\n"
-        "| 知识点 | 例题与解析 | 来源 |\n"
-        "|---|---|---|\n"
-        "| 图连通性 | 从首个顶点开始扫描边并标记相邻顶点；一轮无新增时停止。"
-        "全部顶点均被标记，当且仅当图连通。 | `course/lecture.ppt` |\n",
+        f"{header}\n"
+        f"{separator}\n"
+        f"{row}\n",
     )
 
     _, _, source_examples, generated_examples, issues = check_example_evidence(

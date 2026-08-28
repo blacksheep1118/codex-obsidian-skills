@@ -1302,16 +1302,19 @@ def resolve_wikilink(target: str, source: Path, index: dict[str, list[Path]]) ->
 
 
 def split_table_row(line: str) -> list[str]:
-    if not line.startswith("|") or not line.endswith("|"):
+    text = line.strip()
+    if "|" not in text:
         return []
     cells: list[str] = []
     current: list[str] = []
     backslash_run = 0
-    for char in line[1:-1]:
+    saw_separator = False
+    for char in text:
         if char == "|" and backslash_run % 2 == 0:
             cells.append("".join(current).strip())
             current = []
             backslash_run = 0
+            saw_separator = True
             continue
         current.append(char)
         if char == "\\":
@@ -1319,7 +1322,13 @@ def split_table_row(line: str) -> list[str]:
         else:
             backslash_run = 0
     cells.append("".join(current).strip())
-    return cells
+    if not saw_separator:
+        return []
+    if text.startswith("|") and cells and not cells[0]:
+        cells.pop(0)
+    if text.endswith("|") and cells and not cells[-1]:
+        cells.pop()
+    return cells if len(cells) >= 2 else []
 
 
 def is_table_separator(line: str) -> bool:

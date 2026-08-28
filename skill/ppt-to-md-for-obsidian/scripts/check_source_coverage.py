@@ -1133,6 +1133,59 @@ def has_generated_source_marker(text: str) -> bool:
     return any(pattern.search(candidate) for pattern in NATURAL_GENERATED_SOURCE_PATTERNS)
 
 
+def split_markdown_table_row(line: str) -> list[str]:
+    """Split a Markdown table row with optional outer pipes."""
+
+    text = line.strip()
+    if "|" not in text:
+        return []
+    cells: list[str] = []
+    current: list[str] = []
+    backslash_run = 0
+    saw_separator = False
+    for char in text:
+        if char == "|" and backslash_run % 2 == 0:
+            cells.append("".join(current).strip())
+            current = []
+            backslash_run = 0
+            saw_separator = True
+            continue
+        current.append(char)
+        backslash_run = backslash_run + 1 if char == "\\" else 0
+    cells.append("".join(current).strip())
+    if not saw_separator:
+        return []
+    if text.startswith("|") and cells and not cells[0]:
+        cells.pop(0)
+    if text.endswith("|") and cells and not cells[-1]:
+        cells.pop()
+    return cells if len(cells) >= 2 else []
+
+
+def example_source_column(cells: list[str]) -> int | None:
+    headers = [re.sub(r"\s+", "", cell).strip("`*_ ") for cell in cells]
+    matches = [
+        index
+        for index, header in enumerate(headers)
+        if re.fullmatch(r"(?:资料)?来源(?:说明|文件)?|源(?:资料|文件)", header)
+    ]
+    has_topic = any(header in {"知识点", "主题", "考点"} for header in headers)
+    has_explanation = any(
+        re.fullmatch(
+            r"(?:例题(?:[/／]辅助题)?|辅助题)(?:[与及](?:详细)?(?:解析|解答))?",
+            header,
+        )
+        for header in headers
+    )
+    return matches[0] if len(matches) == 1 and has_topic and has_explanation else None
+
+
+def table_separator(cells: list[str]) -> bool:
+    return bool(cells) and all(
+        re.fullmatch(r":?-{3,}:?", cell.strip()) for cell in cells
+    )
+
+
 def has_source_or_generated_example(line: str) -> bool:
     has_source_label = any(label in line for label in SOURCE_EXAMPLE_LABELS)
     has_source_example = has_source_label and (
@@ -1172,22 +1225,36 @@ def check_example_evidence(
             text = path.read_text(encoding="utf-8", errors="replace")
             in_supplement = False
             in_example_table = False
+            source_column: int | None = None
+            example_header_checked = False
             if SUPPLEMENT_HEADING in text:
                 supplement_notes += 1
             for line_number, line in enumerate(text.splitlines(), start=1):
                 if line.startswith("## "):
                     in_supplement = line.strip() == SUPPLEMENT_HEADING
                     in_example_table = line.strip() == EXAMPLE_HEADING
+                    source_column = None
+                    example_header_checked = False
                     continue
                 generated_line = has_generated_source_marker(line)
-                table_source_cell = (
-                    line.rsplit("|", 2)[-2] if line.count("|") >= 2 else ""
-                )
+                table_cells = split_markdown_table_row(line) if in_example_table else []
+                if (
+                    table_cells
+                    and not table_separator(table_cells)
+                    and not example_header_checked
+                ):
+                    example_header_checked = True
+                    source_column = example_source_column(table_cells)
+                table_source_cell = ""
+                if (
+                    source_column is not None
+                    and not table_separator(table_cells)
+                    and source_column < len(table_cells)
+                ):
+                    table_source_cell = table_cells[source_column]
                 table_source_line = (
                     not generated_line
                     and in_example_table
-                    and line.startswith("|")
-                    and not line.startswith("|---")
                     and SOURCE_FILE_MARKER_RE.search(table_source_cell) is not None
                 )
                 if in_supplement and line.startswith("- "):

@@ -20,13 +20,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from check_examples import explanation_text, generic_prompt
+from check_examples import (
+    canonical_example_row,
+    explanation_text,
+    generic_prompt,
+    resolved_example_table_rows,
+)
 from notes_utils import (
     infer_note_type,
     markdown_files,
     read_text,
     rel,
-    split_table_row,
 )
 
 TABLE_TITLE = "PPT/PDF 例题辅助理解"
@@ -175,19 +179,29 @@ def _heading_ranges(lines: list[str]) -> list[tuple[int, int, int, str]]:
 
 
 def _iter_table_examples(path: Path, lines: list[str]):
-    in_section = False
-    for index, line in enumerate(lines):
-        if line == TABLE_HEADING:
-            in_section = True
-            continue
-        if in_section and line.startswith("## "):
-            in_section = False
-        if not in_section or not line.startswith("|") or line.startswith("|---"):
-            continue
-        cells = split_table_row(line)
-        if len(cells) < 3 or cells[0] == "知识点":
-            continue
-        yield Example(path, index + 1, "table", cells[0], line)
+    try:
+        start = lines.index(TABLE_HEADING)
+    except ValueError:
+        return
+    end = next(
+        (
+            index
+            for index in range(start + 1, len(lines))
+            if lines[index].startswith("## ")
+        ),
+        len(lines),
+    )
+    indexed_lines = enumerate(lines[start + 1 : end], start=start + 1)
+    for index, _line, cells, active_columns in resolved_example_table_rows(
+        indexed_lines
+    ):
+        yield Example(
+            path,
+            index + 1,
+            "table",
+            cells[active_columns.topic],
+            canonical_example_row(cells, active_columns),
+        )
 
 
 def _iter_narrative_examples(path: Path, lines: list[str]):
