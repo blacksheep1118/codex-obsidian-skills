@@ -90,8 +90,24 @@ BOUNDARY_RE = re.compile(
 )
 FORMAL_ARGUMENT_RE = re.compile(
     r"(?:证明|推导|归纳|反设|构造|不变量|等价|(?:当|时)?且仅当|矛盾|"
-    r"充分|必要|保持.{0,20}不变)",
+    r"(?:充分|必要)(?:条件|性)|充要条件|保持.{0,20}不变)",
     re.S,
+)
+RESULT_RELATION_RE = re.compile(
+    r"\\(?:Rightarrow|implies|leq?|geq?)(?![A-Za-z])"
+    r"\s*(?:\$|`|\\|\d|\{|\(|[A-Za-z])"
+)
+RESULT_CONTEXT_RE = re.compile(
+    r"(?:答案|结论|因此|所以|得到|最终|说明|意味着|可知|推导|输出|结果|故|从而|可见|这给出)"
+    r"[^。！？\n]{0,40}$"
+)
+RESULT_PHRASE_RE = re.compile(
+    r"(?:这给出[^。！？\n]{0,20}(?:关系|结论|上界|结果|答案|证明)|"
+    r"足以证明[^。！？\n]{0,20}(?:歧义|等价|包含|成立|不成立)|"
+    r"才证明[^。！？\n]{0,20}(?:歧义|等价|包含|成立|不成立)|"
+    r"读取有限串[^。！？\n]{0,12}必然结束|"
+    r"故(?:(?:它|其|该)[^。！？\n]{0,24}|[，,：:\s][^。！？\n]{0,24})"
+    r"(?:属于|为|是|满足|可写|成立|包含|关系|上界))"
 )
 
 
@@ -418,8 +434,17 @@ def _has_result(text: str, kind: str) -> bool:
     ]
     if bool(re.search(r"\b(?:assert|print|return|expected|output|result)\b", text, re.I)):
         return True
+    if RESULT_PHRASE_RE.search(text):
+        return True
+    # Derivations and bounds can state a result without an equals sign.
     if bool(re.search(r"(?:=|≈)\s*(?:\$|`|\\|\d|\{|\(|[A-Za-z])", text)):
         return True
+    for match in RESULT_RELATION_RE.finditer(text):
+        prefix = text[max(0, match.start() - 40) : match.start()]
+        if RESULT_CONTEXT_RE.search(prefix):
+            if re.search(r"(?:要求|需要|请)[^。！？\n]{0,20}推导[^。！？\n]{0,8}$", prefix):
+                continue
+            return True
     return any(word in text for word in cues)
 
 
@@ -445,12 +470,29 @@ def grade(line: str, kind: str = "table") -> str:
     # not the topic/source columns.
     text = explanation_text(line) if kind == "table" else line
     compact = _compact(text, kind)
+    # An explicit missing solution is not repaired by a formula in the prompt.
+    if re.search(
+        r"(?:这里|本题|本段)(?:尚)?(?:未|没有|不)(?:提供|给出|写出)"
+        r"(?:具体的?)?(?:判定过程|解答|答案|计算过程|推导过程|结论|结果)",
+        text,
+    ):
+        return "C" if len(compact) >= 30 else "D"
     has_steps = _has_steps(text, kind)
     has_result = _has_result(text, kind)
     has_boundary = _has_boundary(text)
     has_concrete_task = _has_concrete_task(text)
     has_formal_argument = bool(FORMAL_ARGUMENT_RE.search(text))
     has_computation = bool(re.search(r"(?:\\begin|\\frac|=|\d)\s*", text))
+    # A symbolic operation count is quantitative even without numeric literals.
+    has_asymptotic_bound = bool(
+        re.search(r"(?:\\(?:Theta|Omega)|(?<![A-Za-z])[Oo])\s*\([^)]*\)", text)
+        and re.search(
+            r"每[^。！？\n]{0,20}(?:元素|字符|记录|节点|结点|边|顶点|条目|"
+            r"样本|对象|输入|位置|操作|请求|数据块|候选|进程|指令)"
+            r"[^。！？\n]{0,30}(?:至多|最多|只)[^。！？\n]{0,30}次",
+            text,
+        )
+    )
     has_structure = "```" in text or bool(re.search(r"(?:=>|->|\n\s*\|)", text))
     if len(compact) >= 70 and has_steps and has_result and has_boundary and has_concrete_task:
         return "A"
@@ -463,7 +505,9 @@ def grade(line: str, kind: str = "table") -> str:
         # example.  B requires either a concrete computation or an explicit
         # condition/boundary; generic step/result boilerplate stays reviewable
         # at C instead of passing the worked-example gate.
-        return "B" if has_boundary or has_computation or has_formal_argument else "C"
+        return "B" if (
+            has_boundary or has_computation or has_asymptotic_bound or has_formal_argument
+        ) else "C"
     if len(compact) >= 25 and has_structure and (kind != "table" or has_concrete_task):
         return "B"
     if kind == "code" and len(compact) >= 50 and (has_steps or has_result):
