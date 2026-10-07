@@ -22,9 +22,11 @@ from typing import Iterable
 
 from check_examples import (
     canonical_example_row,
+    explanation_is_detailed,
     explanation_text,
     generic_prompt,
     resolved_example_table_rows,
+    split_table_row,
 )
 from notes_utils import (
     infer_note_type,
@@ -58,11 +60,11 @@ CODE_MARKER_RE = re.compile(
     re.I,
 )
 STRONG_PROBLEM_RE = re.compile(
-    r"(?:题目|问题|Question|(?<![需要])求|计算(?!机)|证明|给定|已知|输入|输出|请(?:求|计算|证明|判断|说明)|\?)",
+    r"(?:题目|问题|Question|(?<![需要])求|计算(?!机|资源|环境|节点)|证明|给定|已知|输入|输出|请(?:求|计算|证明|判断|说明)|\?)",
     re.I,
 )
 EXPLICIT_EXERCISE_RE = re.compile(
-    r"(?:题目|问题|Question|(?<![需要])求|计算(?!机)|证明|给定|已知|"
+    r"(?:题目|问题|Question|(?<![需要])求|计算(?!机|资源|环境|节点)|证明|给定|已知|"
     r"请(?:求|计算|证明|判断|说明)|\?)",
     re.I,
 )
@@ -409,6 +411,9 @@ def _has_steps(text: str, kind: str) -> bool:
 
 
 def _has_result(text: str, kind: str) -> bool:
+    # A requested explanation/output is a prompt, not evidence of an answer.
+    # Keep following clauses so a solution on the same line is still visible.
+    text = re.sub(r"(?:请|要求)[^。；！？\n，,]*", "", text)
     cues = [
         "答案",
         "结论",
@@ -435,6 +440,10 @@ def _has_result(text: str, kind: str) -> bool:
     if bool(re.search(r"\b(?:assert|print|return|expected|output|result)\b", text, re.I)):
         return True
     if RESULT_PHRASE_RE.search(text):
+        return True
+    if re.search(r"正确选项\s*(?:为|是)\s*(?:\*\*)?[A-Z0-9](?:\*\*|[：:，,。\s]|$)", text):
+        return True
+    if re.search(r"可表示为\s*[:：]\s*```[^\n]*\n\s*\S", text):
         return True
     # Derivations and bounds can state a result without an equals sign.
     if bool(re.search(r"(?:=|≈)\s*(?:\$|`|\\|\d|\{|\(|[A-Za-z])", text)):
@@ -543,16 +552,75 @@ def _requires_solution(example: Example) -> bool:
     return bool(STRONG_PROBLEM_RE.search(example.text))
 
 
+def _explicit_task_request(text: str) -> bool:
+    """Keep actual task instructions out of case and inventory exemptions."""
+    actions = r"计算|求|证明|推导|判断|比较|构造|设计|选择|列举|列出|模拟|执行|分析|说明|解释"
+    return bool(
+        re.search(r"(?:请|要求)[^。；\n]{0,8}(?:" + actions + r")", text)
+        or re.search(
+            r"(?:^|[。；：?？\n])\s*(?:证明|推导|求|构造|"
+            r"比较(?:两|这|以下|上述)|设计(?:一个|一组)|选择(?:正确|合适)|"
+            r"列(?:举|出)|判断(?:以下|上述|关系|是否|该))", text
+        )
+        or re.search(r"(?:按|采用|使用|运行|执行)[^。；\n]{0,30}(?:算法|RR|银行家|归约)[^。；\n]{0,25}(?:执行|列出|模拟|逐步|求|计算)", text)
+        or re.search(r"求(?:解|出|每|各|这些|所有|和|平均|概率|期望)|计算(?:其|该|每|各|这些|所有|平均|总|概率|期望|结果|数值)", text)
+    )
+
+
+def _conceptual_table_case(example: Example) -> bool:
+    """Recognize qualitative case explanations without demanding a numeric answer.
+
+    Source labels identify the teaching role, not factual correctness. Detailed
+    explanation and an explicit condition are still required; actual calculation,
+    proof and symbolic exercises continue through the worked-solution gate.
+    """
+    if example.kind != "table":
+        return False
+    cells = split_table_row(example.text)
+    if len(cells) != 3:
+        return False
+    text = explanation_text(example.text)
+    role = cells[2]
+    if not re.search(r"案例|思考|讨论|定义|辨析|机制|阶段|主题|制度设计|问题|例子|课堂练习|数据点|数据例|自拟教学例", role):
+        return False
+    if re.search(r"\$|\\(?:frac|sum|begin)|(?:=|≈)\s*\d", text):
+        return False
+    if _explicit_task_request(text):
+        return False
+    return (
+        not generic_prompt(example.text)
+        and explanation_is_detailed(example.text)
+        and len(_compact(text, "table")) >= 70
+        and _has_boundary(text)
+    )
+
+
+def _instructional_inventory(example: Example) -> bool:
+    """A scoring rubric or topic taxonomy is not an unanswered exercise."""
+    if re.search(r"自检", example.title) and re.search(r"\|\s*分值\s*\|\s*(?:要点|维度)\s*\|", example.text):
+        return True
+    body = example.text.split("\n", 1)[-1]
+    return bool(
+        re.search(r"[一二三四五六七八九十\d]+类.*(?:练习|题型)|(?:练习|题型)(?:分类|总览)", example.title)
+        and len(re.findall(r"(?m)^\s*\d+[.)]\s+[^：\n]{1,30}：", body)) >= 2
+        and not re.search(r"题目[:：]|给定|已知", body)
+        and not _explicit_task_request(re.sub(r"(?m)^\s*\d+[.)]\s+", "", body))
+    )
+
+
 def semantic_category(example: Example) -> str:
     """Classify the candidate by its teaching role instead of an opaque grade."""
 
     if re.search(r"(?:索引|入口|参见|详见)", example.title):
         return "index_reference"
-    if re.search(r"(?:自检维度|评分标准|评分要点)", example.title):
+    if re.search(r"(?:自检维度|评分标准|评分要点)", example.title) or _instructional_inventory(example):
         return "not_an_example"
+    if _conceptual_table_case(example):
+        return "concept_illustration"
     needs_solution = _requires_solution(example)
     current_grade = grade(example.text, example.kind)
-    has_result = _has_result(example.text, example.kind)
+    result_text = explanation_text(example.text) if example.kind == "table" else example.text
+    has_result = _has_result(result_text, example.kind)
     if needs_solution:
         if not has_result:
             return "missing_answer"
