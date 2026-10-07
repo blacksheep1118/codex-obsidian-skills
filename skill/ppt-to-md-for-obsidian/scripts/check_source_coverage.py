@@ -28,6 +28,10 @@ GENERATED_MARKERS = (
     GENERATED_MARKER,
     "生成：PPT/PDF 未提供独立可抽取例题",
 )
+EXPLICIT_SELF_WRITTEN_LABEL_RE = re.compile(
+    r"^\s*(?:来源说明[:：]\s*)?(?:自拟|自编|原创)(?:教学)?"
+    r"(?:例题|案例|示例|练习|题目|题|例)(?:[：:；;（(]|$)"
+)
 NATURAL_GENERATED_SOURCE_PATTERNS = (
     re.compile(
         r"(?:自拟|自编|原创).{0,120}(?:源课件|课件|源资料|论文|讲义).{0,120}"
@@ -1128,6 +1132,8 @@ def is_external_source_ref(value: str) -> bool:
 
 def has_generated_source_marker(text: str) -> bool:
     candidate = NEGATED_SELF_WRITTEN_RE.sub("", text)
+    if EXPLICIT_SELF_WRITTEN_LABEL_RE.search(candidate):
+        return True
     if any(marker in candidate for marker in GENERATED_MARKERS):
         return True
     return any(pattern.search(candidate) for pattern in NATURAL_GENERATED_SOURCE_PATTERNS)
@@ -1252,6 +1258,7 @@ def check_example_evidence(
                     and source_column < len(table_cells)
                 ):
                     table_source_cell = table_cells[source_column]
+                    generated_line = generated_line or has_generated_source_marker(table_source_cell)
                 table_source_line = (
                     not generated_line
                     and in_example_table
@@ -1287,7 +1294,7 @@ def check_example_evidence(
                 if generated_line or "生成辅助题" in line or "补充题（/" in line:
                     generated_lines += 1
                     local_generated_lines += 1
-                    if not has_generated_source_marker(line) and not any(label in line for label in SOURCE_EXAMPLE_LABELS):
+                    if not generated_line and not any(label in line for label in SOURCE_EXAMPLE_LABELS):
                         issues.append(
                             CoverageIssue(
                                 "bad_generated_example",

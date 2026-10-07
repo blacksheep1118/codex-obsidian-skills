@@ -56,6 +56,23 @@ def test_generated_example_evidence_accepts_natural_and_legacy_wording() -> None
     )
 
 
+def test_plain_self_written_label_is_counted_as_generated(tmp_path: Path) -> None:
+    assert has_source_or_generated_example(
+        "来源说明：自拟教学例；背景见 `课程/数据.pptx` slide 27。"
+    )
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "example.md").write_text(
+        "## PPT/PDF 例题辅助理解\n\n"
+        "| 知识点 | 例题与解析 | 来源 |\n|---|---|---|\n"
+        "| 数据质量 | 按客户实体去重，再比较统计结果。 | "
+        "自拟教学例；背景见 `课程/数据.pptx` slide 27。 |\n",
+        encoding="utf-8",
+    )
+    _, _, sourced, generated, issues = check_example_evidence([notes])
+    assert (sourced, generated, issues) == (0, 1, [])
+
+
 def run_checker(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(SCRIPT), *args],

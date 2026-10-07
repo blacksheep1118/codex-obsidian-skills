@@ -34,6 +34,10 @@ GENERATED_SOURCE_MARKERS = (
     "自拟教学例：源课件未提供可独立还原的对应例题",
     "生成：PPT/PDF 未提供独立可抽取例题",
 )
+EXPLICIT_SELF_WRITTEN_LABEL_RE = re.compile(
+    r"^\s*(?:自拟|自编|原创)(?:教学)?(?:例题|案例|示例|练习|题目|题|例)"
+    r"(?:[：:；;（(]|$)"
+)
 NATURAL_GENERATED_SOURCE_PATTERNS = (
     re.compile(
         r"(?:自拟|自编|原创).{0,120}(?:源课件|课件|源资料|论文|讲义).{0,120}"
@@ -223,6 +227,8 @@ def regular_note(path) -> bool:
 
 def has_generated_source_marker(text: str) -> bool:
     candidate = NEGATED_SELF_WRITTEN_RE.sub("", text)
+    if EXPLICIT_SELF_WRITTEN_LABEL_RE.search(candidate):
+        return True
     if any(marker in candidate for marker in GENERATED_SOURCE_MARKERS):
         return True
     return any(pattern.search(candidate) for pattern in NATURAL_GENERATED_SOURCE_PATTERNS)

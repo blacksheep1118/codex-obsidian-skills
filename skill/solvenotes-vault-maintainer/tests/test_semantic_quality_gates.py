@@ -73,6 +73,24 @@ def test_generated_example_marker_accepts_natural_and_legacy_wording() -> None:
     assert not has_generated_source_marker("本题不算自拟题；课件没有给出对应答案。")
 
 
+def test_self_written_source_label_does_not_require_original_page_comparison() -> None:
+    for label in (
+        "自拟教学例；背景见 `课程/数据.pptx` slides 27–30。",
+        "自拟教学例：依据 `课程/数据.pptx` 编写。",
+        "自编案例；背景见 `课程/数据.pdf` p. 3。",
+        "原创练习",
+    ):
+        assert has_generated_source_marker(label)
+        assert example_source_kind(f"| 数据质量 | 完整解答。 | {label} |") == "generated"
+    for label in (
+        "不是自拟教学例；背景见 `课程/数据.pptx`。",
+        "本例不属于自编案例；源资料为 `课程/数据.pdf`。",
+        "`课程/数据.pptx` slides 27–30。",
+    ):
+        assert not has_generated_source_marker(label)
+        assert example_source_kind(f"| 数据质量 | 完整解答。 | {label} |") == "source"
+
+
 def test_table_parser_keeps_escaped_pipe_inside_explanation() -> None:
     line = (
         r"| 逻辑析取 | 题目：判断析取式。<br>解析：判断 $p\|q$ 是否成立，再逐项检查真值并给出结论。 "
