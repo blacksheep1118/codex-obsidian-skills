@@ -70,6 +70,7 @@ MIN_NOTE_CHARS = {
     "course_note": 600,
     "paper_note": 2500,
     "paper_topic_note": 800,
+    "personal_note": 600,
     "research_method_note": 1500,
     "review_compact": 1200,
     "review_detailed": 5000,

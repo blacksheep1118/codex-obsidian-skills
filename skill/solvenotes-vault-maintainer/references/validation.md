@@ -75,7 +75,8 @@ reviewed `python-e2e` blocks.
 Personal records use `note_type: personal_note` and `coverage: special_rule`.
 This class identifies an author-provided account; it does not certify the
 author's private history or opinions as independently verified course content.
-The normal frontmatter and structural checks still apply.
+The normal frontmatter and structural checks still apply, including a minimum
+of 600 compact prose characters for a standalone personal record.
 
 `source_manifest.md` and source-manifest history pages must remain outside
 Notes. Use `SOLVENOTES_MANIFEST_ROOT`, or default to

@@ -25,7 +25,6 @@ _TIMEOUT_SPEC.loader.exec_module(_TIMEOUT_MODULE)
 run_process = _TIMEOUT_MODULE.run
 
 
-RUFF_CONFIG = ROOT / "pyproject.toml"
 PPT_SKILL = ROOT / "skill" / "ppt-to-md-for-obsidian"
 VAULT_SKILL = ROOT / "skill" / "obsidian-vault-organizer"
 WEB_SKILL = ROOT / "skill" / "web-course-notes-for-obsidian"
@@ -199,7 +198,7 @@ def build_steps(py: str, temp_root: Path) -> list[Step]:
             "root.ruff",
             (
                 CommandSpec(
-                    [py, "-m", "ruff", "check", ".", "--no-cache", "--config", str(RUFF_CONFIG)]
+                    [py, "-m", "ruff", "check", ".", "--no-cache"]
                 ),
             ),
         ),

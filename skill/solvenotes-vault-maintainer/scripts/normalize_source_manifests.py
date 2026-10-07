@@ -13,8 +13,8 @@ from notes_utils import (
     formal_source_manifests,
     is_table_separator,
     read_text_with_version,
-    split_table_row,
     source_manifest_rel,
+    split_table_row,
     write_manifest_text_if_changed,
 )
 

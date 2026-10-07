@@ -742,7 +742,7 @@ def test_validate_all_quick_runs_root_tests_before_metadata_sync(tmp_path: Path)
     assert step_ids[:5] == ["root.compile", "root.ruff", "root.repo_hygiene", "root.tests", "metadata.sync"]
 
 
-def test_validate_all_ruff_step_uses_root_config(tmp_path: Path):
+def test_validate_all_ruff_step_preserves_nested_config_discovery(tmp_path: Path):
     steps = validate_all.build_steps(sys.executable, tmp_path)
     ruff_step = next(step for step in steps if step.step_id == "root.ruff")
 
@@ -755,8 +755,6 @@ def test_validate_all_ruff_step_uses_root_config(tmp_path: Path):
         "check",
         ".",
         "--no-cache",
-        "--config",
-        str(ROOT / "pyproject.toml"),
     ]
 
 
