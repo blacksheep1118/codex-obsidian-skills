@@ -5,11 +5,14 @@ from pathlib import Path
 
 import pytest
 from normalize_source_manifests import (
+    STANDARD_HEADER,
+    STANDARD_SEPARATOR,
     UnsafeLegacyRowError,
     normalize_line,
     normalized_text,
     source_manifest_paths,
 )
+from notes_utils import split_table_row
 
 
 @pytest.fixture(autouse=True)
@@ -29,6 +32,77 @@ def test_nine_column_row_is_only_formatted() -> None:
     )
 
     assert normalize_line(row, "2099-01-01") == row
+
+
+def test_non_nine_column_source_header_is_not_expanded_by_normalize_line() -> None:
+    header = "| 源文件 | SHA-256 |"
+
+    assert normalize_line(header, "2026-08-07") == header
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        (
+            "| 源文件 | SHA-256 |\n"
+            "|---|---|\n"
+            "| `course/source.pdf` | abc123 |\n"
+        ),
+        (
+            "| 源文件 | SHA-256 | 校验状态 |\n"
+            "|---|---|---|\n"
+            "| `course/source.pdf` | abc123 | 已核对 |\n"
+        ),
+    ],
+    ids=["two-column-hash", "three-column-hash"],
+)
+def test_hash_tables_keep_their_original_column_count(text: str) -> None:
+    assert normalized_text(text, "2026-08-07") == text
+
+
+def test_empty_nine_column_table_still_normalizes_its_separator() -> None:
+    original = STANDARD_HEADER + "\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
+    expected = STANDARD_HEADER + "\n" + STANDARD_SEPARATOR + "\n"
+
+    assert normalized_text(original, "2026-08-07") == expected
+
+
+@pytest.mark.parametrize("header", ["| 源文件 | SHA-256 |", "| 源文件 | SHA-256 | 校验状态 |"])
+def test_empty_auxiliary_table_is_preserved(header: str) -> None:
+    original = header + "\n| --- | --- |\n"
+
+    assert normalized_text(original, "2026-08-07") == original
+
+
+def test_main_source_table_and_auxiliary_hash_table_are_normalized_independently() -> None:
+    main_row = (
+        "| `course/source.pdf` | `.pdf` | 2 | pdftotext-page | [[course/note]] | "
+        "已映射：抽取性已核验 | 已复核：未提供独立例题 | 未做视觉/OCR | 2026-08-07 |"
+    )
+    auxiliary = (
+        "| 源文件 | SHA-256 |\n"
+        "|---|---|\n"
+        "| `course/source.pdf` | abc123 |\n"
+    )
+    original = (
+        "| 源文件 | old header |\n"
+        "|---|---|---|---|---|---|---|---|---|\n"
+        f"{main_row}\n\n"
+        f"{auxiliary}"
+    )
+    expected = (
+        STANDARD_HEADER + "\n"
+        + STANDARD_SEPARATOR + "\n"
+        + main_row + "\n\n"
+        + auxiliary
+    )
+
+    once = normalized_text(original, "2026-08-07")
+
+    assert once == expected
+    assert len(split_table_row(once.splitlines()[-2])) == 2
+    assert len(split_table_row(once.splitlines()[-1])) == 2
+    assert normalized_text(once, "2026-08-07") == once
 
 
 def test_legacy_row_does_not_manufacture_coverage_or_example_claims() -> None:

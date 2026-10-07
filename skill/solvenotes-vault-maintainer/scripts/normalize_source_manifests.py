@@ -39,7 +39,9 @@ def source_manifest_paths(root: Path = ROOT) -> list[Path]:
 
 def normalize_line(line: str, checked_date: str) -> str:
     if line.startswith("| 源文件 |"):
-        return STANDARD_HEADER
+        # A header by itself does not establish that this is the nine-column
+        # source table; manifests also use two- and three-column hash tables.
+        return STANDARD_HEADER if len(split_table_row(line)) == 9 else line
     if not line.startswith("| `"):
         return line
     cells = split_table_row(line)
@@ -53,23 +55,54 @@ def normalize_line(line: str, checked_date: str) -> str:
     return line
 
 
+def _first_data_row_width(lines: list[str], header_index: int) -> int | None:
+    """Return the first data-row width immediately following a source header."""
+    for line in lines[header_index + 1 :]:
+        if not line.strip():
+            return None
+        if is_table_separator(line):
+            continue
+        if line.startswith("|"):
+            return len(split_table_row(line))
+        return None
+    return None
+
+
 def normalized_text(text: str, checked_date: str) -> str:
     normalized: list[str] = []
-    in_local_source_table = False
-    for line in text.splitlines():
+    lines = text.splitlines()
+    source_table_mode: str | None = None
+    for index, line in enumerate(lines):
         if line.startswith("| 源文件 |"):
-            in_local_source_table = True
-            normalized.append(normalize_line(line, checked_date))
-        elif in_local_source_table and is_table_separator(line):
-            normalized.append(STANDARD_SEPARATOR)
-        elif in_local_source_table and line.startswith("|"):
-            normalized.append(normalize_line(line, checked_date))
+            width = _first_data_row_width(lines, index)
+            if width == 9 or (width is None and len(split_table_row(line)) == 9):
+                source_table_mode = "main"
+                normalized.append(STANDARD_HEADER)
+            elif width in {2, 3} or width is None:
+                source_table_mode = "preserve"
+                normalized.append(line)
+            else:
+                # Keep legacy/unknown layouts intact until their rows are
+                # examined; six-column evidence gaps still fail closed below.
+                source_table_mode = "legacy"
+                normalized.append(line)
+        elif source_table_mode and is_table_separator(line):
+            normalized.append(
+                STANDARD_SEPARATOR if source_table_mode == "main" else line
+            )
+        elif source_table_mode and line.startswith("|"):
+            if source_table_mode == "main":
+                normalized.append(normalize_line(line, checked_date))
+            else:
+                if len(split_table_row(line)) == 6:
+                    normalize_line(line, checked_date)
+                normalized.append(line)
         elif line.startswith("| `"):
             # A backticked source row outside a recognized header is legacy
             # local-manifest input: preserve its fail-closed six-column error.
             normalized.append(normalize_line(line, checked_date))
         else:
-            in_local_source_table = False
+            source_table_mode = None
             normalized.append(line)
     return "\n".join(normalized) + ("\n" if text.endswith("\n") else "")
 
