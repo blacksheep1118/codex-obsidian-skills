@@ -33,17 +33,21 @@ See [Skill Routing](docs/routing.md) for cross-skill boundaries and mixed workfl
 - Keep detailed and concise review pages separate.
 - Validate Markdown links, Obsidian wiki links, and self-links.
 - Respect source-file boundaries: courseware, papers, and datasets stay read-only unless the user explicitly asks otherwise.
+- For Solvenotes, keep formal `source_manifest.md` files outside Notes and the public Skills repository. Use `SOLVENOTES_MANIFEST_ROOT`, or default to `Notes.parent / "vault_sources"`, mirroring the Notes-relative course/topic path. Reject roots inside Notes, including symlink resolutions. Preserve note `source_files`, URLs, and source markers; missing required manifests are FAIL/unavailable, never an empty PASS. Other vaults retain their local provenance layout.
 
 ## CI boundary
 
 The public Skills repository validates only its own source, tests, metadata, and
-non-sensitive fixtures. Its Actions do not checkout or depend on a private
-Solvenotes Notes vault. The real-vault `quick`/`full` gate runs from the Notes
+non-sensitive fixtures, including synthetic manifests under `fixtures/vault_sources`.
+Its Actions do not checkout or depend on a private Solvenotes Notes vault or
+its private source mappings. The real-vault `quick`/`full` gate runs from the Notes
 repository's hidden `.github/workflows/vault-quality.yml`, which pins the Skills
 source to an explicit commit. Clean export remains a separate local operation
 and is not part of that ordinary Notes workflow. This keeps public pull requests
 reproducible without exposing private note paths or requiring cross-repository
-secrets.
+secrets. Real-vault source-coverage checks require the external private manifest
+store in their execution environment; unavailable manifests must fail or be
+reported unavailable, never silently count as zero-file success.
 
 ## Install
 
@@ -242,7 +246,7 @@ When a task crosses sources, notes, cleanup, and deck creation, follow the hando
 The web course notes skill includes:
 
 - `collect_web_sources.py`: collect titles, descriptions, and learning-resource links from course video, slide, book, and mixed learning URLs.
-- `create_web_notes.py`: classify URL collections in a temporary staging tree, write `source_manifest.md`, and create detailed note scaffolds for source-backed expansion; add `--publish` only when the destination is ready to receive the generated files.
+- `create_web_notes.py`: classify URL collections in a temporary staging tree, write `source_manifest.md`, and create detailed note scaffolds for source-backed expansion; the collection-local `--publish` compatibility path is for other vaults. For Solvenotes, publish only completed notes and place the manifest in its external store.
 - `check_web_notes.py`: validate source coverage, scaffold residue, entry/detail notes, and per-link note coverage.
 - `validate_skill.py`: validate skill metadata and bundled-resource references.
 

@@ -3,10 +3,20 @@
 This reference describes the external validation entry point. It is not a
 learning note and must never be copied into the vault.
 
+## Contents
+
+- [Validation commands](#validation-commands)
+- [Source and template boundaries](#source-and-template-boundaries)
+- [Clean export](#clean-export)
+
+## Validation commands
+
 Set the vault explicitly:
 
 ```bash
 export SOLVENOTES_VAULT_ROOT=/absolute/path/to/solvenotes/notes
+# Optional; omit to use Notes.parent / "vault_sources".
+export SOLVENOTES_MANIFEST_ROOT=/absolute/path/to/solvenotes/vault_sources
 ```
 
 Run from the Skills repository:
@@ -62,10 +72,29 @@ reviewed `python-e2e` blocks.
 
 ## Source and template boundaries
 
-`source_manifest.md` remains versioned beside the course or topic it proves,
-but the formal statistics and learning views exclude it. Templates are kept
-under `.obsidian/templates/` with `note_type: template`; they are writing
-scaffolds, not course notes. Generated reports and intermediate inventories go
+Personal records use `note_type: personal_note` and `coverage: special_rule`.
+This class identifies an author-provided account; it does not certify the
+author's private history or opinions as independently verified course content.
+The normal frontmatter and structural checks still apply.
+
+`source_manifest.md` and source-manifest history pages must remain outside
+Notes. Use `SOLVENOTES_MANIFEST_ROOT`, or default to
+`Notes.parent / "vault_sources"`, and mirror the course/topic path relative to
+Notes: `<manifest-root>/<course-or-topic>/source_manifest.md`. A root inside
+Notes, including a symlink resolving there, is invalid. Resolve manifest note
+targets against the corresponding Notes directory. Preserve note `source_files`,
+URLs, source page markers, exact source paths, extraction methods, unit counts,
+status, dates, example evidence, and OCR/visual limitations.
+
+The public Skills repository contains only synthetic manifests, for example
+under `fixtures/vault_sources`, never real private mappings. Real-vault coverage
+requires the private external store to be available in the execution
+environment; missing, unreadable, or empty required manifests must report
+FAIL/unavailable rather than zero manifests passing. Separate manifest-schema
+validation from source-file availability and manual semantic/visual review.
+
+Templates are kept under `.obsidian/templates/` with `note_type: template`; they
+are writing scaffolds, not course notes. Generated reports and intermediate inventories go
 to one task-specific `RUN_TMP` outside the workspace. Point `TMPDIR` at it when
 invoking helpers that use system temporary directories, and remove that exact
 directory after the final checks.

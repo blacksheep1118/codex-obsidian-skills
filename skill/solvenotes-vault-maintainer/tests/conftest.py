@@ -17,10 +17,14 @@ def configure_test_vault(environ: MutableMapping[str, str]) -> Path:
     """Use an explicit vault override or the bundled non-sensitive fixture."""
 
     configured = environ.get("SOLVENOTES_VAULT_ROOT", "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    environ["SOLVENOTES_VAULT_ROOT"] = str(BUNDLED_TEST_VAULT)
-    return BUNDLED_TEST_VAULT
+    root = Path(configured).expanduser() if configured else BUNDLED_TEST_VAULT
+    environ["SOLVENOTES_VAULT_ROOT"] = str(root)
+    if root.resolve() == BUNDLED_TEST_VAULT.resolve():
+        # A caller's private registry must never contaminate the public fixture.
+        environ["SOLVENOTES_MANIFEST_ROOT"] = str(BUNDLED_TEST_VAULT.parent / "vault_sources")
+    elif not environ.get("SOLVENOTES_MANIFEST_ROOT", "").strip():
+        environ["SOLVENOTES_MANIFEST_ROOT"] = str(root.parent / "vault_sources")
+    return root
 
 
 TEST_VAULT = configure_test_vault(os.environ)

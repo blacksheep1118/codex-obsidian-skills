@@ -468,3 +468,30 @@ def test_package_rejects_corrupt_staged_archive_and_preserves_old_output(tmp_pat
 
     assert output.read_bytes() == b"old-package"
     assert list(tmp_path.glob(".output.zip.conflict-*")) == []
+
+
+@pytest.mark.parametrize("relative", ["source_manifest.md", "course/nested/SOURCE_MANIFEST.MD"])
+def test_package_excludes_source_evidence_without_reading_it(tmp_path, monkeypatch, relative):
+    root = tmp_path / "notes"
+    root.mkdir()
+    (root / "note.md").write_text("# Note\n", encoding="utf-8")
+    legacy = root / relative
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text("private source evidence", encoding="utf-8")
+    external = tmp_path / "vault_sources" / "course" / "source_manifest.md"
+    external.parent.mkdir(parents=True)
+    external.write_text("external evidence", encoding="utf-8")
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(external.parent.parent))
+    monkeypatch.setattr(pv, "ROOT", root)
+    original_read = pv.read_bytes_with_metadata
+
+    def read_note_only(path, **kwargs):
+        assert path not in {legacy, external}, "private evidence must not be read for a Notes export"
+        return original_read(path, **kwargs)
+
+    monkeypatch.setattr(pv, "read_bytes_with_metadata", read_note_only)
+    output = tmp_path / "notes.zip"
+    count, _size = pv.package(output)
+    assert count == 1
+    with zipfile.ZipFile(output) as archive:
+        assert archive.namelist() == ["note.md", pv.MANIFEST_NAME]

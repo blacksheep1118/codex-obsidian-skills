@@ -14,7 +14,8 @@ from notes_utils import (
     is_table_separator,
     read_text_with_version,
     split_table_row,
-    write_text_if_changed,
+    source_manifest_rel,
+    write_manifest_text_if_changed,
 )
 
 STANDARD_HEADER = "| 源文件 | 类型 | 页/slide/记录数 | 抽取方式 | 对应笔记 | 覆盖状态 | 例题状态 | 限制说明 | 最后检查日期 |"
@@ -81,18 +82,25 @@ def main() -> int:
 
     changed: list[str] = []
     unsafe: list[str] = []
-    manifests = source_manifest_paths()
+    try:
+        manifests = source_manifest_paths()
+    except (OSError, RuntimeError) as exc:
+        print(f"SOURCE_MANIFEST_ROOT_UNAVAILABLE {exc}")
+        return 1
+    if not manifests:
+        print("SOURCE_MANIFESTS_MISSING external source manifest registry contains no formal manifests")
+        return 1
     for path in manifests:
         try:
             original_text, original_version = read_text_with_version(path)
             new_text = normalized_text(original_text, args.date)
         except UnsafeLegacyRowError as exc:
-            unsafe.append(f"{path.relative_to(ROOT).as_posix()}: {exc}")
+            unsafe.append(f"{source_manifest_rel(path)}: {exc}")
             continue
         if original_text != new_text:
-            changed.append(path.relative_to(ROOT).as_posix())
+            changed.append(source_manifest_rel(path))
             if not args.check:
-                write_text_if_changed(path, new_text, expected_version=original_version)
+                write_manifest_text_if_changed(path, new_text, expected_version=original_version)
 
     print(f"source_manifests_checked {len(manifests)}")
     print(f"source_manifests_changed {len(changed)}")

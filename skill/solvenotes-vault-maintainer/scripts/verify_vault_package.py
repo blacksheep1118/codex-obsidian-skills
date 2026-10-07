@@ -9,7 +9,7 @@ import json
 import re
 import zipfile
 from io import BytesIO
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from archive_contract import (
     MAX_ARCHIVE_INPUT_BYTES,
@@ -63,6 +63,8 @@ def verify(archive_path: Path, sidecar_path: Path | None = None) -> dict[str, ob
                 issues.append("duplicate ZIP entries")
             issues.extend(portable_path_collision_issues(names))
             for info in infos:
+                if PurePosixPath(info.filename).name.casefold() == "source_manifest.md":
+                    issues.append(f"source manifest is forbidden in Notes package: {info.filename}")
                 if not safe_entry(info.filename):
                     issues.append(f"unsafe ZIP entry: {info.filename}")
                 if info.is_dir():

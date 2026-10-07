@@ -81,6 +81,7 @@
       "allows_network": false
     },
     "vault-full": {
+      "requires_manifest_root": true,
       "required_modules": ["PyYAML"],
       "required_commands": ["git", "compiler"],
       "optional_commands": ["unzip", "bash"],
@@ -108,6 +109,7 @@
       "requirements_file": "algorithm-job-notes-for-obsidian/requirements-runtime.txt"
     },
     "github-ready": {
+      "requires_manifest_root": true,
       "required_modules": ["PyYAML"],
       "required_commands": ["git", "compiler"],
       "optional_commands": ["unzip", "bash"],
@@ -137,6 +139,15 @@
       "optional_commands": [],
       "requires_notes_root": true,
       "requires_skills_root": true,
+      "allows_network": false
+    },
+    "vault-basic": {
+      "required_modules": ["PyYAML"],
+      "required_commands": ["git"],
+      "optional_commands": ["compiler", "unzip", "bash"],
+      "requires_notes_root": true,
+      "requires_skills_root": true,
+      "requires_manifest_root": false,
       "allows_network": false
     }
   }

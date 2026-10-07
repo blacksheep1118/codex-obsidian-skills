@@ -128,6 +128,7 @@ jobs:
           - skill: solvenotes-vault-maintainer
             validator: scripts/validate_skill.py
             test_vault_root: fixtures/solvenotes-mini-vault
+            test_manifest_root: fixtures/vault_sources
 
     steps:
       - name: Checkout
@@ -158,6 +159,7 @@ jobs:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
           PYTHONDONTWRITEBYTECODE: "1"
           SOLVENOTES_VAULT_ROOT: ${{ matrix.test_vault_root }}
+          SOLVENOTES_MANIFEST_ROOT: ${{ matrix.test_manifest_root }}
         run: python -m pytest -q --durations=20 -p no:cacheprovider tests
 
       - name: Validate skill metadata

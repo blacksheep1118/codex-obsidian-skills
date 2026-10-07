@@ -25,4 +25,5 @@ if __name__ == "__main__":
     if "--profile" not in arguments and "--mode" not in arguments:
         arguments.extend(["--profile", "tool-quick"])
     sys.argv = [str(TARGET), *arguments]
+    sys.path.insert(0, str(TARGET.parent))
     runpy.run_path(str(TARGET), run_name="__main__")

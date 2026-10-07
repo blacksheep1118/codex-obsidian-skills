@@ -18,6 +18,7 @@ from notes_utils import (
     markdown_files,
     read_text,
     rel,
+    split_block_math,
     strip_frontmatter,
     text_without_code,
     wikilink_matches,
@@ -158,7 +159,7 @@ def main() -> int:
             issues.append(f"{rel(path)}: possible conflict marker")
         if text.count("```") % 2:
             issues.append(f"{rel(path)}: unbalanced code fence")
-        if prose_text.count("$$") % 2:
+        if (len(split_block_math(prose_text)) - 1) % 2:
             issues.append(f"{rel(path)}: unbalanced block math delimiter")
         if has_bad_control_char(text):
             issues.append(f"{rel(path)}: control character found")

@@ -402,3 +402,64 @@ def test_verify_workspace_package_recomputes_lock_coherence(tmp_path: Path) -> N
     payload = verifier.verify(archive)
     assert payload["ok"] is False
     assert any("coherent_workspace" in issue for issue in payload["issues"])
+
+
+@pytest.mark.parametrize("name", ["source_manifest.md", "SOURCE_MANIFEST.MD"])
+def test_workspace_inventory_omits_private_evidence_and_does_not_traverse_external_roots(tmp_path, name):
+    root = tmp_path / "workspace"
+    note = root / "notes" / "course" / "note.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("# Note\n", encoding="utf-8")
+    (note.parent / name).write_text("legacy private evidence", encoding="utf-8")
+    fixture = root / "skills" / "skill" / "example" / "fixtures" / "vault_sources" / "source_manifest.md"
+    fixture.parent.mkdir(parents=True)
+    fixture.write_text("synthetic fixture", encoding="utf-8")
+    external = root / "vault_sources"
+    external.mkdir()
+    (external / name).write_text("private evidence", encoding="utf-8")
+    try:
+        (external / "unrelated-link").symlink_to(tmp_path / "missing", target_is_directory=True)
+        (root / "external-originals").symlink_to(tmp_path / "missing", target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    entries = pw.inventory(root, set())
+
+    assert [item[0].as_posix() for item in entries] == [
+        "notes/course/note.md",
+        "skills/skill/example/fixtures/vault_sources/source_manifest.md",
+    ]
+
+
+@pytest.mark.parametrize(
+    "name, forbidden",
+    [
+        ("notes/source_manifest.md", True),
+        ("notes/course/nested/SOURCE_MANIFEST.MD", True),
+        ("skills/skill/example/fixtures/vault_sources/source_manifest.md", False),
+    ],
+)
+def test_workspace_verifier_distinguishes_legacy_notes_evidence_from_synthetic_fixture(tmp_path, name, forbidden):
+    import verify_workspace_package as verifier
+
+    data = b"evidence"
+    records = [{"path": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}]
+    manifest = {
+        "schema_version": 3,
+        "coherent_workspace": False,
+        "file_count": 1,
+        "archive_entry_count": 2,
+        "content_digest": verifier.records_digest(records),
+        "files": records,
+    }
+    archive = tmp_path / "workspace.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr(name, data)
+        bundle.writestr("BUILD-MANIFEST.json", json.dumps(manifest))
+
+    result = verifier.verify(archive)
+
+    evidence_issues = [item for item in result["issues"] if "source manifest is forbidden" in item]
+    expected = [f"source manifest is forbidden in Notes package: {name}"] if forbidden else []
+    assert evidence_issues == expected
+    assert not any("digest" in item or "file list" in item for item in result["issues"])

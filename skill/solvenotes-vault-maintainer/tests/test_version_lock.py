@@ -69,6 +69,9 @@ def synthetic_target_repo(tmp_path: Path) -> tuple[Path, str]:
     fixture = repository / update_notes_skill_lock.TARGET_FIXTURE_PREFIX / "AGENT.md"
     fixture.parent.mkdir(parents=True, exist_ok=True)
     fixture.write_text("# synthetic fixture\n", encoding="utf-8")
+    evidence = repository / update_notes_skill_lock.TARGET_MANIFEST_FIXTURE_PREFIX / "course" / "source_manifest.md"
+    evidence.parent.mkdir(parents=True)
+    evidence.write_text("# synthetic source evidence\n", encoding="utf-8")
     initialize_fixture_repo(repository)
     run_git(repository, "add", ".")
     run_git(repository, "commit", "-m", "synthetic target", capture_output=True)
@@ -338,3 +341,48 @@ def test_lock_update_rejects_target_tree_without_maintainer(tmp_path: Path) -> N
     assert result.returncode != 0
     assert "required maintainer tree" in result.stderr
     assert not (notes_root / ".github/solvenotes-skills.lock.json").exists()
+
+
+
+def test_target_metadata_requires_paired_external_fixture(tmp_path):
+    repository, _commit = synthetic_target_repo(tmp_path)
+    shutil.rmtree(repository / update_notes_skill_lock.TARGET_MANIFEST_FIXTURE_PREFIX)
+    run_git(repository, "add", "-A")
+    run_git(repository, "commit", "-m", "remove source fixture", capture_output=True)
+    with pytest.raises(ValueError, match="fixtures/vault_sources"):
+        update_notes_skill_lock.verify_target_tree(repository, git_head(repository), level="metadata")
+
+
+def test_target_full_tests_use_extracted_paired_roots_not_private_environment(tmp_path, monkeypatch):
+    repository, _commit = synthetic_target_repo(tmp_path)
+    installer = repository / "scripts" / "install_skill.py"
+    installer.parent.mkdir()
+    installer.write_text("# synthetic installer\n", encoding="utf-8")
+    run_git(repository, "add", ".")
+    run_git(repository, "commit", "-m", "add synthetic installer", capture_output=True)
+    monkeypatch.setenv("SOLVENOTES_VAULT_ROOT", str(tmp_path / "private-notes"))
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(tmp_path / "private-evidence"))
+    observed = []
+
+    def run(command, *, cwd, env, **_kwargs):
+        if "--destination" in command:
+            destination = Path(command[command.index("--destination") + 1])
+            validator = destination / MAINTAINER_SKILL / "scripts" / "validate_skill.py"
+            validator.parent.mkdir(parents=True)
+            validator.write_text("# synthetic validator\n", encoding="utf-8")
+        elif "pytest" in command:
+            skill = Path(cwd)
+            assert Path(env["SOLVENOTES_VAULT_ROOT"]) == skill / "fixtures" / "solvenotes-mini-vault"
+            assert Path(env["SOLVENOTES_MANIFEST_ROOT"]) == skill / "fixtures" / "vault_sources"
+            assert (Path(env["SOLVENOTES_VAULT_ROOT"]) / "AGENT.md").is_file()
+            assert (Path(env["SOLVENOTES_MANIFEST_ROOT"]) / "course" / "source_manifest.md").is_file()
+            assert env["PYTHONDONTWRITEBYTECODE"] == "1"
+            assert env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
+            assert "PYTHONPATH" not in env
+            observed.append(True)
+        return 0
+
+    monkeypatch.setattr(update_notes_skill_lock, "run_process", run)
+    report = update_notes_skill_lock.verify_target_tree(repository, git_head(repository), level="full")
+    assert report["level"] == "full"
+    assert observed == [True]

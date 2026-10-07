@@ -11,6 +11,7 @@ from conftest import BUNDLED_TEST_VAULT, configure_test_vault
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = SKILL_ROOT / "fixtures" / "solvenotes-mini-vault"
+MANIFEST_ROOT = SKILL_ROOT / "fixtures" / "vault_sources"
 CASE_ROOT = SKILL_ROOT / "fixtures" / "solvenotes-mini-vault-cases"
 
 
@@ -31,6 +32,7 @@ def test_test_vault_honors_explicit_override(tmp_path: Path) -> None:
 def run_script(script: str, *args: str, root: Path = FIXTURE_ROOT) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["SOLVENOTES_VAULT_ROOT"] = str(root)
+    env["SOLVENOTES_MANIFEST_ROOT"] = str(root.parent / "vault_sources")
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     env["PYTHONPATH"] = os.pathsep.join(
         [
@@ -58,7 +60,6 @@ def test_mini_vault_fixture_covers_maintainer_contract() -> None:
         "AGENT.md",
         "00_学习地图.md",
         "课程/00_课程总览.md",
-        "课程/source_manifest.md",
         "论文/01_论文.md",
         "算法岗学习笔记/00_算法岗学习地图.md",
         "算法岗学习笔记/49_数据结构与算法_复杂度与高频范式.md",
@@ -69,6 +70,8 @@ def test_mini_vault_fixture_covers_maintainer_contract() -> None:
     }
     actual = {path.relative_to(FIXTURE_ROOT).as_posix() for path in FIXTURE_ROOT.rglob("*") if path.is_file()}
     assert required <= actual
+    assert (MANIFEST_ROOT / "课程" / "source_manifest.md").is_file()
+    assert not any(path.name.casefold() == "source_manifest.md" for path in FIXTURE_ROOT.rglob("*"))
     assert "bad-link.md" in {path.name for path in CASE_ROOT.iterdir()}
     assert "naturalness.md" in {path.name for path in CASE_ROOT.iterdir()}
 
@@ -80,6 +83,7 @@ def test_mini_vault_fixture_covers_maintainer_contract() -> None:
         ("check_cpp_examples.py", ("--root", str(FIXTURE_ROOT))),
         ("check_python_examples.py", ("--root", str(FIXTURE_ROOT))),
         ("check_frontmatter.py", ()),
+        ("check_source_coverage.py", ()),
         ("check_links.py", ()),
         ("check_naturalness.py", ("--strict",)),
     ],
@@ -103,3 +107,15 @@ def test_negative_fixtures_are_detected(tmp_path: Path) -> None:
     result = run_script("check_naturalness.py", "--strict", root=root)
     assert result.returncode != 0
     assert "exact_paragraph_repeat" in result.stdout
+
+
+def test_mini_vault_subprocess_overrides_host_private_manifest_root(tmp_path: Path, monkeypatch) -> None:
+    private_registry = tmp_path / "host-private-registry"
+    private_registry.mkdir()
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(private_registry))
+
+    result = run_script("check_source_coverage.py", "--json")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert '"course_manifests": 1' in result.stdout
+    assert str(private_registry) not in result.stdout + result.stderr

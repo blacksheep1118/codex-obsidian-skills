@@ -41,7 +41,6 @@ EXPECTED_TEMPLATES = {
     "course_note.md",
     "paper_note.md",
     "concept_note.md",
-    "source_manifest.md",
     "review_compact.md",
     "review_detailed.md",
     "game_design_note.md",
@@ -125,6 +124,8 @@ def main() -> int:
         for path in sorted(template_base.glob("*.md")):
             if not is_regular_file_without_symlinks(path, ROOT):
                 continue
+            if path.name.casefold() == "source_manifest.md":
+                issues.append(f"{rel(path)}: source_manifest must be outside the notes vault")
             header, body = split_frontmatter(read_text(path))
             keys = parse_keys(header)
             if unquote(keys.get("note_type", "")) != "template":
@@ -137,8 +138,8 @@ def main() -> int:
 
     for path in markdown_files():
         r = rel(path)
-        if r.startswith("概念索引/") and path.name == "source_manifest.md":
-            issues.append(f"{r}: concept index should not use source_manifest.md")
+        if path.name.casefold() == "source_manifest.md":
+            issues.append(f"{r}: source_manifest must be outside the notes vault")
         if r.startswith("游戏数值策划/表格模板/") and nonempty_lines(path) < 6:
             issues.append(f"{r}: table template entry is too short for Obsidian use")
         if r.startswith("科研方法论/") and any(term in read_text(path) for term in ["每周复盘模板", "达标标准"]):

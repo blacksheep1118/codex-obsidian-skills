@@ -85,7 +85,15 @@ topics, evidence types, or aliases that must be mapped as follows:
 Before editing, separate facts, local conventions, and assumptions:
 
 - Use the vault's current filename, frontmatter, link, and source-manifest
-  rules. Do not invent a second schema.
+  rules. Do not invent a second schema. For Solvenotes, formal manifests live
+  outside Notes under `SOLVENOTES_MANIFEST_ROOT`, or
+  `Notes.parent / "vault_sources"` by default, mirroring each Notes-relative
+  course/topic directory. Reject roots inside Notes, including symlink
+  resolutions, and keep private mappings out of the public Skills repository.
+  Preserve note `source_files`, URLs, and source markers; update external
+  mapping targets when moving source-backed notes. Missing required manifests
+  are FAIL/unavailable, never an empty PASS. Do not invent course mappings for
+  standalone job-preparation systems. Other vaults retain their local layout.
 - Use official recruitment pages for current JD claims. Record company, role,
   direction, internship/graduate/full-time stage, location, check date, URL,
   and status uncertainty. Never fabricate a JD or generalize a small sample

@@ -702,7 +702,13 @@ def test_validate_all_pytest_steps_disable_external_plugin_autoload(monkeypatch,
     base_env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", "PYTHONDONTWRITEBYTECODE": "1"}
     root_tests = next(step for step in steps if step.step_id == "root.tests").commands[0]
     assert root_tests.env == {**base_env, "SOLVENOTES_TEST_SELF_CHECK_LEVEL": "runtime"}
-    assert all(command.env == base_env for command in pytest_commands if command is not root_tests)
+    maintainer_tests = next(step for step in steps if step.step_id == "solvenotes-vault.tests").commands[0]
+    assert maintainer_tests.env == {
+        **base_env,
+        "SOLVENOTES_VAULT_ROOT": str(validate_all.SOLVENOTES_VAULT_SKILL / "fixtures" / "solvenotes-mini-vault"),
+        "SOLVENOTES_MANIFEST_ROOT": str(validate_all.SOLVENOTES_VAULT_SKILL / "fixtures" / "vault_sources"),
+    }
+    assert all(command.env == base_env for command in pytest_commands if command not in (root_tests, maintainer_tests))
 
 
 def test_validate_all_pytest_plugin_autoload_override(monkeypatch, tmp_path: Path):
@@ -720,7 +726,13 @@ def test_validate_all_pytest_plugin_autoload_override(monkeypatch, tmp_path: Pat
     base_env = {"PYTHONDONTWRITEBYTECODE": "1"}
     root_tests = next(step for step in steps if step.step_id == "root.tests").commands[0]
     assert root_tests.env == {**base_env, "SOLVENOTES_TEST_SELF_CHECK_LEVEL": "runtime"}
-    assert all(command.env == base_env for command in pytest_commands if command is not root_tests)
+    maintainer_tests = next(step for step in steps if step.step_id == "solvenotes-vault.tests").commands[0]
+    assert maintainer_tests.env == {
+        **base_env,
+        "SOLVENOTES_VAULT_ROOT": str(validate_all.SOLVENOTES_VAULT_SKILL / "fixtures" / "solvenotes-mini-vault"),
+        "SOLVENOTES_MANIFEST_ROOT": str(validate_all.SOLVENOTES_VAULT_SKILL / "fixtures" / "vault_sources"),
+    }
+    assert all(command.env == base_env for command in pytest_commands if command not in (root_tests, maintainer_tests))
 
 
 def test_validate_all_quick_runs_root_tests_before_metadata_sync(tmp_path: Path):
@@ -996,3 +1008,46 @@ def test_validate_all_uses_and_cleans_per_run_temporary_directory(monkeypatch, t
     assert validate_all.main(["--list-steps"]) == 0
     assert events == ["enter", "exit"]
     assert not temporary.exists()
+
+
+@pytest.mark.parametrize("level", ["smoke", "full"])
+def test_installed_checks_use_only_their_paired_synthetic_manifest_root(tmp_path, monkeypatch, level):
+    skill = tmp_path / "installed" / "solvenotes-vault-maintainer"
+    fixture = skill / "fixtures" / "solvenotes-mini-vault"
+    fixture.mkdir(parents=True)
+    evidence = fixture.parent / "vault_sources"
+    evidence.mkdir()
+    scripts = [
+        "check_algorithm_job_notes.py", "check_source_coverage.py", "check_links.py",
+        "check_frontmatter.py", "check_naturalness.py", "check_python_examples.py",
+        "package_vault.py", "verify_vault_package.py",
+    ]
+    for name in scripts:
+        write_file(skill / "scripts" / name, "raise SystemExit(0)\n")
+    write_file(skill.parent / "algorithm-job-notes-for-obsidian" / "scripts" / "check_cpp_examples.py", "pass\n")
+    monkeypatch.setenv("SOLVENOTES_VAULT_ROOT", str(tmp_path / "private-notes"))
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(tmp_path / "private-evidence"))
+    calls = []
+
+    def capture(command, *_args, env, **_kwargs):
+        calls.append(command)
+        assert env["SOLVENOTES_VAULT_ROOT"] == fixture.resolve().as_posix()
+        assert env["SOLVENOTES_MANIFEST_ROOT"] == evidence.resolve().as_posix()
+        return 0
+
+    monkeypatch.setattr(install_skill, "run_process", capture)
+    function = install_skill._run_installed_full if level == "full" else install_skill._run_installed_smoke
+    assert function(skill, skill.parent) == []
+    assert any("check_source_coverage.py" in str(command[1]) for command in calls)
+    if level == "full":
+        assert any("verify_vault_package.py" in str(command[1]) for command in calls)
+
+
+
+def test_validate_all_maintainer_tests_override_private_caller_roots(tmp_path, monkeypatch):
+    monkeypatch.setenv("SOLVENOTES_VAULT_ROOT", str(tmp_path / "private-notes"))
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(tmp_path / "private-evidence"))
+    step = next(item for item in validate_all.build_steps(sys.executable, tmp_path) if item.step_id == "solvenotes-vault.tests")
+    env = {**os.environ, **step.commands[0].env}
+    assert Path(env["SOLVENOTES_VAULT_ROOT"]) == validate_all.SOLVENOTES_VAULT_SKILL / "fixtures" / "solvenotes-mini-vault"
+    assert Path(env["SOLVENOTES_MANIFEST_ROOT"]) == validate_all.SOLVENOTES_VAULT_SKILL / "fixtures" / "vault_sources"

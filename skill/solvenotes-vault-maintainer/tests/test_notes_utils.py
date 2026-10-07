@@ -21,6 +21,15 @@ from notes_utils import (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolated_manifest_root(tmp_path: Path, monkeypatch) -> Path:
+    """Keep each test independent of host-private source registry settings."""
+    root = tmp_path.with_name(tmp_path.name + "-vault-sources")
+    root.mkdir()
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(root))
+    return root
+
+
 def test_wikilinks_extract_targets_and_ignore_embeds() -> None:
     text = "See [[课程/第一章|第一章]] and [[课程/第二章#小节]] but not ![[图片.png]]."
 
@@ -212,9 +221,11 @@ def test_template_path_overrides_example_frontmatter_type() -> None:
     assert infer_note_type(ROOT / ".obsidian/templates/paper_note.md") == "template"
 
 
-def test_formal_source_manifests_include_nested_topics_and_exclude_support(tmp_path: Path) -> None:
-    expected = tmp_path / "course" / "topic" / "source_manifest.md"
-    excluded = tmp_path / "模板" / "source_manifest.md"
+def test_formal_source_manifests_include_nested_topics_and_exclude_support(
+    tmp_path: Path, isolated_manifest_root: Path
+) -> None:
+    expected = isolated_manifest_root / "course" / "topic" / "source_manifest.md"
+    excluded = isolated_manifest_root / "模板" / "source_manifest.md"
     expected.parent.mkdir(parents=True)
     excluded.parent.mkdir(parents=True)
     expected.write_text("# manifest\n", encoding="utf-8")
@@ -223,30 +234,38 @@ def test_formal_source_manifests_include_nested_topics_and_exclude_support(tmp_p
     assert formal_source_manifests(tmp_path) == [expected]
 
 
-def test_formal_source_manifests_exclude_agent_casefold_directory(tmp_path: Path) -> None:
-    excluded = tmp_path / "course" / "Agent" / "source_manifest.md"
+def test_formal_source_manifests_exclude_agent_casefold_directory(
+    tmp_path: Path, isolated_manifest_root: Path
+) -> None:
+    excluded = isolated_manifest_root / "course" / "Agent" / "source_manifest.md"
     excluded.parent.mkdir(parents=True)
     excluded.write_text("# reserved\n", encoding="utf-8")
 
     assert formal_source_manifests(tmp_path) == []
 
 
-def test_formal_source_manifests_do_not_follow_live_or_broken_symlinks(tmp_path: Path) -> None:
-    course = tmp_path / "vault" / "course"
+def test_formal_source_manifests_reject_live_or_broken_symlinks(
+    tmp_path: Path, isolated_manifest_root: Path
+) -> None:
+    course = isolated_manifest_root / "course"
     course.mkdir(parents=True)
     outside = tmp_path / "source_manifest.md"
     outside.write_text("| `outside/file.pdf` | `.pdf` | 1 | external | x | x | x | x | x |\n", encoding="utf-8")
     (course / "source_manifest.md").symlink_to(outside)
-    broken_course = tmp_path / "vault" / "broken-course"
+    broken_course = isolated_manifest_root / "broken-course"
     broken_course.mkdir()
     (broken_course / "source_manifest.md").symlink_to(tmp_path / "missing-manifest.md")
 
-    assert formal_source_manifests(tmp_path / "vault") == []
-    assert manifest_rows(tmp_path / "vault") == []
+    with pytest.raises(RuntimeError, match="unsafe or noncanonical manifest"):
+        formal_source_manifests(tmp_path)
+    with pytest.raises(RuntimeError, match="unsafe or noncanonical manifest"):
+        manifest_rows(tmp_path)
 
 
-def test_manifest_rows_read_nested_formal_manifest(tmp_path: Path) -> None:
-    manifest = tmp_path / "course" / "topic" / "source_manifest.md"
+def test_manifest_rows_read_nested_formal_manifest(
+    tmp_path: Path, isolated_manifest_root: Path
+) -> None:
+    manifest = isolated_manifest_root / "course" / "topic" / "source_manifest.md"
     manifest.parent.mkdir(parents=True)
     manifest.write_text(
         "| 源文件 | 类型 | 页/slide/记录数 | 抽取方式 | 对应笔记 | 覆盖状态 | 例题状态 | 限制说明 | 最后检查日期 |\n"
@@ -1061,3 +1080,211 @@ def test_atomic_writer_preserves_replaced_sidecar_at_success_cleanup_boundary(
     assert note.read_text(encoding="utf-8") == "writer-change\n"
     assert conflict.read_text(encoding="utf-8") == "third-party-sidecar\n"
     assert displaced_old.read_text(encoding="utf-8") == "original\n"
+
+
+def test_source_manifest_root_defaults_to_vault_sibling(tmp_path: Path, monkeypatch) -> None:
+    vault = tmp_path / "notes"
+    registry = tmp_path / "vault_sources"
+    vault.mkdir()
+    registry.mkdir()
+    monkeypatch.delenv("SOLVENOTES_MANIFEST_ROOT", raising=False)
+
+    assert notes_utils.source_manifest_root(vault) == registry
+
+
+def test_source_manifest_root_honors_explicit_external_override(
+    tmp_path: Path, isolated_manifest_root: Path
+) -> None:
+    assert notes_utils.source_manifest_root(tmp_path) == isolated_manifest_root
+
+
+@pytest.mark.parametrize("location", ["same", "inside", "ancestor"])
+def test_source_manifest_root_rejects_overlap_with_notes(
+    tmp_path: Path, monkeypatch, location: str
+) -> None:
+    vault = tmp_path / "notes"
+    vault.mkdir()
+    registry = {"same": vault, "inside": vault / "vault_sources", "ancestor": tmp_path}[location]
+    registry.mkdir(exist_ok=True)
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(registry))
+
+    with pytest.raises((RuntimeError, notes_utils.UnsafePathError)):
+        notes_utils.source_manifest_root(vault)
+
+
+def test_source_manifest_root_rejects_symlinked_root(tmp_path: Path, monkeypatch) -> None:
+    vault = tmp_path / "notes"
+    vault.mkdir()
+    real_registry = tmp_path / "real-registry"
+    real_registry.mkdir()
+    registry = tmp_path / "vault_sources"
+    registry.symlink_to(real_registry, target_is_directory=True)
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(registry))
+
+    with pytest.raises((RuntimeError, notes_utils.UnsafePathError)):
+        notes_utils.source_manifest_root(vault)
+
+
+@pytest.mark.parametrize("alias_kind", ["root", "ancestor"])
+def test_source_manifest_root_rejects_symlinked_vault_alias(
+    tmp_path: Path, monkeypatch, alias_kind: str
+) -> None:
+    real_parent = tmp_path / "real"
+    vault = real_parent / "notes"
+    registry = vault / "vault_sources"
+    manifest = registry / "course" / "source_manifest.md"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("# must not be read through a vault alias\n", encoding="utf-8")
+    alias = tmp_path / "alias"
+    alias.symlink_to(vault if alias_kind == "root" else real_parent, target_is_directory=True)
+    alias_vault = alias if alias_kind == "root" else alias / "notes"
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(registry))
+
+    with pytest.raises(RuntimeError, match="notes vault root is unsafe or unavailable"):
+        notes_utils.source_manifest_root(alias_vault)
+    with pytest.raises(RuntimeError, match="notes vault root is unsafe or unavailable"):
+        notes_utils.formal_source_manifests(alias_vault)
+    assert manifest.read_text(encoding="utf-8") == "# must not be read through a vault alias\n"
+
+
+def test_source_manifest_root_missing_is_unavailable(tmp_path: Path, monkeypatch) -> None:
+    registry = tmp_path.with_name(tmp_path.name + "-missing-registry")
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(registry))
+
+    with pytest.raises(RuntimeError):
+        formal_source_manifests(tmp_path)
+
+
+def test_external_manifest_enumerator_never_falls_back_to_in_vault_files(
+    tmp_path: Path, isolated_manifest_root: Path
+) -> None:
+    internal = tmp_path / "course" / "source_manifest.md"
+    internal.parent.mkdir()
+    internal.write_text("# forbidden legacy manifest\n", encoding="utf-8")
+
+    assert formal_source_manifests(tmp_path) == []
+    assert manifest_rows(tmp_path) == []
+    assert list(isolated_manifest_root.iterdir()) == []
+
+
+def test_external_manifest_directory_symlink_is_rejected(
+    tmp_path: Path, isolated_manifest_root: Path
+) -> None:
+    outside = tmp_path / "external-course"
+    outside.mkdir()
+    (outside / "source_manifest.md").write_text("# external\n", encoding="utf-8")
+    (isolated_manifest_root / "course").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(RuntimeError, match="unsafe directory"):
+        formal_source_manifests(tmp_path)
+
+
+@pytest.mark.parametrize("unsafe_kind", ["leaf_live", "leaf_broken", "directory", "case", "not_file"])
+def test_external_registry_never_returns_partial_inventory_for_unsafe_entry(
+    tmp_path: Path, isolated_manifest_root: Path, unsafe_kind: str
+) -> None:
+    valid = isolated_manifest_root / "valid" / "source_manifest.md"
+    valid.parent.mkdir()
+    valid.write_text("# valid\n", encoding="utf-8")
+    unsafe_course = isolated_manifest_root / "unsafe"
+    if unsafe_kind == "directory":
+        unsafe_course.symlink_to(tmp_path, target_is_directory=True)
+    else:
+        unsafe_course.mkdir()
+        entry = unsafe_course / ("SOURCE_MANIFEST.MD" if unsafe_kind == "case" else "source_manifest.md")
+        if unsafe_kind.startswith("leaf"):
+            target = tmp_path / "outside.md"
+            if unsafe_kind == "leaf_live":
+                target.write_text("# outside\n", encoding="utf-8")
+            entry.symlink_to(target)
+        elif unsafe_kind == "not_file":
+            entry.mkdir()
+        else:
+            entry.write_text("# noncanonical\n", encoding="utf-8")
+    with pytest.raises(RuntimeError):
+        formal_source_manifests(tmp_path)
+    assert valid.read_text(encoding="utf-8") == "# valid\n"
+
+
+def test_external_manifest_maps_nested_course_to_virtual_notes_directory(
+    tmp_path: Path, isolated_manifest_root: Path
+) -> None:
+    manifest = isolated_manifest_root / "course" / "topic" / "source_manifest.md"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("# manifest\n", encoding="utf-8")
+
+    assert notes_utils.manifest_note_directory(manifest, tmp_path) == tmp_path / "course" / "topic"
+    assert notes_utils.source_manifest_rel(manifest, tmp_path) == "vault_sources/course/topic/source_manifest.md"
+
+
+def test_external_manifest_mapping_rejects_unrelated_path(tmp_path: Path) -> None:
+    unrelated = tmp_path / "course" / "source_manifest.md"
+
+    with pytest.raises((RuntimeError, ValueError, notes_utils.UnsafePathError)):
+        notes_utils.manifest_note_directory(unrelated, tmp_path)
+
+
+def test_manifest_writer_changes_external_file_and_preserves_notes(
+    tmp_path: Path, isolated_manifest_root: Path
+) -> None:
+    note = tmp_path / "course" / "note.md"
+    note.parent.mkdir()
+    note.write_text("# learning content\n", encoding="utf-8")
+    manifest = isolated_manifest_root / "course" / "source_manifest.md"
+    manifest.parent.mkdir()
+    manifest.write_text("original\n", encoding="utf-8")
+
+    assert notes_utils.write_manifest_text_if_changed(manifest, "changed\n", vault_root=tmp_path) is True
+    assert notes_utils.write_manifest_text_if_changed(manifest, "changed\n", vault_root=tmp_path) is False
+    assert manifest.read_text(encoding="utf-8") == "changed\n"
+    assert note.read_text(encoding="utf-8") == "# learning content\n"
+    assert list(tmp_path.rglob("*")) == [note.parent, note]
+
+
+@pytest.mark.parametrize("kind", ["live", "broken", "parent"])
+def test_manifest_writer_rejects_symlinks_without_touching_targets(
+    tmp_path: Path, isolated_manifest_root: Path, kind: str
+) -> None:
+    course = isolated_manifest_root / "course"
+    target = tmp_path / "outside" / "source_manifest.md"
+    target.parent.mkdir()
+    if kind != "broken":
+        target.write_text("outside\n", encoding="utf-8")
+    if kind == "parent":
+        course.symlink_to(target.parent, target_is_directory=True)
+    else:
+        course.mkdir()
+        (course / "source_manifest.md").symlink_to(target)
+
+    with pytest.raises((RuntimeError, OSError)):
+        notes_utils.write_manifest_text_if_changed(course / "source_manifest.md", "changed\n", vault_root=tmp_path)
+
+    if kind != "broken":
+        assert target.read_text(encoding="utf-8") == "outside\n"
+    else:
+        assert not target.exists()
+
+
+def test_manifest_writer_rejects_in_vault_destination(tmp_path: Path) -> None:
+    manifest = tmp_path / "course" / "source_manifest.md"
+    manifest.parent.mkdir()
+    manifest.write_text("original\n", encoding="utf-8")
+
+    with pytest.raises((RuntimeError, ValueError, notes_utils.UnsafePathError)):
+        notes_utils.write_manifest_text_if_changed(manifest, "changed\n", vault_root=tmp_path)
+
+    assert manifest.read_text(encoding="utf-8") == "original\n"
+
+
+def test_manifest_writer_breaks_external_hardlink(
+    tmp_path: Path, isolated_manifest_root: Path
+) -> None:
+    outside = tmp_path / "outside.md"
+    outside.write_text("original\n", encoding="utf-8")
+    manifest = isolated_manifest_root / "source_manifest.md"
+    os.link(outside, manifest)
+
+    assert notes_utils.write_manifest_text_if_changed(manifest, "changed\n", vault_root=tmp_path) is True
+    assert outside.read_text(encoding="utf-8") == "original\n"
+    assert manifest.read_text(encoding="utf-8") == "changed\n"
+    assert manifest.stat().st_ino != outside.stat().st_ino

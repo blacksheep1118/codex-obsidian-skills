@@ -12,9 +12,9 @@
 
 ## Vault Placement
 
-Mirror the final vault layout while working in external staging. Reuse an existing top-level category when the source clearly matches it, such as `计算机视觉` for CVPR/image papers. If no category fits, use the resolved scaffold language: Chinese creates `网络资源/<collection-title>/`, and English creates `Web Resources/<collection-title>/`. Move or copy the collection into the vault only after the completion checks pass, unless the user explicitly requested an in-vault draft.
+Mirror the final vault layout while working in external staging. Reuse an existing top-level category when the source clearly matches it, such as `计算机视觉` for CVPR/image papers. If no category fits, use the resolved scaffold language: Chinese creates `网络资源/<collection-title>/`, and English creates `Web Resources/<collection-title>/`. Publish the collection only after the completion checks pass, unless the user explicitly requested an in-vault draft. In Solvenotes, publish only learning notes into Notes and store `source_manifest.md` separately under `SOLVENOTES_MANIFEST_ROOT`, or `Notes.parent / "vault_sources"` by default, mirroring the Notes-relative collection path. Reject a root inside Notes, including symlink resolutions; do not use the collection-local `--publish` path. Keep private mappings out of the public Skills repository and preserve note `source_files`, URLs, and page/slide markers.
 
-Each collection folder should contain:
+Each external staging collection (or a generic vault whose local contract permits it) should contain:
 
 - `source_manifest.md`,
 - `00_学习地图.md` for Chinese or `00_Learning_Map.md` for English,
@@ -30,7 +30,7 @@ Treat script-created notes as work in progress until all five steps are complete
 2. Replace placeholders with source-linked explanations that match nearby notes.
 3. Run `scripts/check_web_notes.py` with every required `--source` and, when applicable, `--per-link-notes` argument.
 4. Resolve scaffold residue and validation errors before reporting the collection as complete.
-5. Move or copy the validated collection from staging into the chosen vault category, then run the vault link checker on its final path.
+5. Publish the validated learning notes into the chosen vault category, then run the vault link checker on the final path. For Solvenotes, place the manifest in its mapped external directory and validate it with the project maintainer; a missing required manifest is FAIL/unavailable, never an empty PASS. Do not copy the staging manifest into Notes.
 
 ## Detailed Note Standard
 
@@ -42,7 +42,7 @@ Before final delivery, run:
 python3 scripts/check_web_notes.py <collection-dir> --source <user-url-or-local-source>
 ```
 
-Repeat `--source` for every user-supplied URL or local HTML file. Add `--per-link-notes` when the source is a reading list, paper list, syllabus, bibliography, or the user asked for per-link notes.
+For Solvenotes, run this collection-local command in external staging, then verify the final notes and external manifest using the project maintainer; staging success alone is not final provenance validation. Repeat `--source` for every user-supplied URL or local HTML file. Add `--per-link-notes` when the source is a reading list, paper list, syllabus, bibliography, or the user asked for per-link notes.
 
 Before finalizing, inspect 1-3 existing notes in the target category and match the local style for:
 
@@ -89,8 +89,8 @@ Prefer a structure close to the slide order:
 
 - overview page,
 - numbered chapter notes,
-- source manifest linking each slide deck,
-- cleanup notes for extraction noise.
+- source manifest linking each slide deck, placed externally for Solvenotes,
+- extraction-noise findings in external staging or the applicable formal manifest.
 
 If the site provides local `.ppt`, `.pptx`, or `.pdf` files, use `$ppt-to-md-for-obsidian` for extraction.
 

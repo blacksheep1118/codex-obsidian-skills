@@ -208,6 +208,18 @@ def iter_shape_text(shape):
             yield from iter_shape_text(subshape)
 
 
+def shape_type_name(shape) -> str:
+    """Classify supported shapes without dropping text from legacy unknowns."""
+
+    try:
+        shape_type = getattr(shape, "shape_type", "")
+    except NotImplementedError:
+        # Converted legacy p:sp elements can lack a geometry/type recognized by
+        # python-pptx while still exposing a valid text frame or child shapes.
+        return ""
+    return str(shape_type).lower()
+
+
 def iter_shape_records(shape, include_media_placeholders: bool = True):
     top, left = position(shape)
     emitted_text = False
@@ -220,7 +232,7 @@ def iter_shape_records(shape, include_media_placeholders: bool = True):
     if emitted_text or not include_media_placeholders:
         return
 
-    shape_type = str(getattr(shape, "shape_type", "")).lower()
+    shape_type = shape_type_name(shape)
     name = getattr(shape, "name", "")
     if "picture" in shape_type:
         yield ShapeRecord(top=top, left=left, text=f"[Image placeholder: {name or 'picture'}]", kind="image")
@@ -229,7 +241,7 @@ def iter_shape_records(shape, include_media_placeholders: bool = True):
 
 
 def shape_media_count(shape) -> int:
-    shape_type = str(getattr(shape, "shape_type", "")).lower()
+    shape_type = shape_type_name(shape)
     count = int("picture" in shape_type or bool(getattr(shape, "has_chart", False)))
     for subshape in getattr(shape, "shapes", ()) or ():
         count += shape_media_count(subshape)

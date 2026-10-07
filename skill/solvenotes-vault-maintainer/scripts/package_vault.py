@@ -115,6 +115,8 @@ def excluded(path: Path, outputs: set[Path]) -> bool:
     if lexical_absolute_path(path) in outputs:
         return True
     name = path.name
+    if name.casefold() == "source_manifest.md":
+        return True
     if name in EXCLUDE_FILE_NAMES:
         if name in {"workspace.json", "graph.json"}:
             return len(parts) >= 2 and parts[-2] == ".obsidian"

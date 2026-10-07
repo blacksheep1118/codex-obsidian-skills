@@ -169,6 +169,10 @@ def build_report() -> dict[str, object]:
         "problem": graph_problem,
     }
     problems = [item for item in junk if item["problem"]]
+    # Private source mappings are forbidden even when ignored or untracked.
+    for path in repo_paths():
+        if path.name.casefold() == "source_manifest.md" and (path.is_file() or path.is_symlink()):
+            problems.append({"path": rel(path), "kind": "source_manifest_in_notes"})
     if graph_problem:
         problems.append({"path": graph_path, "kind": "obsidian_graph_ui_state", "changed_keys": graph_keys})
     return {

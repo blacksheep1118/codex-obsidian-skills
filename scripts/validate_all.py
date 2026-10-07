@@ -338,7 +338,17 @@ def build_steps(py: str, temp_root: Path) -> list[Step]:
         Step("algorithm-job.tests", (pytest_command(py, "-q", "tests", cwd=ALGORITHM_JOB_SKILL),), skill="algorithm-job", quick=False),
         Step("algorithm-job.validator", (CommandSpec([py, "scripts/validate_skill.py"], cwd=ALGORITHM_JOB_SKILL),), skill="algorithm-job"),
         Step("solvenotes-vault.compile", (compile_command(py, temp_root, cwd=SOLVENOTES_VAULT_SKILL),), skill="solvenotes-vault"),
-        Step("solvenotes-vault.tests", (pytest_command(py, "-q", "tests", cwd=SOLVENOTES_VAULT_SKILL),), skill="solvenotes-vault", quick=False),
+        Step(
+            "solvenotes-vault.tests",
+            (pytest_command(
+                py, "-q", "tests", cwd=SOLVENOTES_VAULT_SKILL,
+                extra_env={
+                    "SOLVENOTES_VAULT_ROOT": str(SOLVENOTES_VAULT_SKILL / "fixtures" / "solvenotes-mini-vault"),
+                    "SOLVENOTES_MANIFEST_ROOT": str(SOLVENOTES_VAULT_SKILL / "fixtures" / "vault_sources"),
+                },
+            ),),
+            skill="solvenotes-vault", quick=False,
+        ),
         Step("solvenotes-vault.validator", (CommandSpec([py, "scripts/validate_skill.py"], cwd=SOLVENOTES_VAULT_SKILL),), skill="solvenotes-vault"),
     ]
 

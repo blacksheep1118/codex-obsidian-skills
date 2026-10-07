@@ -11,7 +11,9 @@ Use this reference only when the target vault or repository clearly follows solv
 ## Quality Checks
 
 - Keep backups, temporary audit ledgers, machine-readable audit output, and reviewer reports outside the vault.
-- Treat the applicable self-contained `source_manifest.md` as the only formal learning-side source evidence. Record source paths, extraction method, unit counts, mapping targets, status, example state, dates, and OCR/blank/visual limits there without claiming range mappings prove per-unit semantics.
+- Keep the applicable self-contained `source_manifest.md` outside Notes and outside the public Skills repository. Use `SOLVENOTES_MANIFEST_ROOT`, or default to `Notes.parent / "vault_sources"`; mirror the course/topic path relative to Notes. Reject roots inside Notes, including symlink resolutions. Synthetic public fixtures may use `fixtures/vault_sources`.
+- Resolve manifest note targets against the corresponding Notes directory. Preserve source paths and types, extraction methods, unit counts, mapping targets, status, dates, example evidence, and OCR/blank/visual limits. Keep `source_files`, source URLs, and page/slide markers in the learning notes.
+- Missing, unreadable, or empty required external manifests are FAIL/unavailable, never an empty PASS. Mapping ranges do not prove per-unit semantic or visual verification.
 - Do not create or update `99_内容覆盖审查.md`, `coverage_audit`, `vault_audit`, or other audit/report notes in Solvenotes. Remove stale navigation to legacy audit pages when cleaning them up.
 - Generated review pages, example indexes, and concept indexes should follow the project’s existing filenames and validators; temporary coverage ledgers remain outside the vault.
 - Do not place page-level coverage dump sections into ordinary study notes.
@@ -57,5 +59,5 @@ Use this reference only when the target vault or repository clearly follows solv
   python3 scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes /path/to/notes/计算机视觉/图像Raw域去噪
   ```
 
-- Prefer local project validators over bundled generic scripts. A typical solvenotes-style subset may include `check_links.py`, `check_frontmatter.py`, `check_headings.py`, `check_markdown_tables.py`, `check_all_notes.py`, the project-local manifest-only `check_source_coverage.py`, strict source-file checks, and repository hygiene/package checks.
+- Prefer local project validators over bundled generic scripts. A typical solvenotes-style subset may include `check_links.py`, `check_frontmatter.py`, `check_headings.py`, `check_markdown_tables.py`, `check_all_notes.py`, the external maintainer `check_source_coverage.py` using the resolved manifest root, strict source-file checks, and repository hygiene/package checks.
 - Before upload, run `git status`, stage only intended files, and leave unrelated dirty files untouched.

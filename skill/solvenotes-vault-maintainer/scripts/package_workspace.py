@@ -80,6 +80,8 @@ def excluded(relative: Path) -> bool:
     if any(part in EXCLUDED_DIRS for part in parts):
         return True
     name = relative.name
+    if parts[0] == "notes" and name.casefold() == "source_manifest.md":
+        return True
     if name.startswith("._") or name in EXCLUDED_NAMES:
         return True
     if name.startswith(".env") or name.startswith("workspace.local"):
@@ -94,6 +96,9 @@ def inventory(root: Path, excluded_paths: set[Path]) -> list[tuple[Path, bytes, 
         current = Path(current_root)
         kept_directories: list[str] = []
         for name in sorted(directory_names):
+            # External originals and private vault_sources are not package inputs.
+            if current == root and name not in WORKSPACE_TOP_LEVEL:
+                continue
             relative = (current / name).relative_to(root)
             candidate = current / name
             if excluded(relative):

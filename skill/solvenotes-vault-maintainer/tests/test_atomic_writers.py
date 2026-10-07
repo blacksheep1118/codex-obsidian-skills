@@ -69,7 +69,10 @@ def test_sync_entry_propagates_exchange_window_conflict_without_losing_concurren
 
 def test_normalize_entry_breaks_hardlink_without_modifying_external_name(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "vault"
-    manifest = root / "course" / "source_manifest.md"
+    root.mkdir()
+    registry = tmp_path / "vault_sources"
+    registry.mkdir()
+    manifest = registry / "course" / "source_manifest.md"
     manifest.parent.mkdir(parents=True)
     original = (
         "| 源文件 | 类型 | 页/slide/记录数 | 抽取方式 | 对应笔记 | 覆盖状态 | 例题状态 | 限制说明 | 最后检查日期 |\n"
@@ -79,9 +82,17 @@ def test_normalize_entry_breaks_hardlink_without_modifying_external_name(tmp_pat
     external.write_text(original, encoding="utf-8")
     os.link(external, manifest)
     external_identity = (external.stat().st_dev, external.stat().st_ino)
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(registry))
     monkeypatch.setattr(notes_utils, "ROOT", root)
     monkeypatch.setattr(nsm, "ROOT", root)
     monkeypatch.setattr(nsm, "source_manifest_paths", lambda: [manifest])
+    monkeypatch.setattr(
+        nsm,
+        "write_manifest_text_if_changed",
+        lambda path, text, **kwargs: notes_utils.write_manifest_text_if_changed(
+            path, text, vault_root=root, **kwargs
+        ),
+    )
     monkeypatch.setattr(sys, "argv", ["normalize_source_manifests.py", "--date", "2026-08-09"])
 
     assert nsm.main() == 0
@@ -89,6 +100,7 @@ def test_normalize_entry_breaks_hardlink_without_modifying_external_name(tmp_pat
     assert external.read_text(encoding="utf-8") == original
     assert (external.stat().st_dev, external.stat().st_ino) == external_identity
     assert (manifest.stat().st_dev, manifest.stat().st_ino) != external_identity
+    assert not list(root.rglob("source_manifest.md"))
     assert "|---|---|---:|---|---|---|---|---|---|" in manifest.read_text(encoding="utf-8")
 
 
@@ -152,7 +164,10 @@ def test_sync_rejects_change_since_transformation_read(tmp_path: Path, monkeypat
 
 def test_normalize_rejects_change_since_transformation_read(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "vault"
-    manifest = root / "course" / "source_manifest.md"
+    root.mkdir()
+    registry = tmp_path / "vault_sources"
+    registry.mkdir()
+    manifest = registry / "course" / "source_manifest.md"
     manifest.parent.mkdir(parents=True)
     original = (
         "| 源文件 | 类型 | 页/slide/记录数 | 抽取方式 | 对应笔记 | 覆盖状态 | 例题状态 | 限制说明 | 最后检查日期 |\n"
@@ -163,9 +178,17 @@ def test_normalize_rejects_change_since_transformation_read(tmp_path: Path, monk
     original_inode = (manifest.stat().st_dev, manifest.stat().st_ino)
     original_normalized_text = nsm.normalized_text
     raced = False
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(registry))
     monkeypatch.setattr(notes_utils, "ROOT", root)
     monkeypatch.setattr(nsm, "ROOT", root)
     monkeypatch.setattr(nsm, "source_manifest_paths", lambda: [manifest])
+    monkeypatch.setattr(
+        nsm,
+        "write_manifest_text_if_changed",
+        lambda path, text, **kwargs: notes_utils.write_manifest_text_if_changed(
+            path, text, vault_root=root, **kwargs
+        ),
+    )
     monkeypatch.setattr(sys, "argv", ["normalize_source_manifests.py", "--date", "2026-08-09"])
 
     def normalize_then_race(text: str, checked_date: str) -> str:
@@ -184,6 +207,7 @@ def test_normalize_rejects_change_since_transformation_read(tmp_path: Path, monk
 
     assert captured.value.committed is False
     assert manifest.read_text(encoding="utf-8") == concurrent
+    assert not list(root.rglob("source_manifest.md"))
 
 
 def test_wrap_rejects_change_since_transformation_read(tmp_path: Path, monkeypatch) -> None:

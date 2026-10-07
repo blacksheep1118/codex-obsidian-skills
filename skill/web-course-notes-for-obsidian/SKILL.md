@@ -23,7 +23,7 @@ For each course, book, or topic collection, prefer:
 - `知识点详细版_含公式.md` when the material is course-like.
 - `知识点精简复习版_含公式.md` or `快速复习.md` for review.
 
-Keep source URLs in notes or frontmatter so provenance stays visible.
+Keep source URLs in notes or frontmatter so provenance stays visible. For Solvenotes, `source_manifest.md` is a separate external deliverable: use `SOLVENOTES_MANIFEST_ROOT`, or `Notes.parent / "vault_sources"` by default, mirroring the Notes-relative collection path. Reject roots inside Notes, including symlink resolutions, and keep private mappings out of the public Skills repository. Preserve `source_files`, URLs, and source markers in notes. Missing required manifests are FAIL/unavailable, never an empty PASS. Other vaults retain their local provenance layout.
 
 ## Handoff Boundaries
 
@@ -59,8 +59,8 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
 3. Place notes in the vault.
    - If the user provides an Obsidian notes directory, inspect existing top-level folders and classify the collection into the closest existing folder.
    - If no existing folder fits, create a language-specific fallback folder under the notes directory: `网络资源/<collection-title>/` for Chinese scaffolds or `Web Resources/<collection-title>/` for English scaffolds.
-   - Use `scripts/create_web_notes.py <url...>` to create an external staging collection by default. Read the sources, replace the scaffold content, run the source, copyright, and note checks, then move or copy the completed collection into the chosen vault category.
-   - The compatibility form `--publish --notes-dir <notes-dir>` writes a newly generated scaffold directly into the vault. Use it only when the user explicitly requests an in-vault draft, and keep its scaffold status until the content passes the completion gate.
+   - Use `scripts/create_web_notes.py <url...>` to create an external staging collection by default. Read the sources, replace the scaffold content, run the source, copyright, and note checks, then publish the completed learning notes into the chosen vault category. For Solvenotes, move the manifest separately to the external manifest store, preserving its source-to-note mapping; never copy the whole staging collection into Notes.
+   - The compatibility form `--publish --notes-dir <notes-dir>` writes a newly generated scaffold directly into the vault. This compatibility path assumes a collection-local manifest and must not be used for Solvenotes. In other vaults, use it only when the user explicitly requests an in-vault draft, and keep its scaffold status until the content passes the completion gate.
    - Use `--staging-dir /tmp/<name>` when a stable external staging path is useful; never use a staging directory inside the Notes vault.
    - Use `--category <folder>` when the user or context clearly identifies the destination category.
    - Use `--language auto` by default. Read `references/note-output.md` for its detection, placement, and naming rules; use `--language zh|en`, `--root-folder-name`, or `--map-note-name` for explicit overrides.
@@ -86,7 +86,7 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
 
 6. Validate before finishing.
    - Check local Obsidian links with `$obsidian-vault-organizer`.
-   - Run `scripts/check_web_notes.py <collection-dir> --source <user-url>` with every user-supplied URL or local source, and add `--per-link-notes` when the user requested per-link notes.
+   - Run `scripts/check_web_notes.py <collection-dir> --source <user-url>` with every user-supplied URL or local source, and add `--per-link-notes` when the user requested per-link notes. For Solvenotes, run this collection-local check in external staging, then validate the final notes and external manifest with the project maintainer. A staging PASS alone does not verify the final external mapping.
    - Check that `source_manifest.md` covers every URL the user supplied, including inaccessible or failed sources.
    - For each URL under `Learning Resources` in `source_manifest.md`, verify there is a corresponding per-link note when per-link notes were requested or the source is a reading list. Keep non-learning endpoints and static bundles under `Provenance Helpers`; they document collection provenance and do not require separate study notes.
    - Check that generated notes do not contain long copied passages from books or web pages.
@@ -118,7 +118,7 @@ If the run only produced scaffolds, report it as unfinished under the scaffold l
 ## Bundled Resources
 
 - `scripts/collect_web_sources.py`: collect titles, descriptions, access status, errors, and learning-resource links from URL or local HTML inputs.
-- `scripts/create_web_notes.py`: classify sources into external staging by default and write `source_manifest.md`, a language-specific entry map note, and detailed note scaffolds for the lifecycle in `references/note-output.md`; the explicit `--publish` compatibility path writes those scaffolds directly into a notes directory.
+- `scripts/create_web_notes.py`: classify sources into external staging by default and write `source_manifest.md`, a language-specific entry map note, and detailed note scaffolds for the lifecycle in `references/note-output.md`; the explicit `--publish` compatibility path writes those scaffolds directly into a notes directory and is not suitable for Solvenotes' external-manifest contract.
 - `scripts/check_web_notes.py`: validate finalized web-note collections for source coverage, scaffold residue, and per-link note coverage when required.
 - `references/source-policy.md`: source access, copyright, attribution, and safety rules.
 - `references/note-output.md`: note structures for video courses, PPT sites, book sites, and mixed web learning resources.

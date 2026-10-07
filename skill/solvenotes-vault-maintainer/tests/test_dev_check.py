@@ -127,3 +127,52 @@ def test_task_temp_root_controls_caches_and_online_report() -> None:
     assert "$SOLVENOTES_TMP_ROOT/solvenotes-pycache" in script
     assert "$SOLVENOTES_TMP_ROOT/solvenotes-ruff-cache" in script
     assert "$SOLVENOTES_TMP_ROOT/solvenotes-external-sources.json" in script
+
+
+
+def test_basic_gate_runs_content_checks_without_private_source_audit(tmp_path):
+    import json
+    import sys
+
+    skill = tmp_path / "installed" / "solvenotes-vault-maintainer"
+    scripts = skill / "scripts"
+    scripts.mkdir(parents=True)
+    script_text = DEV_CHECK.read_text(encoding="utf-8")
+    (scripts / "dev_check.sh").write_text(script_text, encoding="utf-8")
+    (scripts / "run_with_timeout.py").write_text(
+        "import subprocess,sys\nraise SystemExit(subprocess.call(sys.argv[sys.argv.index('--')+1:]))\n",
+        encoding="utf-8",
+    )
+    names = [
+        "doctor.py", "check_repo_hygiene.py", "check_skills_lock.py", "check_guidance.py", "check_algorithm_job_notes.py",
+        "check_links.py", "check_frontmatter.py", "check_all_notes.py", "check_naturalness.py",
+        "check_python_examples.py", "check_markdown_tables.py", "check_formulas.py", "check_headings.py",
+    ]
+    for name in names:
+        (scripts / name).write_text(
+            "import json,os,sys\nfrom pathlib import Path\n"
+            "with open(os.environ['CHECK_LOG'],'a') as f:f.write(json.dumps([Path(__file__).name,*sys.argv[1:]])+'\\n')\n",
+            encoding="utf-8",
+        )
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "AGENT.md").write_text("# Rules\n", encoding="utf-8")
+    log = tmp_path / "checks.jsonl"
+    bin_dir, git_log = stub_git(tmp_path)
+    env = os.environ.copy()
+    env.update({
+        "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
+        "GIT_CALL_LOG": str(git_log), "CHECK_LOG": str(log),
+        "SOLVENOTES_VAULT_ROOT": str(notes),
+        "SOLVENOTES_MANIFEST_ROOT": str(tmp_path / "missing-private-evidence"),
+        "SOLVENOTES_WORKSPACE_ROOT": str(tmp_path / "unavailable-workspace"),
+        "SOLVENOTES_PYTHON_BIN": sys.executable,
+        "SOLVENOTES_TMP_ROOT": str(tmp_path / "cache"),
+    })
+    result = subprocess.run(["bash", str(scripts / "dev_check.sh"), "vault-basic"], env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "source_audit NOT_RUN" in result.stdout
+    calls = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    assert set(call[0] for call in calls) == set(names)
+    assert [call for call in calls if call[0] == "doctor.py"][0][-2:] == ["--notes-root", str(notes)]
+    assert "vault-basic" in calls[0]

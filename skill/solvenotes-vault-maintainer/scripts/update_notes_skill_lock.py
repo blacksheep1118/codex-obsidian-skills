@@ -59,6 +59,7 @@ TARGET_FILES = (
     "skill/algorithm-job-notes-for-obsidian/scripts/validate_skill.py",
 )
 TARGET_FIXTURE_PREFIX = "skill/solvenotes-vault-maintainer/fixtures/solvenotes-mini-vault/"
+TARGET_MANIFEST_FIXTURE_PREFIX = "skill/solvenotes-vault-maintainer/fixtures/vault_sources/"
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 INSTALL_EXCLUDED_PARTS = {"tests"}
 MAX_LOCK_BYTES = 1_048_576
@@ -294,8 +295,9 @@ def verify_target_tree(skills_root: Path, commit: str, *, level: str) -> dict[st
     paths = target_paths(skills_root, commit)
     path_set = set(paths)
     missing = [relative for relative in TARGET_FILES if relative not in path_set]
-    if not any(path.startswith(TARGET_FIXTURE_PREFIX) for path in paths):
-        missing.append(TARGET_FIXTURE_PREFIX + "<directory>")
+    for fixture_prefix in (TARGET_FIXTURE_PREFIX, TARGET_MANIFEST_FIXTURE_PREFIX):
+        if not any(path.startswith(fixture_prefix) for path in paths):
+            missing.append(fixture_prefix + "<directory>")
     if missing:
         raise ValueError(
             f"target commit {commit} does not contain the required maintainer tree: "
@@ -414,12 +416,19 @@ def verify_target_tree(skills_root: Path, commit: str, *, level: str) -> dict[st
             archive = target_archive(skills_root, commit)
             with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
                 safe_extract_tar(tar, extracted)
+            environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+            environment.update({
+                "SOLVENOTES_VAULT_ROOT": str(extracted / TARGET_FIXTURE_PREFIX),
+                "SOLVENOTES_MANIFEST_ROOT": str(extracted / TARGET_MANIFEST_FIXTURE_PREFIX),
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+            })
             returncode = run_process(
                 [os.fspath(Path(os.environ.get("SOLVENOTES_PYTHON_BIN", sys.executable))), "-m", "pytest", "-q", "tests"],
                 cwd=extracted / "skill" / MAINTAINER_SKILL,
                 timeout=180,
                 label=f"target commit {commit} maintainer tests",
-                env={key: value for key, value in os.environ.items() if key != "PYTHONPATH"},
+                env=environment,
             )
             if returncode:
                 raise ValueError(

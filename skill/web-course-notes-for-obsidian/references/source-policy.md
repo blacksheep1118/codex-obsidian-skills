@@ -8,7 +8,7 @@ Use the user's URLs as pointers to source material, not permission to bypass acc
 - Use user-provided transcripts, excerpts, screenshots, or downloaded files.
 - Summarize, outline, compare, and create study notes from accessible material.
 - Quote only short excerpts when needed for explanation or citation.
-- Preserve source URLs and page titles in `source_manifest.md`.
+- Preserve source URLs and page titles in `source_manifest.md`; for Solvenotes, keep that manifest in the external store specified by `SOLVENOTES_MANIFEST_ROOT` or `Notes.parent / "vault_sources"`, never inside Notes or the public Skills repository. Keep source citations in the learning notes themselves.
 
 ## Not Allowed
 

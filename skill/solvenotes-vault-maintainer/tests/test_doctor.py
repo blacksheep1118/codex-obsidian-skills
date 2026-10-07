@@ -247,3 +247,58 @@ def test_runtime_profile_requires_python_3_10(
 
     assert values["status_python"] == "UNSUPPORTED"
     assert "Python >= 3.10 required (found 3.9.20)" in issues
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_manifest_root_probe_uses_notes_sibling_or_explicit_override(tmp_path, monkeypatch, configured):
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    evidence = tmp_path / ("custom-evidence" if configured else "vault_sources")
+    evidence.mkdir()
+    monkeypatch.delenv("SOLVENOTES_MANIFEST_ROOT", raising=False)
+    if configured:
+        monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(evidence))
+    assert doctor.manifest_root_status(notes) == (str(evidence), "AVAILABLE", None)
+
+
+@pytest.mark.parametrize("kind", ["missing", "file", "inside", "ancestor", "symlink"])
+def test_manifest_root_probe_rejects_unavailable_or_notes_local_paths(tmp_path, monkeypatch, kind):
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    evidence = tmp_path / "vault_sources"
+    if kind == "file":
+        evidence.write_text("file", encoding="utf-8")
+    elif kind == "inside":
+        evidence = notes / "evidence"
+        evidence.mkdir()
+    elif kind == "ancestor":
+        evidence = tmp_path
+    elif kind == "symlink":
+        target = tmp_path / "real"
+        target.mkdir()
+        try:
+            evidence.symlink_to(target, target_is_directory=True)
+        except OSError as exc:
+            pytest.skip(f"symlinks unavailable: {exc}")
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(evidence))
+    location, status, error = doctor.manifest_root_status(notes)
+    assert location == str(evidence)
+    assert status in {"MISSING", "INVALID"}
+    assert error
+
+
+@pytest.mark.parametrize("profile, source_required", [("vault-basic", False), ("vault-full", True), ("github-ready", True)])
+def test_only_source_gate_profiles_require_external_evidence(tmp_path, monkeypatch, profile, source_required):
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "AGENT.md").write_text("# Rules\n", encoding="utf-8")
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(tmp_path / "unavailable"))
+    monkeypatch.setattr(doctor, "python_probe", lambda _python: ({"executable": "python", "version": "3.11.0"}, None))
+    monkeypatch.setattr(doctor, "module_versions", lambda *_args: ({"PyYAML": "6.0.3"}, None))
+    monkeypatch.setattr(doctor, "command_version", lambda command: f"/usr/bin/{command}")
+
+    values, issues = doctor.report(python_bin="python", notes_root=notes, skills_root=tmp_path, profile=profile)
+
+    assert values["status_manifest_root"] == "MISSING"
+    assert values["source_audit"] == ("REQUIRED_BY_GATE" if source_required else "NOT_RUN")
+    assert bool([issue for issue in issues if "source manifest root" in issue]) is source_required

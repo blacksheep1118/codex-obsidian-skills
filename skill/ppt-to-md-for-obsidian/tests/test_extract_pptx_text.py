@@ -293,3 +293,100 @@ def test_zip_fallback_reports_backend_partial_and_slide_media_stats(tmp_path: Pa
     assert result.media_objects == 1
     assert "- Partial fallback: true" in result.markdown
     assert "Use OCR or manual slide inspection" in result.markdown
+
+
+@pytest.mark.parametrize("include_media_placeholders", [True, False])
+def test_legacy_unknown_shapes_keep_text_groups_and_media(
+    tmp_path: Path, include_media_placeholders: bool
+) -> None:
+    from io import BytesIO
+
+    from PIL import Image
+    from pptx import Presentation
+    from pptx.chart.data import CategoryChartData
+    from pptx.enum.chart import XL_CHART_TYPE
+    from pptx.enum.shapes import MSO_AUTO_SHAPE_TYPE
+    from pptx.util import Inches
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    slide.shapes.add_textbox(0, 0, Inches(2), Inches(1)).text = "Recognized heading"
+    group = slide.shapes.add_group_shape()
+
+    def add_unknown(shapes, text):
+        shape = shapes.add_shape(
+            MSO_AUTO_SHAPE_TYPE.RECTANGLE, 0, Inches(1), Inches(2), Inches(1)
+        )
+        shape.text = text
+        # Geometry-free p:sp matches the shape-type failure in converted .ppt.
+        geometry = shape.element.find("{*}spPr/{*}prstGeom")
+        assert geometry is not None
+        geometry.getparent().remove(geometry)
+        with pytest.raises(NotImplementedError):
+            _ = shape.shape_type
+        return shape
+
+    add_unknown(group.shapes, "Legacy grouped text")
+    add_unknown(slide.shapes, "Legacy top-level text")
+    add_unknown(slide.shapes, "")
+    png = BytesIO()
+    Image.new("RGB", (2, 2), "white").save(png, format="PNG")
+    for shapes in (slide.shapes, group.shapes):
+        shapes.add_picture(BytesIO(png.getvalue()), Inches(3), Inches(2), Inches(1), Inches(1))
+    data = CategoryChartData()
+    data.categories = ["A", "B"]
+    data.add_series("Count", [1, 2])
+    slide.shapes.add_chart(
+        XL_CHART_TYPE.COLUMN_CLUSTERED, 0, Inches(3), Inches(2), Inches(2), data
+    )
+    blank_slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_unknown(blank_slide.shapes, "")
+    source = tmp_path / "legacy-shapes.pptx"
+    prs.save(source)
+
+    result = extract_pptx_result(source, include_media_placeholders=include_media_placeholders)
+
+    assert result.backend == "python-pptx"
+    assert result.partial is False
+    assert result.slide_count == 2
+    assert result.blank_slides == 1
+    assert result.media_objects == 3
+    assert "## Slide 1: Recognized heading" in result.markdown
+    assert "- Legacy grouped text" in result.markdown
+    assert "- Legacy top-level text" in result.markdown
+    assert "- [No visible text extracted]" in result.markdown
+    assert ("[Image placeholder:" in result.markdown) is include_media_placeholders
+    assert ("[Chart placeholder:" in result.markdown) is include_media_placeholders
+
+
+@pytest.mark.parametrize("error_type", [ValueError, RuntimeError])
+@pytest.mark.parametrize("operation", ["records", "media_count"])
+def test_shape_type_classification_preserves_unrelated_errors(error_type, operation) -> None:
+    class BrokenShape:
+        @property
+        def shape_type(self):
+            raise error_type("invalid shape data")
+
+    with pytest.raises(error_type, match="invalid shape data"):
+        if operation == "records":
+            list(extractor.iter_shape_records(BrokenShape()))
+        else:
+            extractor.shape_media_count(BrokenShape())
+
+
+@pytest.mark.parametrize("operation", ["records", "media_count"])
+def test_unknown_type_does_not_hide_chart_parsing_errors(operation) -> None:
+    class BrokenChart:
+        @property
+        def shape_type(self):
+            raise NotImplementedError("unknown shape type")
+
+        @property
+        def has_chart(self):
+            raise NotImplementedError("unsupported chart data")
+
+    with pytest.raises(NotImplementedError, match="unsupported chart data"):
+        if operation == "records":
+            list(extractor.iter_shape_records(BrokenChart()))
+        else:
+            extractor.shape_media_count(BrokenChart())

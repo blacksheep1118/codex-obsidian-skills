@@ -8,7 +8,7 @@ import json
 import re
 import sys
 
-from notes_utils import markdown_files, read_text, rel, text_without_code
+from notes_utils import markdown_files, read_text, rel, split_block_math, text_without_code
 
 BAD_LATEX_PATTERNS = [
     (re.compile(r"\\\\(theta|frac|top|rightarrow|nabla|sum|prod|alpha|beta|lambda)"), "double-escaped LaTeX command"),
@@ -17,7 +17,7 @@ BAD_LATEX_PATTERNS = [
 
 
 def block_formulas(text: str) -> list[str]:
-    parts = text_without_code(text).split("$$")
+    parts = split_block_math(text_without_code(text))
     return parts[1::2] if len(parts) > 1 else []
 
 
@@ -36,7 +36,7 @@ def main() -> int:
             files_with_formulas += 1
         formula_blocks += len(formulas)
         prose_text = text_without_code(text)
-        if prose_text.count("$$") % 2:
+        if (len(split_block_math(prose_text)) - 1) % 2:
             issues.append(f"{rel(path)}: unbalanced $$ delimiters")
         for idx, formula in enumerate(formulas, 1):
             if "�" in formula:

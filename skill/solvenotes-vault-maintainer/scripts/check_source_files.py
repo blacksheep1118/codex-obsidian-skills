@@ -17,7 +17,7 @@ from io import BytesIO
 from pathlib import Path, PurePosixPath
 from xml.etree import ElementTree
 
-from notes_utils import manifest_rows
+from notes_utils import formal_source_manifests, manifest_rows
 from run_with_timeout import run_capture
 from safe_io import (
     InputTooLargeError,
@@ -36,6 +36,8 @@ MAX_OPENXML_MEMBER_BYTES = 128 * 1024 * 1024
 MAX_OPENXML_TOTAL_BYTES = 1024 * 1024 * 1024
 MAX_OPENXML_COMPRESSION_RATIO = 1000
 ISSUE_CODE_MARKERS = (
+    ("SOURCE_MANIFEST_ROOT_UNAVAILABLE", "external source manifest root"),
+    ("SOURCE_MANIFESTS_MISSING", "external source manifest registry contains no formal manifests"),
     ("SOURCE_ROOT_UNAVAILABLE", "source root"),
     ("SOURCE_PATH_UNSAFE", "unsafe source path in manifest"),
     ("SOURCE_MISSING", "missing source file"),
@@ -455,8 +457,16 @@ def main() -> int:
     args = parser.parse_args()
 
     source_root = configured_source_root(args.source_root)
-    rows = manifest_rows()
     issues: list[str] = []
+    try:
+        manifests = formal_source_manifests()
+        rows = manifest_rows()
+    except (OSError, RuntimeError) as exc:
+        manifests, rows = [], []
+        issues.append(f"external source manifest root unavailable: {exc}")
+    else:
+        if not manifests:
+            issues.append("external source manifest registry contains no formal manifests")
     missing_source_issues: list[str] = []
     extractability_issues: list[str] = []
     extractability_evidence: list[ExtractabilityEvidence] = []

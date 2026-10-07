@@ -12,8 +12,20 @@ orchestrator for a learning vault; it does not replace the reusable
 
 ## Boundary
 
-- `/notes` contains notes, navigation, review pages, learning paths, and
-  versioned source manifests that provide provenance.
+- `/notes` contains notes, navigation, review pages, learning paths,
+  source citations, and source metadata in note frontmatter. It contains no
+  `source_manifest.md` or source-manifest history pages.
+- Durable private source manifests live outside Notes and the public Skills
+  repository. Resolve `SOLVENOTES_MANIFEST_ROOT` when set; otherwise use
+  `Notes.parent / "vault_sources"`. Mirror each course/topic path relative to
+  Notes, for example `<manifest-root>/<course>/source_manifest.md`. Reject a
+  manifest root inside Notes, including a symlink that resolves there.
+- Preserve `source_files`, source URLs, and page/slide markers in learning
+  notes. Resolve manifest note targets against the matching Notes directory;
+  moving the manifest must not erase source ownership or weaken coverage.
+  Missing, unreadable, or empty required manifests are FAIL/unavailable, never
+  an empty PASS. Public synthetic fixtures may use `fixtures/vault_sources`;
+  never copy real private mappings into the public Skills repository.
 - This skill owns maintenance scripts, tests, fixtures, package/export checks,
   and temporary diagnostics. Do not recreate these under `/notes`.
 - Templates live in the hidden, versioned `.obsidian/templates/` directory and
@@ -24,9 +36,13 @@ orchestrator for a learning vault; it does not replace the reusable
   handoff after checking that it contains no requested deliverable.
 - The public Skills repository must remain self-contained: its CI uses source
   code and non-sensitive fixtures only, and never checks out a private Notes
-  vault. The real-vault quick/full gate belongs to the Notes repository's
+  vault or its private manifest store. The real-vault quick/full gate belongs
+  to the Notes repository's
   hidden `.github/workflows/vault-quality.yml`, which pins this source skill to
-  a commit. Do not make the two repositories follow floating `main` branches.
+  a commit. A real-vault source-coverage gate also needs the external private
+  manifest store; a Notes checkout alone cannot establish source coverage.
+  Report unavailable manifests explicitly instead of accepting zero files. Do
+  not make the two repositories follow floating `main` branches.
 - Never modify an installed skill copy directly. Edit this source repository,
   validate it, then use the repository installation scripts to synchronize the
   mirror.
@@ -45,6 +61,8 @@ Set the vault explicitly before invoking a maintenance command:
 
 ```bash
 export SOLVENOTES_VAULT_ROOT=/absolute/path/to/solvenotes/notes
+# Optional override; the default is the vault sibling vault_sources directory.
+export SOLVENOTES_MANIFEST_ROOT=/absolute/path/to/solvenotes/vault_sources
 RUN_TMP="$(mktemp -d)"
 export RUN_TMP TMPDIR="$RUN_TMP" SOLVENOTES_TMP_ROOT="$RUN_TMP"
 ```
@@ -73,8 +91,9 @@ path, and Skills path without using machine-specific fallbacks.
    algorithm skill for the nine-direction algorithm-job contract and C++
    runnable examples. Use its separate runtime contract when explicitly
    marked dependency-backed Python examples must actually execute.
-4. Edit notes semantically. Preserve source manifests and move unique content
-   before deleting obsolete pages or routes.
+4. Edit notes semantically. Preserve the external source manifests and update
+   their note targets together with `source_files` when notes move. Move unique
+   content before deleting obsolete pages or routes.
 5. Run the full gate from this skill and compile only explicitly marked
    runnable code. Build and verify a clean package outside the vault only when
    the user requests an export and local guidance permits package mode.

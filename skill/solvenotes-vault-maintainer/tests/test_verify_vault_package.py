@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import stat
 import unicodedata
@@ -9,6 +10,7 @@ from pathlib import Path
 
 import archive_contract
 import package_vault as packager
+import pytest
 import verify_vault_package as verifier
 
 
@@ -149,3 +151,26 @@ def test_verify_vault_package_detects_tampered_manifest(tmp_path: Path, monkeypa
 
     assert result["ok"] is False
     assert "manifest content_digest does not match file records" in result["issues"]
+
+
+@pytest.mark.parametrize("name", ["source_manifest.md", "course/nested/SOURCE_MANIFEST.MD"])
+def test_verify_rejects_source_manifest_even_with_valid_integrity_metadata(tmp_path, name):
+    data = b"private evidence"
+    records = [{"path": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}]
+    manifest = {
+        "schema_version": 1,
+        "package_type": "solvenotes-notes",
+        "file_count": 1,
+        "archive_entry_count": 2,
+        "content_digest": verifier.records_digest(records),
+        "files": records,
+    }
+    archive = tmp_path / "legacy.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr(name, data)
+        bundle.writestr(verifier.MANIFEST_NAME, json.dumps(manifest))
+
+    result = verifier.verify(archive)
+
+    assert result["ok"] is False
+    assert result["issues"] == [f"source manifest is forbidden in Notes package: {name}"]

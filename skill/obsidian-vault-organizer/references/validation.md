@@ -56,7 +56,7 @@ Reject legacy audit/report pages in each Solvenotes course directory:
 python3 scripts/check_vault_quality.py --strict-study --profile solvenotes --forbid-report-notes /path/to/course
 ```
 
-Solvenotes always reports `99_内容覆盖审查.md` and audit/report note types as `REPORT_NOTE`, even when a typed sibling manifest exists or the generic compatibility flag is supplied. Keep the self-contained `source_manifest.md` and place temporary ledgers outside the vault. See `solvenotes-profile.md` for nested-topic skip rules.
+Solvenotes always reports `99_内容覆盖审查.md` and audit/report note types as `REPORT_NOTE`, even when a typed sibling manifest exists or the generic compatibility flag is supplied. Keep the self-contained `source_manifest.md` in the external store selected by `SOLVENOTES_MANIFEST_ROOT` (default `Notes.parent / "vault_sources"`), mirroring the course/topic path relative to Notes. Neither manifests nor temporary ledgers belong in Notes. Preserve note `source_files` and source citations; missing required external manifests are FAIL/unavailable, never an empty PASS. See `solvenotes-profile.md` for nested-topic skip rules.
 
 For a non-Solvenotes vault that deliberately retains the typed legacy pair, the generic profile can opt in explicitly:
 

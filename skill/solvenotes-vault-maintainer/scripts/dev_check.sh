@@ -72,13 +72,14 @@ trap on_exit EXIT
 
 usage() {
   cat <<'EOF'
-Usage: SOLVENOTES_VAULT_ROOT=/path/to/notes bash scripts/dev_check.sh <tool-quick|tool-full|vault-quick|vault-full|vault-runtime|quick|full|online|github-ready|gc> [options]
+Usage: SOLVENOTES_VAULT_ROOT=/path/to/notes bash scripts/dev_check.sh <tool-quick|tool-full|vault-quick|vault-basic|vault-full|vault-runtime|quick|full|online|github-ready|gc> [options]
 
 Commands:
   tool-quick    compile and validate the maintenance Skill entry points
   tool-full     run Skill lint and tests; use this in the Skills repository CI
   vault-quick   run fast external-vault content checks
-  vault-full    run the complete external-vault content gate
+  vault-basic   source-independent checks for cloud CI; no source audit
+  vault-full    run the complete external-vault content and source gate
   vault-runtime execute only reviewed, dependency-backed python-e2e blocks
   quick         compatibility alias for vault-quick
   full          compatibility alias for vault-full
@@ -183,7 +184,7 @@ check_workspace_guidance() {
 
 tool_quick() {
   if [[ -f "$SKILLS_ROOT/scripts/validate_all.py" ]]; then
-    run_step env -u SOLVENOTES_VAULT_ROOT \
+    run_step env -u SOLVENOTES_VAULT_ROOT -u SOLVENOTES_MANIFEST_ROOT \
       SOLVENOTES_PYTHON_BIN="$PYTHON_BIN" \
       "$PYTHON_BIN" "$SKILLS_ROOT/scripts/validate_all.py" --quick
     return
@@ -195,7 +196,7 @@ tool_quick() {
 
 tool_full() {
   if [[ -f "$SKILLS_ROOT/scripts/validate_all.py" ]]; then
-    run_step env -u SOLVENOTES_VAULT_ROOT \
+    run_step env -u SOLVENOTES_VAULT_ROOT -u SOLVENOTES_MANIFEST_ROOT \
       SOLVENOTES_PYTHON_BIN="$PYTHON_BIN" \
       "$PYTHON_BIN" "$SKILLS_ROOT/scripts/validate_all.py"
     return
@@ -218,6 +219,26 @@ vault_quick() {
   check_script check_frontmatter.py
   check_script check_all_notes.py
   check_script check_naturalness.py --strict
+  run_step git -C "$VAULT_ROOT" diff --check
+}
+
+vault_basic() {
+  require_vault
+  check_environment vault-basic
+  check_script check_repo_hygiene.py
+  printf 'validation_profile vault-basic\nsource_audit NOT_RUN (private external source manifests are outside this profile)\n'
+  check_skill_lock
+  check_workspace_guidance
+  check_script check_guidance.py
+  check_script check_algorithm_job_notes.py
+  check_script check_links.py
+  check_script check_frontmatter.py
+  check_script check_all_notes.py
+  check_script check_naturalness.py --strict
+  check_script check_python_examples.py --root "$VAULT_ROOT"
+  check_script check_markdown_tables.py
+  check_script check_formulas.py
+  check_script check_headings.py
   run_step git -C "$VAULT_ROOT" diff --check
 }
 
@@ -342,6 +363,7 @@ case "$command" in
   tool-quick) tool_quick ;;
   tool-full) tool_full ;;
   vault-quick|quick) vault_quick ;;
+  vault-basic) vault_basic ;;
   vault-full|full) vault_full ;;
   vault-runtime) vault_runtime ;;
   online) online "$@" ;;

@@ -92,6 +92,8 @@ def verify(archive_path: Path, sidecar_path: Path | None = None) -> dict[str, ob
             if not safe_entry(info.filename):
                 issues.append(f"unsafe ZIP entry: {info.filename}")
             path = PurePosixPath(info.filename)
+            if path.parts and path.parts[0] == "notes" and path.name.casefold() == "source_manifest.md":
+                issues.append(f"source manifest is forbidden in Notes package: {info.filename}")
             if (
                 info.filename not in {"AGENT.md", "BUILD-MANIFEST.json"}
                 and (not path.parts or path.parts[0] not in ALLOWED_TOP_LEVEL)

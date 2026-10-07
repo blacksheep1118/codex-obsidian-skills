@@ -42,7 +42,7 @@ Use this skill after the source material already exists as notes or a note folde
 
 ## Evidence And Assumption Gate
 
-Treat note files, linked notes, source URLs, figures, tables, formulas, experiments, and user-provided constraints as evidence. Mark inferred audience, timing, missing metrics, unsupported comparisons, and unpublished-figure permissions as assumptions. Do not invent citations, results, ablations, datasets, or conclusions to make a slide story smoother.
+Treat note files, linked notes, source URLs, figures, tables, formulas, experiments, and user-provided constraints as evidence. When using Solvenotes, read formal manifests from `SOLVENOTES_MANIFEST_ROOT`, or `Notes.parent / "vault_sources"` by default, mirroring the Notes-relative course/topic directory. Reject roots inside Notes, including symlink resolutions; never copy the manifests into Notes or private mappings into the public Skills repository. Preserve note `source_files`, URLs, and source markers in the evidence ledger. A missing required manifest is unavailable provenance and must not become a source-coverage PASS. Other vaults retain their local provenance layout. Mark inferred audience, timing, missing metrics, unsupported comparisons, and unpublished-figure permissions as assumptions. Do not invent citations, results, ablations, datasets, or conclusions to make a slide story smoother.
 
 ## Workflow
 

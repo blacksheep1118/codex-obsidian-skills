@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import re
 import sys
 from collections import Counter
@@ -17,7 +18,11 @@ from notes_utils import (
     build_note_index,
     formal_source_manifests,
     frontmatter_note_type,
+    is_regular_file_without_symlinks,
+    is_directory_without_symlinks,
     markdown_files,
+    manifest_note_directory,
+    source_manifest_rel,
     read_text,
     rel,
     split_frontmatter,
@@ -38,6 +43,11 @@ NON_LEARNER_TOP_LEVEL = {".github", "agent", "scripts", "tests"}
 STALE_AUDIT_TERMS = ("99_内容覆盖审查", "覆盖审查页", "覆盖审查表", "逐页审查表", "审查表", "审查页")
 STRONG_SEMANTIC_CLAIMS = ("可抽取文本已覆盖", "语义覆盖完成", "完整覆盖", "已全部覆盖")
 ISSUE_CODE_MARKERS = (
+    ("SOURCE_MANIFEST_ROOT_UNAVAILABLE", "external source manifest root"),
+    ("SOURCE_MANIFEST_ROOT_UNAVAILABLE", "source manifest root must be outside"),
+    ("SOURCE_MANIFESTS_MISSING", "external source manifest registry contains no formal manifests"),
+    ("SOURCE_MANIFEST_IN_VAULT", "source_manifest must be outside the notes vault"),
+    ("SOURCE_MANIFEST_BOUNDARY_UNSAFE", "notes manifest boundary cannot be safely inspected"),
     ("FORBIDDEN_AUDIT_ARTIFACT", "forbidden legacy audit artifact"),
     ("FORBIDDEN_AUDIT_NOTE_TYPE", "learner note cannot use note_type"),
     ("STALE_AUDIT_REFERENCE", "stale audit-page reference"),
@@ -91,7 +101,10 @@ def issue_code(issue: str) -> str:
 
 
 def _contract_rel(path: Path, root: Path) -> str:
-    return path.relative_to(root).as_posix()
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return source_manifest_rel(path, root)
 
 
 def _is_support_path(path: Path, root: Path) -> bool:
@@ -122,7 +135,10 @@ def _resolve_contract_wikilink(
     if "/" in clean or target.startswith("/"):
         candidates.extend((clean, f"{clean}.md"))
     else:
-        sibling = source.parent.relative_to(root).as_posix()
+        try:
+            sibling = source.parent.relative_to(root).as_posix()
+        except ValueError:
+            sibling = manifest_note_directory(source, root).relative_to(root).as_posix()
         if sibling != ".":
             candidates.extend((f"{sibling}/{clean}", f"{sibling}/{clean}.md"))
         candidates.extend((clean, f"{clean}.md"))
@@ -237,7 +253,9 @@ def _frontmatter_source_files(text: str) -> list[str]:
 def _source_file_closure_issues(root: Path, note_paths: list[Path], manifests: list[Path]) -> list[str]:
     issues: list[str] = []
     records_by_dir = {
-        manifest.parent: {record.source: record for record in _manifest_records(read_text(manifest))}
+        manifest_note_directory(manifest, root): {
+            record.source: record for record in _manifest_records(read_text(manifest))
+        }
         for manifest in manifests
     }
     for note in sorted(note_paths):
@@ -310,19 +328,61 @@ def coverage_contract_issues(root: Path, note_paths: list[Path]) -> list[str]:
     """Reject legacy audit artifacts and enforce formal manifest note types."""
 
     issues: list[str] = []
-    manifest_list = formal_source_manifests(root)
-    formal_manifests = set(manifest_list)
-    for path in sorted(note_paths):
-        if not path.exists():
+    try:
+        manifest_list = formal_source_manifests(root)
+    except (OSError, RuntimeError) as exc:
+        manifest_list = []
+        issues.append(f"external source manifest root unavailable: {exc}")
+    else:
+        if not manifest_list:
+            issues.append("external source manifest registry contains no formal manifests")
+    for manifest in manifest_list:
+        if frontmatter_note_type(read_text(manifest)) != "source_manifest":
+            issues.append(f"{_contract_rel(manifest, root)}: manifest must declare note_type source_manifest")
+    # This repository boundary includes hidden/support directories and case-only
+    # names. Ordinary study-note iterators intentionally omit those surfaces.
+    boundary_paths = set(note_paths)
+    def boundary_traversal_error(error: OSError) -> None:
+        issues.append(f"notes manifest boundary cannot be safely inspected: {error}")
+
+    for directory, subdirectories, filenames in os.walk(root, topdown=True, followlinks=False, onerror=boundary_traversal_error):
+        parent = Path(directory)
+        for name in subdirectories.copy():
+            if name == ".git":
+                subdirectories.remove(name)
+                continue
+            path = parent / name
+            if name.casefold() == "source_manifest.md":
+                boundary_paths.add(path)
+                subdirectories.remove(name)
+            elif not is_directory_without_symlinks(path, root):
+                issues.append(f"{_contract_rel(path, root)}: notes manifest boundary cannot be safely inspected: unsafe directory")
+                subdirectories.remove(name)
+        for name in filenames:
+            if name == ".git":
+                continue
+            path = parent / name
+            if name.casefold() == "source_manifest.md":
+                boundary_paths.add(path)
+            elif path.suffix.casefold() == ".md":
+                if not is_regular_file_without_symlinks(path, root):
+                    issues.append(f"{_contract_rel(path, root)}: notes manifest boundary cannot be safely inspected: unsafe Markdown entry")
+                elif frontmatter_note_type(read_text(path)) == "source_manifest":
+                    boundary_paths.add(path)
+    for path in sorted(boundary_paths):
+        if not path.exists() and not path.is_symlink():
             continue
         relative = _contract_rel(path, root)
+        if path.name.casefold() == "source_manifest.md":
+            issues.append(f"{relative}: source_manifest must be outside the notes vault")
+            continue
         note_type = frontmatter_note_type(read_text(path))
         if path.name == "99_内容覆盖审查.md" and not _is_support_path(path, root):
             issues.append(f"{relative}: forbidden legacy audit artifact 99_内容覆盖审查.md")
         if note_type in FORBIDDEN_LEARNER_AUDIT_TYPES and not _is_support_path(path, root):
             issues.append(f"{relative}: learner note cannot use note_type {note_type}")
-        if path in formal_manifests and note_type != "source_manifest":
-            issues.append(f"{relative}: manifest must declare note_type source_manifest")
+        if note_type == "source_manifest":
+            issues.append(f"{relative}: source_manifest must be outside the notes vault")
     issues.extend(_source_file_closure_issues(root, note_paths, manifest_list))
     return issues
 
@@ -408,7 +468,11 @@ def main() -> int:
     args = parser.parse_args()
 
     index = build_note_index()
-    manifests = formal_source_manifests()
+    try:
+        manifests = formal_source_manifests()
+    except (OSError, RuntimeError):
+        # coverage_contract_issues emits the explicit unavailable-root issue.
+        manifests = []
     note_paths = markdown_files()
     issues = coverage_contract_issues(ROOT, note_paths)
     source_rows = 0
@@ -420,7 +484,7 @@ def main() -> int:
         issues.extend(current_issues)
         source_rows += current_rows
         web_source_rows += len(_web_source_rows(read_text(manifest)))
-        for note in sorted(path for path in note_paths if path.parent == manifest.parent):
+        for note in sorted(path for path in note_paths if path.parent == manifest_note_directory(manifest, ROOT)):
             for line_no, line in enumerate(read_text(note).splitlines(), 1):
                 if not line.startswith("- 来源："):
                     continue

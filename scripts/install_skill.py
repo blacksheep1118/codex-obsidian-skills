@@ -762,6 +762,7 @@ def _run_installed_smoke(skill_dir: Path, destination_root: Path) -> list[str]:
             "algorithm-job scanner",
             [skill_dir / "scripts" / "check_algorithm_job_notes.py", "--root", fixture],
         ),
+        ("source coverage", [skill_dir / "scripts" / "check_source_coverage.py"]),
         ("links", [skill_dir / "scripts" / "check_links.py"]),
         ("frontmatter", [skill_dir / "scripts" / "check_frontmatter.py"]),
         ("naturalness", [skill_dir / "scripts" / "check_naturalness.py", "--strict"]),
@@ -779,6 +780,7 @@ def _run_installed_smoke(skill_dir: Path, destination_root: Path) -> list[str]:
     # Forward slashes are accepted by Windows path APIs and avoid turning a
     # drive-qualified value into a drive-relative path in a downstream helper.
     environment["SOLVENOTES_VAULT_ROOT"] = fixture.as_posix()
+    environment["SOLVENOTES_MANIFEST_ROOT"] = (fixture.parent / "vault_sources").as_posix()
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     issues: list[str] = []
     with tempfile.TemporaryDirectory(prefix="solvenotes-installed-smoke-") as cwd:
@@ -827,6 +829,7 @@ def _run_installed_full(skill_dir: Path, destination_root: Path) -> list[str]:
     environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     environment["SOLVENOTES_VAULT_ROOT"] = fixture.as_posix()
+    environment["SOLVENOTES_MANIFEST_ROOT"] = (fixture.parent / "vault_sources").as_posix()
     with tempfile.TemporaryDirectory(prefix="solvenotes-installed-full-") as cwd:
         output = Path(cwd) / "notes.zip"
         sidecar = Path(cwd) / "PACKAGE-MANIFEST.json"

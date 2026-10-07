@@ -10,6 +10,15 @@ import pytest
 from check_source_files import ExtractabilityEvidence, issue_code, source_extractability_issues
 
 
+@pytest.fixture(autouse=True)
+def isolated_manifest_root(tmp_path: Path, monkeypatch) -> Path:
+    """Keep each test independent of host-private source registry settings."""
+    root = tmp_path.with_name(tmp_path.name + "-vault-sources")
+    root.mkdir()
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(root))
+    return root
+
+
 def manifest_row(
     source: str,
     units: int,
@@ -601,8 +610,10 @@ def test_pdf_probe_reports_timeout_as_extractability_error(tmp_path: Path) -> No
     assert error == f"pdftotext timed out after {csf.PDF_PROBE_TIMEOUT_SECONDS} seconds"
 
 
-def test_strict_source_inventory_includes_nested_formal_manifest(tmp_path: Path) -> None:
-    manifest = tmp_path / "course" / "topic" / "source_manifest.md"
+def test_strict_source_inventory_includes_nested_formal_manifest(
+    tmp_path: Path, isolated_manifest_root: Path
+) -> None:
+    manifest = isolated_manifest_root / "course" / "topic" / "source_manifest.md"
     manifest.parent.mkdir(parents=True)
     manifest.write_text(
         "| 源文件 | 类型 | 页/slide/记录数 | 抽取方式 | 对应笔记 | 覆盖状态 | 例题状态 | 限制说明 | 最后检查日期 |\n"
@@ -623,7 +634,8 @@ def test_cli_separates_missing_files_from_extractability_issues(tmp_path: Path, 
     (tmp_path / "course" / "lecture.pdf").write_bytes(b"fake pdf")
     rows = [manifest_row("course/lecture.pdf", 2)]
     evidence = ExtractabilityEvidence("course/lecture.pdf", ".pdf", 2, 2, (2,), True)
-    monkeypatch.setattr(csf, "manifest_rows", lambda: rows)
+    monkeypatch.setattr(csf, "manifest_rows", lambda *_args: rows)
+    monkeypatch.setattr(csf, "formal_source_manifests", lambda *_args: [Path("vault_sources/course/source_manifest.md")])
     monkeypatch.setattr(csf, "configured_source_root", lambda _: tmp_path)
     monkeypatch.setattr(
         csf,
@@ -643,7 +655,8 @@ def test_cli_separates_missing_files_from_extractability_issues(tmp_path: Path, 
 
 
 def test_cli_requires_source_root_without_counting_it_as_a_missing_file(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(csf, "manifest_rows", lambda: [])
+    monkeypatch.setattr(csf, "manifest_rows", lambda *_args: [])
+    monkeypatch.setattr(csf, "formal_source_manifests", lambda *_args: [Path("vault_sources/course/source_manifest.md")])
     monkeypatch.setattr(csf, "configured_source_root", lambda _: None)
     monkeypatch.setattr(sys, "argv", ["check_source_files.py", "--strict", "--json"])
 
@@ -659,3 +672,38 @@ def test_source_file_issue_codes_are_stable() -> None:
     assert issue_code("blank extractable units conflict with complete-text wording") == "BLANK_UNDER_COMPLETE_TEXT"
     assert issue_code("source has no extractable text: course/scan.pdf") == "NO_EXTRACTABLE_TEXT"
     assert issue_code("blank extractable units are not explicitly recorded") == "BLANK_LIMITATION_MISSING"
+
+
+@pytest.mark.parametrize("state", ["missing", "empty", "internal_only"])
+@pytest.mark.parametrize("strict", [False, True])
+def test_source_files_cli_fails_without_external_manifests_even_without_strict(
+    tmp_path: Path, isolated_manifest_root: Path, state: str, strict: bool
+) -> None:
+    if state == "missing":
+        isolated_manifest_root.rmdir()
+    if state == "internal_only":
+        internal = tmp_path / "course" / "source_manifest.md"
+        internal.parent.mkdir()
+        internal.write_text("# in-vault manifests must never be used\n", encoding="utf-8")
+    (tmp_path / "AGENT.md").write_text("# Test vault rules\n", encoding="utf-8")
+    source_root = tmp_path / "source-materials"
+    source_root.mkdir()
+    env = os.environ.copy()
+    env.update(
+        SOLVENOTES_VAULT_ROOT=str(tmp_path),
+        SOLVENOTES_MANIFEST_ROOT=str(isolated_manifest_root),
+        PYTHONDONTWRITEBYTECODE="1",
+    )
+    script = Path(__file__).resolve().parents[1] / "scripts" / "check_source_files.py"
+    args = [sys.executable, str(script), "--json", "--source-root", str(source_root)]
+    if strict:
+        args.append("--strict")
+
+    result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=30, check=False)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    expected = "SOURCE_MANIFEST_ROOT_UNAVAILABLE" if state == "missing" else "SOURCE_MANIFESTS_MISSING"
+    assert payload["issue_counts"][expected] >= 1
+    assert payload["manifest_source_rows"] == 0
+    assert payload["missing_source_files"] == 0

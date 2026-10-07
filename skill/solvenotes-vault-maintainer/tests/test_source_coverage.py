@@ -1,9 +1,21 @@
+import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
 import check_source_coverage as csc
 import pytest
 from check_source_coverage import coverage_contract_issues, issue_code, manifest_issues
+
+
+@pytest.fixture(autouse=True)
+def isolated_manifest_root(tmp_path: Path, monkeypatch) -> Path:
+    """Keep each test independent of host-private source registry settings."""
+    root = tmp_path.with_name(tmp_path.name + "-vault-sources")
+    root.mkdir()
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(root))
+    return root
 
 
 def frontmatter(note_type: str) -> str:
@@ -47,7 +59,8 @@ def write_manifest(
     course = root / "course"
     course.mkdir()
     (course / "note.md").write_text(frontmatter("course_note"), encoding="utf-8")
-    manifest = course / "source_manifest.md"
+    manifest = Path(os.environ["SOLVENOTES_MANIFEST_ROOT"]) / "course" / "source_manifest.md"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
     manifest.write_text(
         frontmatter(note_type)
         + "\n| 源文件 | 类型 | 页/slide/记录数 | 抽取方式 | 对应笔记 | 覆盖状态 | 例题状态 | 限制说明 | 最后检查日期 |\n"
@@ -70,7 +83,8 @@ def test_nested_formal_manifest_uses_the_same_contract(tmp_path: Path) -> None:
     nested = tmp_path / "course" / "topic"
     nested.mkdir(parents=True)
     (nested / "note.md").write_text(frontmatter("paper_note"), encoding="utf-8")
-    manifest = nested / "source_manifest.md"
+    manifest = Path(os.environ["SOLVENOTES_MANIFEST_ROOT"]) / "course" / "topic" / "source_manifest.md"
+    manifest.parent.mkdir(parents=True)
     manifest.write_text(
         frontmatter("source_manifest")
         + "\n| 源文件 | 类型 | 页/slide/记录数 | 抽取方式 | 对应笔记 | 覆盖状态 | 例题状态 | 限制说明 | 最后检查日期 |\n"
@@ -88,7 +102,8 @@ def test_nested_formal_manifest_uses_the_same_contract(tmp_path: Path) -> None:
 def test_nested_web_source_manifest_is_formal_without_fake_page_counts(tmp_path: Path) -> None:
     topic = tmp_path / "course" / "web-topic"
     topic.mkdir(parents=True)
-    manifest = topic / "source_manifest.md"
+    manifest = Path(os.environ["SOLVENOTES_MANIFEST_ROOT"]) / "course" / "web-topic" / "source_manifest.md"
+    manifest.parent.mkdir(parents=True)
     manifest.write_text(
         frontmatter("source_manifest")
         + "\n| 来源 | URL | 类型 | 访问状态 | 用途 |\n"
@@ -108,7 +123,8 @@ def test_main_does_not_scan_symlinked_manifest_neighbor(
 ) -> None:
     course = tmp_path / "course"
     course.mkdir()
-    manifest = course / "source_manifest.md"
+    manifest = Path(os.environ["SOLVENOTES_MANIFEST_ROOT"]) / "course" / "source_manifest.md"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
     manifest.write_text("# Local manifest\n", encoding="utf-8")
     outside = tmp_path / "outside-note.md"
     outside.write_text(
@@ -127,8 +143,8 @@ def test_main_does_not_scan_symlinked_manifest_neighbor(
 
     monkeypatch.setattr(csc, "ROOT", tmp_path)
     monkeypatch.setattr(csc, "build_note_index", lambda: {})
-    monkeypatch.setattr(csc, "formal_source_manifests", lambda: [manifest])
-    monkeypatch.setattr(csc, "markdown_files", lambda: [manifest])
+    monkeypatch.setattr(csc, "formal_source_manifests", lambda *_args: [manifest])
+    monkeypatch.setattr(csc, "markdown_files", lambda *_args: [manifest])
     monkeypatch.setattr(csc, "coverage_contract_issues", lambda *_args: [])
     monkeypatch.setattr(csc, "manifest_issues", lambda *_args: ([], 0))
     monkeypatch.setattr(csc, "read_text", reject_external_neighbor)
@@ -144,6 +160,7 @@ def test_nonempty_source_files_require_an_applicable_manifest(tmp_path: Path) ->
     note.write_text(sourced_frontmatter("course_note", ["course/lecture.pdf"]), encoding="utf-8")
 
     assert coverage_contract_issues(tmp_path, markdown_files(tmp_path)) == [
+        "external source manifest registry contains no formal manifests",
         "course/note.md: non-empty source_files has no applicable formal source_manifest"
     ]
 
@@ -155,8 +172,10 @@ def test_nested_manifest_covers_nested_note_before_ancestor(tmp_path: Path) -> N
     (topic / "note.md").write_text(
         sourced_frontmatter("paper_topic_note", ["course/topic/paper.pdf"]), encoding="utf-8"
     )
-    (course / "source_manifest.md").write_text(frontmatter("source_manifest"), encoding="utf-8")
-    (topic / "source_manifest.md").write_text(
+    registry = Path(os.environ["SOLVENOTES_MANIFEST_ROOT"])
+    (registry / "course" / "topic").mkdir(parents=True)
+    (registry / "course" / "source_manifest.md").write_text(frontmatter("source_manifest"), encoding="utf-8")
+    (registry / "course" / "topic" / "source_manifest.md").write_text(
         frontmatter("source_manifest")
         + "\n| 源文件 | 类型 | 页/slide/记录数 | 抽取方式 | 对应笔记 | 覆盖状态 | 例题状态 | 限制说明 | 最后检查日期 |\n"
         + "|---|---|---:|---|---|---|---|---|---|\n"
@@ -198,7 +217,7 @@ def test_manifest_requires_formal_note_type(tmp_path: Path) -> None:
     write_manifest(tmp_path, note_type="course_note")
 
     assert coverage_contract_issues(tmp_path, markdown_files(tmp_path)) == [
-        "course/source_manifest.md: manifest must declare note_type source_manifest"
+        "vault_sources/course/source_manifest.md: manifest must declare note_type source_manifest"
     ]
 
 
@@ -209,6 +228,7 @@ def test_legacy_99_page_is_forbidden_even_without_legacy_note_type(tmp_path: Pat
     page.write_text(frontmatter("course_note"), encoding="utf-8")
 
     assert coverage_contract_issues(tmp_path, markdown_files(tmp_path)) == [
+        "external source manifest registry contains no formal manifests",
         "course/99_内容覆盖审查.md: forbidden legacy audit artifact 99_内容覆盖审查.md"
     ]
 
@@ -219,6 +239,7 @@ def test_template_cannot_reintroduce_legacy_99_page(tmp_path: Path) -> None:
     page.write_text(frontmatter("template"), encoding="utf-8")
 
     assert coverage_contract_issues(tmp_path, markdown_files(tmp_path)) == [
+        "external source manifest registry contains no formal manifests",
         "模板/99_内容覆盖审查.md: forbidden legacy audit artifact 99_内容覆盖审查.md"
     ]
 
@@ -233,6 +254,7 @@ def test_learning_notes_cannot_use_legacy_audit_types(tmp_path: Path, note_type:
     note.write_text(frontmatter(note_type), encoding="utf-8")
 
     assert coverage_contract_issues(tmp_path, markdown_files(tmp_path)) == [
+        "external source manifest registry contains no formal manifests",
         f"course/history.md: learner note cannot use note_type {note_type}"
     ]
 
@@ -243,7 +265,9 @@ def test_tooling_and_test_fixtures_are_exempt_from_learner_contract(tmp_path: Pa
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(frontmatter("audit_record"), encoding="utf-8")
 
-    assert coverage_contract_issues(tmp_path, markdown_files(tmp_path)) == []
+    assert coverage_contract_issues(tmp_path, markdown_files(tmp_path)) == [
+        "external source manifest registry contains no formal manifests"
+    ]
 
 
 def test_manifest_validates_full_source_identity_type_and_count(tmp_path: Path) -> None:
@@ -342,3 +366,193 @@ def test_extractable_sources_require_explicit_text_and_visual_boundaries(tmp_pat
 )
 def test_issue_codes_are_stable(message: str, expected: str) -> None:
     assert issue_code(message) == expected
+
+
+@pytest.mark.parametrize(
+    ("relative", "note_type"),
+    [
+        ("course/source_manifest.md", "course_note"),
+        ("course/Source_Manifest.MD", "course_note"),
+        ("course/source-list.md", "source_manifest"),
+        (".obsidian/templates/source_manifest.md", "template"),
+    ],
+)
+def test_source_manifest_is_forbidden_inside_notes(
+    tmp_path: Path, relative: str, note_type: str
+) -> None:
+    note = tmp_path / relative
+    note.parent.mkdir(parents=True)
+    note.write_text(frontmatter(note_type), encoding="utf-8")
+
+    issues = coverage_contract_issues(tmp_path, [note])
+
+    assert any(issue_code(issue) == "SOURCE_MANIFEST_IN_VAULT" for issue in issues)
+    assert any(relative in issue for issue in issues)
+
+
+def test_missing_manifest_root_reports_unavailable_and_source_closure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    note = tmp_path / "course" / "note.md"
+    note.parent.mkdir()
+    note.write_text(sourced_frontmatter("course_note", ["course/lecture.pdf"]), encoding="utf-8")
+    monkeypatch.setenv("SOLVENOTES_MANIFEST_ROOT", str(tmp_path.with_name(tmp_path.name + "-missing")))
+
+    issues = coverage_contract_issues(tmp_path, [note])
+
+    assert "SOURCE_MANIFEST_ROOT_UNAVAILABLE" in {issue_code(issue) for issue in issues}
+    assert "APPLICABLE_MANIFEST_MISSING" in {issue_code(issue) for issue in issues}
+
+
+def test_external_manifest_bare_links_use_matching_notes_directory(tmp_path: Path) -> None:
+    manifest = write_manifest(tmp_path, links="[[note]]")
+    unrelated = tmp_path / "other" / "note.md"
+    unrelated.parent.mkdir()
+    unrelated.write_text(frontmatter("course_note"), encoding="utf-8")
+
+    assert manifest_issues(tmp_path, manifest, contract_index(tmp_path)) == ([], 1)
+
+
+@pytest.mark.parametrize("state", ["missing", "empty", "internal_only"])
+def test_source_coverage_cli_fails_when_external_registry_has_no_manifests(
+    tmp_path: Path, isolated_manifest_root: Path, monkeypatch, capsys, state: str
+) -> None:
+    if state == "missing":
+        isolated_manifest_root.rmdir()
+    if state == "internal_only":
+        internal = tmp_path / "course" / "source_manifest.md"
+        internal.parent.mkdir()
+        internal.write_text(frontmatter("source_manifest"), encoding="utf-8")
+    monkeypatch.setattr(csc, "ROOT", tmp_path)
+    monkeypatch.setattr(csc, "build_note_index", lambda: contract_index(tmp_path))
+    monkeypatch.setattr(csc, "markdown_files", lambda: markdown_files(tmp_path))
+    monkeypatch.setattr(sys, "argv", ["check_source_coverage.py", "--json"])
+
+    assert csc.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+    expected = "SOURCE_MANIFEST_ROOT_UNAVAILABLE" if state == "missing" else "SOURCE_MANIFESTS_MISSING"
+    assert payload["course_manifests"] == 0
+    assert payload["issue_counts"][expected] >= 1
+
+
+@pytest.mark.parametrize("unsafe_entry", ["live_leaf", "broken_leaf", "directory", "case_variant"])
+def test_source_coverage_cli_fails_closed_on_unsafe_registry_entry_with_valid_manifest(
+    tmp_path: Path,
+    isolated_manifest_root: Path,
+    unsafe_entry: str,
+) -> None:
+    """A valid sibling manifest must not hide an unsafe or noncanonical entry."""
+
+    write_manifest(tmp_path)
+    (tmp_path / "AGENT.md").write_text("# Test vault rules\n", encoding="utf-8")
+    unsafe_dir = isolated_manifest_root / "other"
+
+    if unsafe_entry == "live_leaf":
+        unsafe_dir.mkdir()
+        target = isolated_manifest_root.parent / "external-source-manifest.md"
+        target.write_text(frontmatter("source_manifest"), encoding="utf-8")
+        (unsafe_dir / "source_manifest.md").symlink_to(target)
+    elif unsafe_entry == "broken_leaf":
+        unsafe_dir.mkdir()
+        missing = isolated_manifest_root.parent / "missing-source-manifest.md"
+        (unsafe_dir / "source_manifest.md").symlink_to(missing)
+    elif unsafe_entry == "directory":
+        external_dir = isolated_manifest_root.parent / "external-manifest-course"
+        external_dir.mkdir()
+        (external_dir / "source_manifest.md").write_text(
+            frontmatter("source_manifest"), encoding="utf-8"
+        )
+        unsafe_dir.symlink_to(external_dir, target_is_directory=True)
+    elif unsafe_entry == "case_variant":
+        unsafe_dir.mkdir()
+        (unsafe_dir / "Source_Manifest.MD").write_text(
+            frontmatter("source_manifest"), encoding="utf-8"
+        )
+    else:  # pragma: no cover - pytest parameter list is exhaustive
+        raise AssertionError(f"unexpected unsafe registry entry: {unsafe_entry}")
+
+    env = os.environ.copy()
+    env.update(
+        SOLVENOTES_VAULT_ROOT=str(tmp_path),
+        SOLVENOTES_MANIFEST_ROOT=str(isolated_manifest_root),
+        PYTHONDONTWRITEBYTECODE="1",
+    )
+    script = Path(__file__).resolve().parents[1] / "scripts" / "check_source_coverage.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--json"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["course_manifests"] == 0
+    assert payload["issue_counts"]["SOURCE_MANIFEST_ROOT_UNAVAILABLE"] >= 1
+
+
+@pytest.mark.parametrize(
+    ("relative", "note_type"),
+    [
+        ("course/Source_Manifest.MD", "course_note"),
+        (".obsidian/templates/source_manifest.md", "template"),
+        (".obsidian/templates/concept.md", "source_manifest"),
+    ],
+)
+def test_source_coverage_cli_detects_in_vault_manifests_outside_ordinary_inventory(
+    tmp_path: Path, isolated_manifest_root: Path, relative: str, note_type: str
+) -> None:
+    write_manifest(tmp_path)
+    (tmp_path / "AGENT.md").write_text("# Test vault rules\n", encoding="utf-8")
+    internal = tmp_path / relative
+    internal.parent.mkdir(parents=True, exist_ok=True)
+    internal.write_text(frontmatter(note_type), encoding="utf-8")
+    env = os.environ.copy()
+    env.update(
+        SOLVENOTES_VAULT_ROOT=str(tmp_path),
+        SOLVENOTES_MANIFEST_ROOT=str(isolated_manifest_root),
+        PYTHONDONTWRITEBYTECODE="1",
+    )
+    script = Path(__file__).resolve().parents[1] / "scripts" / "check_source_coverage.py"
+
+    result = subprocess.run(
+        [sys.executable, str(script), "--json"],
+        env=env, capture_output=True, text=True, timeout=30, check=False,
+    )
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["issue_counts"]["SOURCE_MANIFEST_IN_VAULT"] == 1
+    assert any(relative in issue for issue in payload["issues"])
+
+
+@pytest.mark.parametrize("relative", [".obsidian/templates", "course/linked-material"])
+def test_source_coverage_cli_rejects_unsafe_notes_directory_symlink(
+    tmp_path: Path, isolated_manifest_root: Path, relative: str
+) -> None:
+    """Fail closed on hidden and ordinary symlinked directories without reading targets."""
+    write_manifest(tmp_path)
+    (tmp_path / "AGENT.md").write_text("# Test vault rules\n", encoding="utf-8")
+    outside = isolated_manifest_root.parent / f"{tmp_path.name}-directory-target"
+    outside.mkdir()
+    link = tmp_path / relative
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(outside, target_is_directory=True)
+
+    env = os.environ.copy()
+    env.update(
+        SOLVENOTES_VAULT_ROOT=str(tmp_path),
+        SOLVENOTES_MANIFEST_ROOT=str(isolated_manifest_root),
+        PYTHONDONTWRITEBYTECODE="1",
+    )
+    script = Path(__file__).resolve().parents[1] / "scripts" / "check_source_coverage.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--json"],
+        env=env, capture_output=True, text=True, timeout=30, check=False,
+    )
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["issue_counts"]["SOURCE_MANIFEST_BOUNDARY_UNSAFE"] >= 1

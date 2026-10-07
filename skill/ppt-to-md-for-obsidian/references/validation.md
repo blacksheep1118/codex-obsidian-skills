@@ -89,7 +89,7 @@ For a generic vault whose local contract requires a separate audit page, use:
 python3 scripts/check_course_notes.py --strict-depth --require-coverage-audit notes
 ```
 
-Do not use `--require-coverage-audit` for Solvenotes. Its local contract requires a self-contained `source_manifest.md` and forbids the legacy audit page.
+Do not use `--require-coverage-audit` for Solvenotes. Its local contract requires a self-contained external `source_manifest.md` and forbids both in-vault manifests and the legacy audit page.
 
 Exclude non-course generated index or audit folders by directory name when validating a broader notes tree:
 
@@ -115,16 +115,20 @@ python3 scripts/check_course_notes.py --strict-depth --allow-exam-review --requi
 
 ## Solvenotes Manifest-Only Coverage
 
-Run these project-local commands from the Solvenotes notes repository:
+Run these external maintainer commands from the Solvenotes Skills repository:
 
 ```bash
-python3 scripts/check_source_coverage.py --json
-SOLVENOTES_SOURCE_ROOT=/path/to/solvenotes python3 scripts/check_source_files.py --strict --json
+export SOLVENOTES_VAULT_ROOT=/path/to/solvenotes/notes
+# Optional; omit to use Notes.parent / "vault_sources".
+export SOLVENOTES_MANIFEST_ROOT=/path/to/solvenotes/vault_sources
+python3 skill/solvenotes-vault-maintainer/scripts/check_source_coverage.py --json
+SOLVENOTES_SOURCE_ROOT=/path/to/source-root \
+  python3 skill/solvenotes-vault-maintainer/scripts/check_source_files.py --strict --json
 ```
 
-The first command validates the formal manifest schema, mappings, statuses, dates, target links, limitations, and the absence of legacy audit pages. The strict source command checks source existence, unit counts, extractability, and blank/OCR/visual limitations. Keep temporary ledgers outside the vault and report a missing source root as blocked verification.
+The first command validates the formal manifest schema, mappings, statuses, dates, target links, limitations, and the absence of legacy audit pages. The strict source command checks source existence, unit counts, extractability, and blank/OCR/visual limitations. Formal manifests mirror the Notes-relative course/topic directory under the external root; their note targets resolve against the corresponding Notes directory. Reject roots inside Notes, including symlink resolutions. Keep private mappings out of the public Skills repository and preserve note `source_files` and source citations. Missing required manifests or a missing source root are FAIL/unavailable for the relevant coverage check, never an empty PASS. Temporary ledgers also stay outside the vault.
 
-Strict source ownership check for repositories where sources live beside the notes vault:
+The bundled generic strict source ownership check below is for other repositories where sources live beside the notes vault. For Solvenotes, use the external maintainer commands above; do not copy manifests into Notes to satisfy a generic checker:
 
 ```bash
 python3 scripts/check_source_coverage.py \

@@ -30,6 +30,7 @@ NOTE_TYPES = {
     "navigation",
     "paper_note",
     "paper_topic_note",
+    "personal_note",
     "research_method_note",
     "review_compact",
     "review_detailed",
@@ -1077,8 +1078,71 @@ def write_text_if_changed(
     return changed
 
 
+def source_manifest_root(vault_root: Path = ROOT) -> Path:
+    """Resolve the private evidence registry, always outside the Notes tree."""
+
+    vault_root = lexical_absolute_path(vault_root)
+    if not is_directory_without_symlinks(vault_root, vault_root):
+        raise RuntimeError(f"notes vault root is unsafe or unavailable: {vault_root}")
+    raw = os.environ.get("SOLVENOTES_MANIFEST_ROOT")
+    root = lexical_absolute_path(Path(raw).expanduser() if raw else vault_root.parent / "vault_sources")
+    if _relative_lexically(root, vault_root) is not None or _relative_lexically(vault_root, root) is not None:
+        raise RuntimeError(f"source manifest root must be outside and separate from the notes vault: {root}")
+    if not is_directory_without_symlinks(root, root):
+        raise RuntimeError(f"external source manifest root is unsafe or unavailable: {root}")
+    return root
+
+
+def manifest_note_directory(manifest: Path, vault_root: Path = ROOT) -> Path:
+    """Map a registry course/topic directory to its corresponding Notes directory."""
+
+    registry = source_manifest_root(vault_root)
+    relative = _relative_lexically(manifest, registry)
+    if relative is None or has_symlink_component(manifest, registry):
+        raise UnsafePathError(f"manifest path is outside the external registry or uses a symlink: {manifest}")
+    return lexical_absolute_path(vault_root) / relative.parent
+
+
+def source_manifest_rel(manifest: Path, vault_root: Path = ROOT) -> str:
+    registry = source_manifest_root(vault_root)
+    relative = _relative_lexically(manifest, registry)
+    if relative is None:
+        raise UnsafePathError(f"manifest path is outside the external registry: {manifest}")
+    return (Path("vault_sources") / relative).as_posix()
+
+
+def write_manifest_text_if_changed(
+    path: Path,
+    text: str,
+    *,
+    vault_root: Path = ROOT,
+    expected_version: TextVersion | None = None,
+) -> bool:
+    """Publish registry text without widening the ordinary Notes writer boundary."""
+
+    registry = source_manifest_root(vault_root)
+    if path.name.casefold() != "source_manifest.md":
+        raise UnsafePathError(f"external manifest writer requires source_manifest.md: {path}")
+    encoded = text.encode("utf-8")
+
+    def write(stream: BinaryIO) -> None:
+        stream.write(encoded)
+
+    changed, _metadata = _atomic_publish(
+        path,
+        write,
+        root=registry,
+        unchanged_bytes=encoded,
+        expected_version=expected_version,
+    )
+    return changed
+
+
 def rel(path: Path) -> str:
-    return path.relative_to(ROOT).as_posix()
+    relative = _relative_lexically(path, ROOT)
+    if relative is not None:
+        return relative.as_posix()
+    return source_manifest_rel(path)
 
 
 def strip_frontmatter(text: str) -> str:
@@ -1204,6 +1268,21 @@ def text_without_code(text: str) -> str:
     # a code span at column zero can make ordinary prose later on the same line
     # look like a four-space indented block.
     return remove_inline_code(remove_indented_code(remove_fenced_code(text)))
+
+
+def split_block_math(text: str) -> list[str]:
+    """Split on unescaped dollar pairs; callers should mask Markdown code first."""
+
+    parts: list[str] = []
+    start = 0
+    # Consume escaped characters before recognizing $$ so both odd and even
+    # backslash runs work, including an escaped dollar beside an inline close.
+    for match in re.finditer(r"\\.|(\$\$)", text):
+        if match.group(1):
+            parts.append(text[start:match.start()])
+            start = match.end()
+    parts.append(text[start:])
+    return parts
 
 
 def wikilinks(text: str) -> list[tuple[str, str]]:
@@ -1337,23 +1416,34 @@ def is_table_separator(line: str) -> bool:
 
 
 def formal_source_manifests(root: Path = ROOT) -> list[Path]:
-    """Return every authoritative manifest, including nested course topics."""
+    """Return authoritative external manifests, including nested course topics."""
 
-    if not is_directory_without_symlinks(root, root):
-        return []
+    registry = source_manifest_root(root)
     manifests: list[Path] = []
-    for manifest in root.rglob("source_manifest.md"):
-        if not is_regular_file_without_symlinks(manifest, root):
-            continue
-        relative = manifest.relative_to(root)
-        if not relative.parts:
-            continue
-        if any(is_reserved_agent_name(part) for part in relative.parts[:-1]):
-            continue
-        top_level = relative.parts[0]
-        if top_level.startswith(".") or top_level in FORMAL_MANIFEST_EXCLUDED_TOP_LEVEL:
-            continue
-        manifests.append(manifest)
+    def traversal_error(error: OSError) -> None:
+        raise RuntimeError(f"external source registry cannot be fully inspected: {error}") from error
+
+    for directory, subdirectories, filenames in os.walk(registry, topdown=True, followlinks=False, onerror=traversal_error):
+        parent = Path(directory)
+        for name in subdirectories.copy():
+            relative = (parent / name).relative_to(registry)
+            if is_reserved_agent_name(name) or (
+                len(relative.parts) == 1
+                and (name.startswith(".") or name in FORMAL_MANIFEST_EXCLUDED_TOP_LEVEL)
+            ):
+                subdirectories.remove(name)
+                continue
+            if not is_directory_without_symlinks(parent / name, registry):
+                raise RuntimeError(f"external source registry contains an unsafe directory: {parent / name}")
+            if name.casefold() == "source_manifest.md":
+                raise RuntimeError(f"source manifest is not a regular file: {parent / name}")
+        for name in filenames:
+            if name.casefold() != "source_manifest.md":
+                continue
+            manifest = parent / name
+            if name != "source_manifest.md" or not is_regular_file_without_symlinks(manifest, registry):
+                raise RuntimeError(f"external source registry contains an unsafe or noncanonical manifest: {manifest}")
+            manifests.append(manifest)
     return sorted(manifests)
 
 

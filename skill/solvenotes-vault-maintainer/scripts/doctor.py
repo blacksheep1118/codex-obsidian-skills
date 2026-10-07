@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import re
 import shutil
@@ -12,6 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+from safe_io import ensure_safe_input_directory
 
 PROFILE_PATH = Path(__file__).resolve().parents[1] / "references" / "validation-profiles.json"
 LEGACY_PROFILE_ALIASES = {"quick": "vault-quick", "full": "vault-full"}
@@ -187,6 +190,30 @@ def exact_requirement_versions(path: Path) -> dict[str, str]:
     return pins
 
 
+def manifest_root_status(
+    notes_root: Path | None, override: Path | None = None
+) -> tuple[str, str, str | None]:
+    """Check external evidence location, without claiming source coverage."""
+
+    if notes_root is None:
+        return "UNSET", "UNAVAILABLE", "Notes root is required to locate source manifests"
+    raw = override if override is not None else os.environ.get("SOLVENOTES_MANIFEST_ROOT")
+    candidate = Path(raw).expanduser() if raw else notes_root.parent / "vault_sources"
+    candidate = Path(os.path.abspath(candidate))
+    try:
+        vault = ensure_safe_input_directory(notes_root)
+        # Test containment even when the configured directory does not exist.
+        if candidate == vault or vault in candidate.parents or candidate in vault.parents:
+            raise ValueError("source manifest root must be outside and separate from the Notes vault")
+        candidate = ensure_safe_input_directory(candidate)
+        if candidate == vault or vault in candidate.parents or candidate in vault.parents:
+            raise ValueError("source manifest root must be outside and separate from the Notes vault")
+    except (OSError, ValueError) as exc:
+        status = "MISSING" if not candidate.exists() and not candidate.is_symlink() else "INVALID"
+        return str(candidate), status, str(exc)
+    return str(candidate), "AVAILABLE", None
+
+
 def report(
     *,
     python_bin: str,
@@ -194,6 +221,7 @@ def report(
     skills_root: Path | None,
     profile: str | None = None,
     mode: str | None = None,
+    manifest_root: Path | None = None,
 ) -> tuple[dict[str, str], list[str]]:
     contract = load_contract()
     selected = profile or LEGACY_PROFILE_ALIASES.get(mode or "", mode or "vault-quick")
@@ -339,6 +367,14 @@ def report(
     else:
         statuses["skills_root"] = "SUPPORTED" if skills_root else "OPTIONAL_MISSING"
 
+    location, manifest_status, manifest_error = manifest_root_status(notes_root, manifest_root)
+    values["manifest_root"] = location
+    statuses["manifest_root"] = manifest_status
+    requires_manifests = bool(profile_contract.get("requires_manifest_root"))
+    values["source_audit"] = "REQUIRED_BY_GATE" if requires_manifests else "NOT_RUN"
+    if requires_manifests and manifest_error:
+        issues.append(f"external source manifest root: {manifest_error}")
+
     for key, status in statuses.items():
         values[f"status_{key}"] = status
     return values, sorted(set(issues))
@@ -373,6 +409,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--python-bin", default=sys.executable)
     parser.add_argument("--notes-root", type=Path)
     parser.add_argument("--skills-root", type=Path)
+    parser.add_argument("--manifest-root", type=Path, help="external source manifests; defaults to SOLVENOTES_MANIFEST_ROOT or Notes sibling vault_sources")
     profile_group = parser.add_mutually_exclusive_group()
     profile_group.add_argument("--profile", choices=profile_choices)
     profile_group.add_argument(
@@ -391,6 +428,7 @@ def main(argv: list[str] | None = None) -> int:
             notes_root=args.notes_root.resolve() if args.notes_root else None,
             skills_root=args.skills_root.resolve() if args.skills_root else None,
             profile=selected,
+            manifest_root=args.manifest_root,
         )
     except ValueError as exc:
         parser.error(str(exc))
