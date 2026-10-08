@@ -4,16 +4,16 @@ Use this reference only when the target vault or repository clearly follows solv
 
 ## Guidance Boundary
 
-- Inside the Solvenotes vault, root `AGENT.md` is the only guidance file. Detailed project rules live in `solvenotes/agent/`, alongside the vault rather than inside it.
+- Inside the Solvenotes vault, the established local convention designates root `AGENT.md` as the project guidance file. Detailed project rules live in `solvenotes/agent/`, alongside the vault rather than inside it. Codex does not automatically load `AGENT.md` by that filename unless configured as a fallback; do not create `AGENTS.md` just to make this convention load automatically.
 - Do not create `notes/agent/`, treat it as note content, or add ordinary Obsidian navigation links to project-rule pages.
-- Read the vault-root `AGENT.md` first, then follow any repository-level rule files it explicitly points to.
+- Read applicable `AGENTS.md` and `AGENTS.override.md` files, then follow their references. Also read the vault-root `AGENT.md` as required by the Solvenotes convention, then follow any repository-level rule files it explicitly points to.
 
 ## Quality Checks
 
 - Keep backups, temporary audit ledgers, machine-readable audit output, and reviewer reports outside the vault.
 - Keep the applicable self-contained `source_manifest.md` outside Notes and outside the public Skills repository. Use `SOLVENOTES_MANIFEST_ROOT`, or default to `Notes.parent / "vault_sources"`; mirror the course/topic path relative to Notes. Reject roots inside Notes, including symlink resolutions. Synthetic public fixtures may use `fixtures/vault_sources`.
 - Resolve manifest note targets against the corresponding Notes directory. Preserve source paths and types, extraction methods, unit counts, mapping targets, status, dates, example evidence, and OCR/blank/visual limits. Keep `source_files`, source URLs, and page/slide markers in the learning notes.
-- Missing, unreadable, or empty required external manifests are FAIL/unavailable, never an empty PASS. Mapping ranges do not prove per-unit semantic or visual verification.
+- Missing, unreadable, or empty required external manifests make provenance and source-coverage status FAIL/unavailable, never an empty PASS. They do not prevent independent factual verification against adequate authoritative evidence; report source fidelity and correctness separately. Mapping ranges do not prove per-unit semantic or visual verification.
 - Do not create or update `99_内容覆盖审查.md`, `coverage_audit`, `vault_audit`, or other audit/report notes in Solvenotes. Remove stale navigation to legacy audit pages when cleaning them up.
 - Generated review pages, example indexes, and concept indexes should follow the project’s existing filenames and validators; temporary coverage ledgers remain outside the vault.
 - Do not place page-level coverage dump sections into ordinary study notes.
@@ -37,8 +37,9 @@ Use this reference only when the target vault or repository clearly follows solv
 ## Course And Review Repair
 
 - Finish and validate one course directory before moving to the next.
-- If a course lacks source materials, limit claims to note quality and link integrity.
+- If a course lacks source materials, report source fidelity/coverage as unavailable, but continue independent factual checks against suitable authoritative sources when available.
 - After rewriting chapter notes from sources, rebuild course overview and review pages from repaired chapter content.
+- Before copying a numerical result across source versions, chapters, or review pages, verify that the problem statement, data, symbols, and source version match. A shared heading or topic name is not evidence that the result is the same.
 - When a chapter title, source boundary, or scope changes, update the course overview, short review page, detailed review page, and local navigation that repeats that title.
 - Preserve old wiki-link entry points with short bridge notes when a renamed note may still be referenced.
 - Treat unrelated-domain formula explanations, such as project earned-value terms in architecture notes or transaction/deadlock text outside database/OS context, as source-mismatch residues and replace them only after checking source material.

@@ -109,6 +109,38 @@ def test_negative_fixtures_are_detected(tmp_path: Path) -> None:
     assert "exact_paragraph_repeat" in result.stdout
 
 
+def test_maintainer_link_gate_checks_markdown_and_excludes_template_notes(tmp_path: Path) -> None:
+    root = tmp_path / "vault"
+    (root / "AGENT.md").parent.mkdir(parents=True)
+    (root / "AGENT.md").write_text("# Rules\n", encoding="utf-8")
+    (root / "Target.md").write_text("# Target\n", encoding="utf-8")
+    (root / ".obsidian" / "templates" / "Template.md").parent.mkdir(parents=True)
+    (root / ".obsidian" / "templates" / "Template.md").write_text(
+        "[[Template placeholder]]\n[placeholder](MissingTemplate.md)\n",
+        encoding="utf-8",
+    )
+    (root / "Source.md").write_text(
+        '[valid](Target.md "link title")\n'
+        "[[Target|alias]]\n"
+        "[missing](Missing.md)\n"
+        "[excluded template](.obsidian/templates/Template.md)\n"
+        "`[inline code](InlineCode.md) [[CodeWiki]]`\n"
+        "<!-- [hidden](Comment.md) -->\n",
+        encoding="utf-8",
+    )
+
+    result = run_script("check_links.py", root=root)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "checked_links 4" in result.stdout
+    assert "broken_links 2" in result.stdout
+    assert "Source.md -> Missing.md" in result.stdout
+    assert "Source.md -> .obsidian/templates/Template.md" in result.stdout
+    assert "MissingTemplate.md" not in result.stdout
+    assert "InlineCode.md" not in result.stdout
+    assert "Comment.md" not in result.stdout
+
+
 def test_mini_vault_subprocess_overrides_host_private_manifest_root(tmp_path: Path, monkeypatch) -> None:
     private_registry = tmp_path / "host-private-registry"
     private_registry.mkdir()

@@ -7,6 +7,7 @@ import argparse
 import json
 import sys
 
+from check_obsidian_links import check_markdown_links
 from notes_utils import ROOT, build_note_index, markdown_files, read_text, rel, wikilink_matches, wikilinks
 
 
@@ -15,13 +16,14 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     args = parser.parse_args()
 
+    files = markdown_files()
     index = build_note_index()
     checked = 0
     broken: list[str] = []
     self_links: list[str] = []
     ambiguous: list[str] = []
 
-    for path in markdown_files():
+    for path in files:
         text = read_text(path)
         for raw, target in wikilinks(text):
             checked += 1
@@ -33,6 +35,22 @@ def main() -> int:
                 ambiguous.append(f"{rel(path)} -> [[{raw}]] -> {choices}")
             elif matches[0] == path:
                 self_links.append(f"{rel(path)} -> [[{raw}]]")
+
+    markdown_broken, markdown_self_links, markdown_checked = check_markdown_links(
+        ROOT,
+        files=files,
+    )
+    checked += markdown_checked
+    broken.extend(
+        f"{rel(issue.source)} -> {issue.target}"
+        for issue in markdown_broken
+        if issue.kind == "broken"
+    )
+    self_links.extend(
+        f"{rel(issue.source)} -> {issue.target}"
+        for issue in markdown_self_links
+        if issue.kind == "self"
+    )
 
     payload = {
         "checked_links": checked,

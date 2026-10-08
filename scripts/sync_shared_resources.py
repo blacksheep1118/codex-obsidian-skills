@@ -41,6 +41,7 @@ STATIC_RESOURCES = (
             ROOT / "skill" / "obsidian-vault-organizer" / "scripts" / "markdown_links.py",
             ROOT / "skill" / "web-course-notes-for-obsidian" / "scripts" / "markdown_links.py",
             ROOT / "skill" / "notes-to-scientific-ppt" / "scripts" / "markdown_links.py",
+            ROOT / "skill" / "solvenotes-vault-maintainer" / "scripts" / "markdown_links.py",
         ),
     ),
     StaticResource(
@@ -50,6 +51,7 @@ STATIC_RESOURCES = (
             ROOT / "skill" / "obsidian-vault-organizer" / "scripts" / "check_obsidian_links.py",
             ROOT / "skill" / "web-course-notes-for-obsidian" / "scripts" / "check_obsidian_links.py",
             ROOT / "skill" / "notes-to-scientific-ppt" / "scripts" / "check_obsidian_links.py",
+            ROOT / "skill" / "solvenotes-vault-maintainer" / "scripts" / "check_obsidian_links.py",
         ),
     ),
     StaticResource(

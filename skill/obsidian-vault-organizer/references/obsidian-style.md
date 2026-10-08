@@ -39,6 +39,7 @@ $$
 
 - Put links where the related concept first appears.
 - Avoid repeated trailing link dumps.
+- Review each direction on its own: do not add reciprocal links mechanically. Add a return link only when it helps readers navigate or understand the relationship.
 - Navigation pages and concept indexes may be link-heavy.
 
 ## Review And Index Pages

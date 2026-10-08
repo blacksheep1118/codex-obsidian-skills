@@ -11,7 +11,7 @@ Organize an existing Obsidian vault or Markdown note collection into a coherent 
 
 Use this skill for vault-first work. If the main task is extracting or converting PPT/PPTX/PDF courseware, use `$ppt-to-md-for-obsidian` instead.
 
-When a target vault follows solvenotes-style conventions, read `references/solvenotes-profile.md` before strict cleanup or project-specific validation. In Solvenotes, keep formal source manifests outside Notes: use `SOLVENOTES_MANIFEST_ROOT` or default to `Notes.parent / "vault_sources"`, mirroring each course/topic path relative to Notes. Reject a manifest root inside Notes, including symlink resolutions. Keep private mappings out of the public Skills repository and temporary ledgers in the task directory. Preserve `source_files`, URLs, and page/slide markers in notes; never create or update legacy audit notes. Missing required manifests are FAIL/unavailable, never an empty PASS. Other vaults retain their own provenance layout.
+When a target vault follows solvenotes-style conventions, read `references/solvenotes-profile.md` before strict cleanup or project-specific validation. In Solvenotes, keep formal source manifests outside Notes: use `SOLVENOTES_MANIFEST_ROOT` or default to `Notes.parent / "vault_sources"`, mirroring each course/topic path relative to Notes. Reject a manifest root inside Notes, including symlink resolutions. Keep private mappings out of the public Skills repository and temporary ledgers in the task directory. Preserve `source_files`, URLs, and page/slide markers in notes; never create or update legacy audit notes. A missing required manifest makes source provenance and coverage FAIL/unavailable, never an empty PASS; it does not prevent independent factual verification against adequate authoritative sources. Report source fidelity and independently verified correctness separately. Other vaults retain their own provenance layout.
 
 ## Handoff Boundaries
 
@@ -45,11 +45,12 @@ Treat existing notes, local guidance, source files opened in the current task, g
    - Identify the vault from explicit paths, `.obsidian`, notes-like directories, or dense Markdown collections.
    - Identify source materials separately from notes.
    - Treat source files as read-only unless the user explicitly asks to rename, move, delete, or reorganize them.
-   - For source-consistency claims, build a source-to-note map first. Do not claim a note is source-consistent unless its corresponding source file has been opened or extracted in the current task.
+   - For source-consistency claims, build a source-to-note map first. Do not claim a note is source-consistent unless its corresponding source file has been opened or extracted in the current task. If local courseware or its manifest is absent, report source coverage as unavailable and continue independent factual checks against suitable authoritative sources; keep those conclusions separate from source fidelity.
    - When course-note source checking requires PPT/PPTX text and no dedicated converter skill/tool is available, use `scripts/extract_presentation_text.py` to create temporary source text for comparison. Its output begins with extraction metadata and is only partial text evidence: it performs no OCR or complete visual/layout inspection, and speaker-note coverage is absent or unreliable. Keep the metadata separate from source text, and use the extracted hints for manual note repair, not as an automatic note generator or a complete-coverage claim.
 
 2. Load local guidance before editing.
-   - Read `AGENT.md`, `agent.md`, and relevant files under `agent/` when present.
+   - Read applicable `AGENTS.md` and `AGENTS.override.md` files and follow their references. Read a custom `AGENT.md`/`agent.md` only when the user, active project instructions, or an established workspace procedure explicitly designates it; Codex does not auto-load `AGENT.md` by that filename unless configured as a fallback.
+   - Read relevant files under `agent/` when local guidance points to them.
    - Read nearby overview pages, indexes, and existing note examples.
    - Let project-local guidance override this generic skill.
    - See `references/project-vault-workflow.md` for path resolution and editing boundaries.
@@ -74,14 +75,14 @@ Treat existing notes, local guidance, source files opened in the current task, g
    - Add formula variable meanings, assumptions, examples, failure cases, and boundaries when useful.
    - Preserve frontmatter fields that local scripts or Obsidian Properties rely on.
    - For course notes, process one source or one chapter at a time when the user requests strict checking; avoid broad mechanical rewrites that hide source-consistency errors.
-   - When checking all courses, finish and validate one course directory before moving to the next. If a course lacks source materials, say that directly and limit the claim to note quality and link integrity.
+   - When checking all courses, finish and validate one course directory before moving to the next. If a course lacks source materials, say that directly; do not claim source fidelity, but continue independent correctness checks where authoritative evidence is available.
    - Treat project-local standalone systems, such as concept indexes, research-method notes, or job-prep/topic notes, as independent note systems when local guidance says they do not mirror a source directory. Do not invent a source map for them; validate internal consistency, link integrity, and concrete explanations instead.
    - Keep generated review pages clearly labeled as review pages when they do not correspond to a single source file.
    - For paper notes, normalize substantial existing content into `## 可复现要点` and `## 失败边界` when the local review checklist expects those headings. Do not add empty headings. If code or checkpoint availability is not recorded in the note, state that limitation rather than guessing.
    - Remove generic filler, repeated section templates, stale cross-course links, and report-style audit prose from study notes.
    - Before and after broad cleanup, compare link coverage against a saved inventory when available. Treat unexplained large link loss as a regression even when broken links are zero.
    - When removing stale navigation/report links, preserve concept links that still support prerequisites, follow-up topics, formulas, examples, sources, or comparisons.
-   - After rewriting chapter notes, update overview, review pages, and local navigation that repeat changed titles or scope.
+   - After rewriting chapter notes, update overview, review pages, and local navigation that repeat changed titles or scope. Before carrying a numerical result across versions or into review pages, confirm that the problem statement, data, symbols, and source version match; a shared heading does not establish that the results are interchangeable.
    - If a note or directory is renamed for clarity, preserve old wiki-link entry points with short bridge notes when the old path may still be referenced. Bridge notes must be explicit redirects to the new note, not duplicate content.
    - Treat unrelated-domain formula explanations as source-mismatch residues. Replace them only after checking the corresponding source.
    - See `references/obsidian-style.md` for style guidance.

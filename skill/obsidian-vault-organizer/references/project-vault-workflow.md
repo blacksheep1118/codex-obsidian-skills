@@ -17,13 +17,14 @@ Keep these roles clear:
 - `<repo_root>`: project containing source materials, vault, and guidance.
 - `<vault_path>`: Obsidian vault to modify.
 - `<source_path>`: source material directory or file set to read.
-- `<guidance_paths>`: `AGENT.md`, `agent.md`, and files under `agent/`.
+- `<guidance_paths>`: applicable `AGENTS.md` and `AGENTS.override.md` files, any custom `AGENT.md`/`agent.md` explicitly designated by the user or active workspace procedure, and referenced files under `agent/`.
 
 ## Load Local Guidance
 
 Before changing notes, read relevant local guidance when present:
 
-- `AGENT.md` or `agent.md`.
+- Applicable `AGENTS.md` and `AGENTS.override.md` files and their references.
+- A custom `AGENT.md` or `agent.md` only when explicitly designated by the user, active project instructions, or established workspace procedure; Codex does not automatically load that filename unless configured as a fallback.
 - Markdown files under `agent/`.
 - Existing overview pages, indexes, and nearby notes.
 

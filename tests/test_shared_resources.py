@@ -26,6 +26,7 @@ LINK_CHECKER_ENTRYPOINTS = (
     "skill/obsidian-vault-organizer/scripts/check_obsidian_links.py",
     "skill/ppt-to-md-for-obsidian/scripts/check_obsidian_links.py",
     "skill/web-course-notes-for-obsidian/scripts/check_obsidian_links.py",
+    "skill/solvenotes-vault-maintainer/scripts/check_obsidian_links.py",
 )
 LINK_ROOT_ERROR_REASON = "root must be an existing directory without symlink components"
 
@@ -254,7 +255,7 @@ def test_shared_link_checker_api_validates_root_shape(
 @pytest.mark.parametrize(
     "entrypoint",
     LINK_CHECKER_ENTRYPOINTS,
-    ids=("root", "notes", "vault", "ppt", "web"),
+    ids=("root", "notes", "vault", "ppt", "web", "maintainer"),
 )
 @pytest.mark.parametrize(
     "root_kind",

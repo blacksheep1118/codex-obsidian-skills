@@ -23,8 +23,11 @@ orchestrator for a learning vault; it does not replace the reusable
 - Preserve `source_files`, source URLs, and page/slide markers in learning
   notes. Resolve manifest note targets against the matching Notes directory;
   moving the manifest must not erase source ownership or weaken coverage.
-  Missing, unreadable, or empty required manifests are FAIL/unavailable, never
-  an empty PASS. Public synthetic fixtures may use `fixtures/vault_sources`;
+  Missing, unreadable, or empty required manifests make provenance and source
+  coverage FAIL/unavailable, never an empty PASS; they do not block independent
+  factual verification against adequate authoritative evidence. Report source
+  fidelity and independently verified correctness separately. Public synthetic
+  fixtures may use `fixtures/vault_sources`;
   never copy real private mappings into the public Skills repository.
 - This skill owns maintenance scripts, tests, fixtures, package/export checks,
   and temporary diagnostics. Do not recreate these under `/notes`.
@@ -82,7 +85,7 @@ path, and Skills path without using machine-specific fallbacks.
 
 ## Quick Start
 
-1. Read the workspace and vault `AGENT.md` files and inspect Git status.
+1. Read applicable `AGENTS.md` and `AGENTS.override.md` files and follow their references. Read custom `AGENT.md` files when the user, active project instructions, or an established workspace procedure explicitly designates them, then inspect Git status.
 2. Create one task-specific `RUN_TMP`, point temporary-output settings such as
    `TMPDIR` at it, then run the read-only baseline checks. Keep diagnostics
    outside the vault and clean the exact task directory before handoff.
@@ -236,6 +239,12 @@ not create them as new job directions.
   language warning is a review candidate until its surrounding claim is read.
 - Formal guarantees, theorem statements, negated claims, questions, and
   quoted source language must not be weakened merely to satisfy a heuristic.
+- When transferring a numerical result across course versions, chapters, or
+  review pages, verify that the problem statement, data, symbols, and source
+  version match. A shared title alone is not evidence that the values agree.
+- Missing courseware or manifests limits source-fidelity and coverage claims,
+  not independent correctness checks. Verify against suitable authoritative
+  sources when available and report the two kinds of evidence separately.
 
 ## Output Contract
 
