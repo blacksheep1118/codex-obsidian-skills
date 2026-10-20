@@ -20,7 +20,7 @@ from notes_utils import frontmatter_note_type, markdown_files, read_text, rel, t
 PLACEHOLDER_RE = re.compile(r"(?:在此填写|待补充|<待填写>)", re.I)
 TASK_LIST_PREFIX_RE = re.compile(r"^(?:[-*+]\s+|\d+[.)]\s+)(.*)$")
 TASK_HEADING_PREFIX_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$")
-TASK_MARKER_RE = re.compile(r"^(?:TODO|FIXME)(?![A-Za-z0-9_])(.*)$", re.I)
+TASK_MARKER_RE = re.compile(r"^(?:TODO|FIXME|TBD)(?![A-Za-z0-9_])(.*)$", re.I)
 TASK_ACTION_RE = re.compile(
     r"^(?:add|write|fill|complete|implement|fix|review|verify|document|test|update|remove|"
     r"define|clarify|check|replace|resolve|finish|include|insert|explain|cite|link|run|measure|"

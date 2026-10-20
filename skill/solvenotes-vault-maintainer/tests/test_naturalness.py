@@ -279,6 +279,7 @@ def test_english_task_markers_require_placeholder_syntax_and_ignore_code(
     note.write_text(
         "# Marker handling\n\n"
         "The upstream README TODO still labels a release item as unfinished.\n"
+        "The source marks the remaining release item TBD in its status note.\n"
         "- 代码与权重状态：README 中的 TODO 说明上游发布状态。\n"
         "A quoted title says \"TODO: Release training codes\".\n"
         "- TODO:补公式\n"
@@ -287,6 +288,7 @@ def test_english_task_markers_require_placeholder_syntax_and_ignore_code(
         "TODO add a citation\n"
         "TODO补公式\n"
         "- FIXME修复公式\n"
+        "TBD\n"
         "TODO list entries describe upstream tasks.\n"
         "TODOLIST is a single unrelated word.\n"
         "Inline `TODO: not a placeholder` stays code.\n"
@@ -301,8 +303,8 @@ def test_english_task_markers_require_placeholder_syntax_and_ignore_code(
 
     payload = check_naturalness.scan()
 
-    assert payload["naturalness_high_confidence"] == 6
-    assert [item["line"] for item in payload["high_confidence"]] == [6, 7, 8, 9, 10, 11]
+    assert payload["naturalness_high_confidence"] == 7
+    assert [item["line"] for item in payload["high_confidence"]] == [7, 8, 9, 10, 11, 12, 13]
     assert all(item["kind"] == "placeholder" for item in payload["high_confidence"])
 
 

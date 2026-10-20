@@ -11,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from check_naturalness import PLACEHOLDER_RE, is_task_placeholder, mask_frontmatter
 from notes_utils import (
     ROOT,
     build_note_index,
@@ -25,11 +26,6 @@ from notes_utils import (
     wikilinks,
 )
 
-RESIDUE_RE = re.compile(
-    r"需复核|待复核|人工确认|人工打开|手动打开|打开课件确认|TODO|FIXME|TBD|"
-    r"待补|待完善|占位|例题模板|高频答题模板|空话|套话|\.\.\.|�"
-    r"|严格逐句核对补充"
-)
 FIXED_PSEUDO_QUESTION_RE = re.compile(
     r"解决的核心问题是什么？它和本课程前后章节的哪个概念最容易混淆？"
 )
@@ -109,6 +105,21 @@ def depth_issue(note_type: str, text: str) -> str | None:
     return None
 
 
+def residue_markers(text: str) -> list[tuple[int, str]]:
+    """Find actual placeholders using the naturalness checker's shared rules."""
+
+    markers: list[tuple[int, str]] = []
+    prose_text = text_without_code(mask_frontmatter(text))
+    for line_no, line in enumerate(prose_text.splitlines(), 1):
+        if "\uFFFD" in line:
+            markers.append((line_no, "�"))
+        elif placeholder := PLACEHOLDER_RE.search(line):
+            markers.append((line_no, placeholder.group(0)))
+        elif is_task_placeholder(line):
+            markers.append((line_no, "open task marker"))
+    return markers
+
+
 def ordinary_audit_exempt(relative: str) -> bool:
     """Return whether a path is authoritative source metadata or supporting material."""
     path = Path(relative)
@@ -169,9 +180,8 @@ def main() -> int:
         for line_no, message in python_fence_syntax_issues(text):
             issues.append(f"{rel(path)}:{line_no}: invalid python fence: {message}")
         if rel(path) != "AGENT.md" and not rel(path).startswith("agent/"):
-            for match in RESIDUE_RE.finditer(prose_text):
-                line_no = prose_text.count("\n", 0, match.start()) + 1
-                issues.append(f"{rel(path)}:{line_no}: residue marker {match.group(0)}")
+            for line_no, marker in residue_markers(text):
+                issues.append(f"{rel(path)}:{line_no}: residue marker {marker}")
         for line_no, line in enumerate(text.splitlines(), 1):
             if line.startswith(("|---", "| ---", "| --")) and "解析：" in line:
                 issues.append(f"{rel(path)}:{line_no}: table separator row contains 解析")

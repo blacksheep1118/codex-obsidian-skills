@@ -279,6 +279,11 @@ not create them as new job directions.
   migration, and fail closeout on an unexplained mismatch. When bytes
   change, update dependent records and manifests,
   including evidence `note.after_sha256` and private source-manifest fields.
+  Reuse completed sentence-level reviews even when they use an older
+  inventory format; a new agent, format migration, or hash change alone does
+  not restart a full reread. Recheck changed claims and fill only genuinely
+  uncovered scope. Keep closeout focused on review decisions, revisions, and
+  source ranges rather than extending it for metadata alone.
   Before a cross-chapter shared-page edit, save its full before bytes; calculate
   coverage from the union of physical line/sentence ranges and check duplicate
   units or overlap when claiming a partition—unit count alone is not coverage.
