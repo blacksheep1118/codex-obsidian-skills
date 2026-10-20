@@ -270,3 +270,50 @@ def test_repeated_sentence_split_by_markdown_soft_wrap_is_a_candidate(
     assert candidate["count"] == 5
     assert candidate["line"] == 7
     assert candidate["context"] == "笔记中未记录代码和权重，复现时需要 回到项目页逐项确认。"
+
+
+def test_english_task_markers_require_placeholder_syntax_and_ignore_code(
+    monkeypatch, tmp_path: Path
+) -> None:
+    note = tmp_path / "task-markers.md"
+    note.write_text(
+        "# Marker handling\n\n"
+        "The upstream README TODO still labels a release item as unfinished.\n"
+        "- 代码与权重状态：README 中的 TODO 说明上游发布状态。\n"
+        "A quoted title says \"TODO: Release training codes\".\n"
+        "- TODO:补公式\n"
+        "- [ ] FIXME: add an example\n"
+        "## TODO\n"
+        "TODO add a citation\n"
+        "TODO补公式\n"
+        "- FIXME修复公式\n"
+        "TODO list entries describe upstream tasks.\n"
+        "TODOLIST is a single unrelated word.\n"
+        "Inline `TODO: not a placeholder` stays code.\n"
+        "```text\n"
+        "FIXME: fenced code stays code\n"
+        "```\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(check_naturalness, "markdown_files", lambda: [note])
+    monkeypatch.setattr(check_naturalness, "rel", lambda path: path.name)
+    monkeypatch.setattr(check_naturalness, "read_text", lambda path: path.read_text(encoding="utf-8"))
+
+    payload = check_naturalness.scan()
+
+    assert payload["naturalness_high_confidence"] == 6
+    assert [item["line"] for item in payload["high_confidence"]] == [6, 7, 8, 9, 10, 11]
+    assert all(item["kind"] == "placeholder" for item in payload["high_confidence"])
+
+
+def test_existing_non_english_placeholder_forms_remain_high(monkeypatch, tmp_path: Path) -> None:
+    note = tmp_path / "chinese-placeholders.md"
+    note.write_text("在此填写实验边界。\n待补充结论。\n<待填写>\n", encoding="utf-8")
+    monkeypatch.setattr(check_naturalness, "markdown_files", lambda: [note])
+    monkeypatch.setattr(check_naturalness, "rel", lambda path: path.name)
+    monkeypatch.setattr(check_naturalness, "read_text", lambda path: path.read_text(encoding="utf-8"))
+
+    payload = check_naturalness.scan()
+
+    assert payload["naturalness_high_confidence"] == 3
+    assert [item["line"] for item in payload["high_confidence"]] == [1, 2, 3]

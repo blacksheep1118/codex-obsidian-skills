@@ -27,9 +27,9 @@ Use this skill while source extraction or slide-order reconstruction is still pa
 
 ## Evidence And Assumption Gate
 
-Treat slide/page text, visible titles, formulas, filenames, course order, and user-provided scope as evidence. Mark anything inferred from noisy extraction as an assumption, and do not present it as source coverage unless it has been checked against an extracted or visible source. For missing or unreadable source sections, report the gap and its impact on the output instead of silently filling it.
+Treat slide/page text, visible titles, formulas, filenames, course order, and user-provided scope as evidence. Mark anything inferred from noisy extraction as an assumption, and do not present it as source coverage unless it has been checked against an extracted or visible source. For missing or unreadable source sections, report the gap and its impact on the output instead of silently filling it. For figure/table labels, nesting, units, dates, and footnotes, see [Source tables and model conditions](references/validation.md#source-tables-and-model-conditions).
 
-For paper sources, verify the full title, year, and venue or publication status from the paper title page or an official bibliographic record. Do not infer them from a filename, surrounding notes, or memory. Distinguish a dated arXiv preprint from a peer-reviewed venue when the source only supports the former.
+For paper sources, verify the full title, author list, year, DOI when assigned, and venue or publication status from the paper itself or an official bibliographic record. Do not infer them from a filename, surrounding notes, search-result snippets, a citation in another paper’s reference list, or memory. Search snippets and reference entries are candidate locators only; they do not establish access to the cited paper or support its claims. Distinguish a dated arXiv preprint from a peer-reviewed venue when the source only supports the former. When citing paper PDFs, record differing physical/printed pages and check figure/table/equation IDs on the rendered page; verify source-code `#L` anchors against the raw file at its pinned commit.
 
 ## Source Ownership And Repair Protocol
 
@@ -45,7 +45,7 @@ Treat formulas, definitions, algorithms, examples, and paper conclusions as clai
 
 - For every nontrivial formula, define symbols, domains, signs, shapes, and boundary conditions next to it. Check dimensions, limiting cases, and whether a floor/ceiling or divisibility condition is part of the convention. Distinguish a Lipschitz function from a Lipschitz gradient, a necessary condition from a sufficient condition, and a model assumption from an empirical observation.
 - For definitions, state the scope: API/DBMS version, hardware model, course convention, market/board, or other operating assumptions. Replace universal wording with the narrowest statement supported by the source.
-- For algorithms and proofs, make the construction, invariant, answer mapping, stopping condition, and failure case explicit. Check that every worked example's answer actually matches its question; use symbolic calculation or randomized tests when a deterministic check is practical.
+- For algorithms and proofs, make the construction, invariant, answer mapping, stopping condition, and failure case explicit. Check that every worked example's answer actually matches its question; use symbolic calculation or randomized tests when a deterministic check is practical. For a replacement construction meant to overturn a theory result, see [Replacement constructions](references/validation.md#replacement-constructions).
 - For current rules and paper results, record the applicable object, date/version, metric, dataset, and source. A reported table or ablation supports a scoped experimental claim; it is not automatically a theorem, necessity claim, or first-in-field claim.
 - When a semantic repair affects a repeated concept, update the chapter note and the detailed/concise review copies together, or state why a copy is intentionally scoped differently.
 - For computability reductions, write the reduction direction and any complement explicitly, then verify both cases of the constructed machine. Do not replace a proof obligation with a memorized problem-name pairing.
@@ -87,7 +87,7 @@ If the user explicitly asks for one exam review file instead of two review pages
    - If the extracted text contains formula noise, run `scripts/clean_latex_from_ppt.py` before rewriting.
    - For repeatable runs, use `scripts/ppt_to_obsidian_pipeline.py` to extract, clean, and write a manifest. The pipeline keeps a basename when it is unique and adds a stable source-path hash when same-named files would otherwise overwrite one another. Run extraction and its `pipeline_manifest.md` in external staging; they are intermediate artifacts, not the formal Solvenotes manifest or learning notes.
    - If extraction is noisy, use slide titles, visible bullets, formulas, filenames, and course order together instead of trusting raw text blindly.
-   - If attempting visual validation, verify that rendered images/contact sheets cover every page or slide. A QuickLook thumbnail that produces one image for a multi-slide PPTX is only a cover preview, not page-level visual evidence.
+   - If conversion fails, glyphs are missing, or visual review is needed, see [Conversion failures and derived copies](references/validation.md#conversion-failures-and-derived-copies) and [Rendered text and fonts](references/validation.md#rendered-text-and-fonts); inspect rendered pages for full coverage, treat QuickLook as a cover preview only, and keep repairs task-local with the source read-only.
 
 3. Do a source coverage pass before writing the final notes.
    - Build a source-to-output map by file, chapter, slide/page range, and major headings.

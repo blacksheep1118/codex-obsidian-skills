@@ -39,7 +39,7 @@ Use this skill when the starting point is web sources or local HTML. If a source
 
 ## Evidence And Assumption Gate
 
-Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, PDFs, slides, and user-provided excerpts as evidence. Mark inaccessible, authenticated, paywalled, ambiguous, or client-rendered helper URLs separately. Do not infer detailed claims from a URL title alone; report remaining source gaps when full reading or login access is required.
+Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, PDFs, slides, and user-provided excerpts as evidence. Mark inaccessible, authenticated, paywalled, ambiguous, or client-rendered helper URLs separately. Do not infer detailed claims from a URL title alone; report remaining source gaps when full reading or login access is required. For a paper, verify its full title, author list, year, DOI when assigned, and venue or publication status from the paper itself or an official bibliographic record; search snippets and citations in another work’s bibliography can help locate it, but do not establish access to the cited paper or support its claims.
 
 ## Workflow
 

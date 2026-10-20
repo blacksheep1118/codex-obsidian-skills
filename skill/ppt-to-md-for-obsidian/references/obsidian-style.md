@@ -15,6 +15,7 @@
 - Expand slide bullets into coherent paragraphs.
 - Do not keep generic slide phrases if they do not help learning.
 - Add examples or boundary cases when a concept is easy to misuse.
+- State assumptions and evidence limits where they clarify the claim; avoid repeating the same caveat or narrating the audit in learner-facing prose.
 
 ## Formulas
 

@@ -17,7 +17,18 @@ from pathlib import Path
 
 from notes_utils import frontmatter_note_type, markdown_files, read_text, rel, text_without_code
 
-PLACEHOLDER_RE = re.compile(r"(?:在此填写|TODO|FIXME|待补充|<待填写>)", re.I)
+PLACEHOLDER_RE = re.compile(r"(?:在此填写|待补充|<待填写>)", re.I)
+TASK_LIST_PREFIX_RE = re.compile(r"^(?:[-*+]\s+|\d+[.)]\s+)(.*)$")
+TASK_HEADING_PREFIX_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$")
+TASK_MARKER_RE = re.compile(r"^(?:TODO|FIXME)(?![A-Za-z0-9_])(.*)$", re.I)
+TASK_ACTION_RE = re.compile(
+    r"^(?:add|write|fill|complete|implement|fix|review|verify|document|test|update|remove|"
+    r"define|clarify|check|replace|resolve|finish|include|insert|explain|cite|link|run|measure|"
+    r"confirm|revise|specify|validate|provide|ensure|expand|shorten|refactor|support)\b"
+    r"|^(?:补充|补|完善|填写|添加|写|实现|修复|核对|验证|检查|更新|删除|说明|解释|引用|增加|"
+    r"给出|确定|明确|修改|运行|测量|完成|重做|重算|调整|替换|确认)",
+    re.I,
+)
 BOILERPLATE_PATTERNS = (
     ("meta_opening", re.compile(r"本页(?:用于|负责|将介绍)|本篇(?:用于|负责|将介绍)")),
     (
@@ -65,6 +76,40 @@ def should_scan(path: Path, text: str) -> bool:
     if "/.obsidian/templates/" in f"/{relative}":
         return False
     return frontmatter_note_type(text) not in EXCLUDED_NOTE_TYPES
+
+
+def is_task_placeholder(line: str) -> bool:
+    """Recognize task markers only when Markdown syntax presents them as open work."""
+
+    candidate = line.strip()
+    if candidate.startswith(">"):
+        return False
+
+    checkbox = False
+    heading = TASK_HEADING_PREFIX_RE.match(candidate)
+    if heading:
+        candidate = heading.group(1)
+    else:
+        list_item = TASK_LIST_PREFIX_RE.match(candidate)
+        if list_item:
+            candidate = list_item.group(1)
+            if candidate.startswith("[ ]"):
+                checkbox = True
+                candidate = candidate[3:].lstrip()
+
+    marker = TASK_MARKER_RE.match(candidate)
+    if not marker:
+        return False
+
+    suffix = marker.group(1)
+    if not suffix.strip():
+        return True
+    stripped_suffix = suffix.lstrip()
+    if stripped_suffix.startswith((":", "：", "-")) or checkbox:
+        return True
+    if suffix[:1].isspace():
+        return bool(TASK_ACTION_RE.match(stripped_suffix))
+    return bool(TASK_ACTION_RE.match(suffix))
 
 
 def intentional_heading_schema(relative: str) -> bool:
@@ -227,7 +272,7 @@ def scan() -> dict[str, object]:
         note_files.append(path)
         prose = text_without_code(mask_frontmatter(text))
         for line_number, line in enumerate(prose.splitlines(), 1):
-            if PLACEHOLDER_RE.search(line):
+            if PLACEHOLDER_RE.search(line) or is_task_placeholder(line):
                 high_confidence.append(
                     {"path": relative, "line": line_number, "kind": "placeholder", "context": line.strip()}
                 )
