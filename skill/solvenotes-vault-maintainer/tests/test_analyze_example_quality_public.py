@@ -184,6 +184,33 @@ def test_rubric_and_taxonomy_are_not_unanswered_exercises(checker, tmp_path):
     assert checker.semantic_category(actual) == "missing_answer"
 
 
+def test_context_action_mapping_is_conceptual_unless_task_is_requested(checker, tmp_path):
+    text = (
+        "例子：\n\n"
+        "- 新闻：上下文是用户与时段，动作是候选文章。\n"
+        "- 广告：上下文是请求，动作是广告或创意。\n"
+        "- 云控制：上下文是机器负载，动作是恢复策略。\n\n"
+        "共享参数模型可利用其他动作上学到的特征为新动作打分。"
+    )
+    example = checker.Example(tmp_path / "bandit.md", 1, "inline", "例子", text)
+    assert checker.semantic_category(example) == "concept_illustration"
+    assert checker._context_action_inventory(text) is True
+
+    mapped_task = text.replace(
+        "- 新闻：上下文是用户与时段，动作是候选文章。",
+        "- 新闻：上下文是用户，动作是文章；请计算动作得分。",
+    )
+    mapped_task_example = checker.Example(
+        tmp_path / "bandit-mapped-task.md", 1, "inline", "例子", mapped_task
+    )
+    assert checker._context_action_inventory(mapped_task) is False
+    assert checker._requires_solution(mapped_task_example) is True
+
+    requested = text + "\n给定候选文章及其特征，请计算新闻动作的得分。"
+    task = checker.Example(tmp_path / "bandit-task.md", 1, "inline", "例子", requested)
+    assert checker._requires_solution(task) is True
+
+
 def test_computing_resource_is_a_concept_not_calculation_request(checker, tmp_path):
     text = "课件示例：\n```text\nWorkerNode\n```\n节点可以是设备或软件执行环境，用于承载部署制品；计算资源描述其角色，不能据节点标签推断处理性能。"
     example = checker.Example(tmp_path / "uml.md", 1, "inline", "课件示例", text)

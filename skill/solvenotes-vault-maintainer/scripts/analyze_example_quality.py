@@ -528,6 +528,20 @@ def grade(line: str, kind: str = "table") -> str:
     return "D"
 
 
+def _context_action_inventory(text: str) -> bool:
+    """Recognize context/action mappings unless the text asks a task."""
+    bullets = [
+        line.strip()
+        for line in text.splitlines()
+        if re.match(r"[-*+]\s+[^：:\n]{1,40}[：:]", line.strip())
+    ]
+    if len(bullets) < 2 or not all(
+        "上下文是" in line and "动作是" in line for line in bullets
+    ):
+        return False
+    return not _explicit_task_request(text)
+
+
 def _requires_solution(example: Example) -> bool:
     """Return whether a candidate is phrased as a question/worked exercise."""
 
@@ -546,6 +560,10 @@ def _requires_solution(example: Example) -> bool:
     # Require an explicit problem or a numerical/algorithmic result before it
     # enters the strict worked-example gate.
     if re.search(r"示例|例子|案例", title, re.I):
+        if _context_action_inventory(example.text):
+            return False
+        if _explicit_task_request(example.text):
+            return True
         if "案例" in title and not re.search(r"(?:计算|求解|答案|结论|最终|得到|=|\d)", example.text):
             return False
         return bool(EXPLICIT_EXERCISE_RE.search(example.text) and _has_result(example.text, example.kind))
@@ -556,7 +574,7 @@ def _explicit_task_request(text: str) -> bool:
     """Keep actual task instructions out of case and inventory exemptions."""
     actions = r"计算|求|证明|推导|判断|比较|构造|设计|选择|列举|列出|模拟|执行|分析|说明|解释"
     return bool(
-        re.search(r"(?:请|要求)[^。；\n]{0,8}(?:" + actions + r")", text)
+        re.search(r"(?:请(?!求)|要求)[^。；\n]{0,8}(?:" + actions + r")", text)
         or re.search(
             r"(?:^|[。；：?？\n])\s*(?:证明|推导|求|构造|"
             r"比较(?:两|这|以下|上述)|设计(?:一个|一组)|选择(?:正确|合适)|"

@@ -46,6 +46,26 @@ def test_unconditional_universal_guarantee_is_high_confidence() -> None:
     assert issues[0].category == "ENGINEERING_PROMISE"
 
 
+def test_nonjudgment_of_inevitability_is_not_an_inevitability_claim() -> None:
+    sentence = (
+        "表格未标注资源开放性，正文未点名基线或区分百分比/百分点，"
+        "故不判定两种口径已调和或必然矛盾。"
+    )
+    assert audit_line(sentence, 1, "demo.md") == []
+
+    issues = audit_line("两种口径必然矛盾。", 2, "demo.md")
+    assert [issue.term for issue in issues] == ["必然"]
+    assert issues[0].high_confidence is True
+
+    contrast = audit_line("无法判定前项，但模型必然成功。", 3, "demo.md")
+    assert [issue.term for issue in contrast] == ["必然"]
+    assert contrast[0].high_confidence is True
+
+    two_claims = audit_line("无法判定模型必然成功，但另一模型必然失败。", 4, "demo.md")
+    assert [issue.term for issue in two_claims] == ["必然"]
+    assert two_claims[0].high_confidence is True
+
+
 def test_claim_categories_keep_formal_and_negated_context_distinct() -> None:
     assert classify_claim("保证", "该算法保证所有请求成功。") == "ENGINEERING_PROMISE"
     assert classify_claim("保证", "该措施并不自动保证安全。") == "NEGATED_GUARANTEE"

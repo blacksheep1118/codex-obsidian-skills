@@ -104,6 +104,13 @@ NEGATED_CONTEXT = re.compile(
     r"不是|并不是|没有|无须|未必|并非|尚未|无法|不能|不可|未提供|不提供|不足以|并无|不受保证|无保证|只保证|"
     r"非(?:充分|必要)|而非|不承诺)",
 )
+NONDETERMINED_CERTAINTY = re.compile(
+    r"(?:不|未|无法|不能)(?:判定|判断|确定)"
+    r"(?:(?!必然|一定)[^，,;；。！？\n]){0,60}$"
+)
+CERTAINTY_CLAUSE_BOUNDARY = re.compile(
+    r"[，,;；。！？\n]|但是|然而|不过|可是|(?<!不)但|却"
+)
 HEDGED_CONTEXT = re.compile(r"(?:通常|一般|可能|有助于|往往|部分|仅)")
 CONDITIONAL_CONTEXT = re.compile(
     r"(?:在[^。！？\n]{0,60}(?:条件|前提|假设|设置|场景|范围|约束|数据|参数|环境)[^。！？\n]{0,40}(?:下|中|时|内)|"
@@ -185,6 +192,28 @@ def _sentence(text: str, start: int, end: int) -> str:
     right_candidates = [value for value in right_candidates if value >= 0]
     right = min(right_candidates) if right_candidates else len(text)
     return text[left + 1 : right + 1].strip()
+
+
+def _certainty_clause_context(text: str, start: int, end: int) -> str:
+    """Keep negation and conditions local to this certainty occurrence."""
+
+    prior_boundaries = list(CERTAINTY_CLAUSE_BOUNDARY.finditer(text, 0, start))
+    clause_start = prior_boundaries[-1].end() if prior_boundaries else 0
+    prior_certainties = list(re.finditer(r"必然|一定", text[clause_start:start]))
+    if prior_certainties:
+        clause_start += prior_certainties[-1].end()
+    next_boundary = CERTAINTY_CLAUSE_BOUNDARY.search(text, end)
+    clause_end = next_boundary.start() if next_boundary else len(text)
+    return text[clause_start:clause_end].strip()
+
+
+def _is_nondetermined_certainty(text: str, start: int) -> bool:
+    """Match only a direct, same-clause non-judgment of this occurrence."""
+
+    prior_boundaries = list(CERTAINTY_CLAUSE_BOUNDARY.finditer(text, 0, start))
+    clause_start = prior_boundaries[-1].end() if prior_boundaries else 0
+    prefix = text[clause_start:start]
+    return bool(NONDETERMINED_CERTAINTY.search(prefix))
 
 
 def _suggestion(term: str, category: str = "ENGINEERING_PROMISE") -> str:
@@ -296,7 +325,12 @@ def audit_line(line: str, line_number: int, relative_file: str) -> list[Issue]:
         if term == "完全" and TECHNICAL_COMPLETE.search(prose[max(0, match.start() - 20) : match.end() + 16]):
             continue
         sentence = _sentence(prose, match.start(), match.end())
-        category = classify_claim(term, sentence)
+        claim_context = sentence
+        if term == "必然":
+            if _is_nondetermined_certainty(prose, match.start()):
+                continue
+            claim_context = _certainty_clause_context(prose, match.start(), match.end())
+        category = classify_claim(term, claim_context)
         if category in {"QUESTION_OR_QUOTE", "LABEL_OR_SCHEMA"}:
             continue
         # Imperative/prescriptive phrases state a requirement or procedure;
@@ -334,8 +368,7 @@ def audit_line(line: str, line_number: int, relative_file: str) -> list[Issue]:
             continue
         if term == "显著提升" and EVIDENCE_RE.search(sentence):
             continue
-        high_confidence = _high_confidence(term, sentence)
-        category = classify_claim(term, sentence)
+        high_confidence = _high_confidence(term, claim_context)
         issues.append(
             Issue(
                 relative_file,

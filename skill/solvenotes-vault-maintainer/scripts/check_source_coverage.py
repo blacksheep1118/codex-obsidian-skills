@@ -31,6 +31,9 @@ from notes_utils import (
 
 EXPECTED_HEADER = "| 源文件 | 类型 | 页/slide/记录数 | 抽取方式 | 对应笔记 | 覆盖状态 | 例题状态 | 限制说明 | 最后检查日期 |"
 WEB_SOURCE_HEADER = "| 来源 | URL | 类型 | 访问状态 | 用途 |"
+REPO_SNAPSHOT_RE = re.compile(
+    r"https://github\.com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+/tree/[0-9A-Fa-f]{40}"
+)
 DEPRECATED_EXAMPLE_STATUS = "已在章节笔记配置源资料例题或生成补充题"
 FORBIDDEN_LEARNER_AUDIT_TYPES = {
     "audit_record",
@@ -156,6 +159,19 @@ def _source_identity(cell: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _source_suffix(source: str) -> str:
+    """Return a root-relative source's suffix, including a lone dotfile name."""
+    path = PurePosixPath(source)
+    if path.name.startswith(".") and path.name.count(".") == 1:
+        return path.name.lower()
+    return path.suffix.lower()
+
+
+def _valid_repo_snapshot_source(source: str) -> bool:
+    """Accept only a GitHub repository tree pinned to a full commit SHA."""
+    return bool(REPO_SNAPSHOT_RE.fullmatch(source))
+
+
 def _valid_source_identity(source: str) -> bool:
     path = PurePosixPath(source)
     return not path.is_absolute() and len(path.parts) >= 2 and ".." not in path.parts and "." not in path.parts
@@ -229,6 +245,14 @@ def _web_source_rows(text: str) -> list[tuple[int, list[str]]]:
         if cells:
             rows.append((line_no, cells))
     return rows
+
+
+def _valid_web_source_url_cell(value: str) -> bool:
+    """Validate every HTTP(S) URL in a semicolon-delimited URL cell."""
+    # Split only when a semicolon introduces another scheme, so a semicolon
+    # inside a single URL path remains part of that URL.
+    urls = re.split(r"\s*;\s*(?=[A-Za-z][A-Za-z0-9+.-]*://)", value.strip())
+    return bool(urls) and all(bool(re.fullmatch(r"https?://\S+", url)) for url in urls)
 
 
 def _frontmatter_source_files(text: str) -> list[str]:
@@ -421,20 +445,33 @@ def manifest_issues(
             if len(cells) != 5:
                 issues.append(f"{manifest_rel}:{line_no}: expected 5 web-source columns, got {len(cells)}")
                 continue
-            if not re.fullmatch(r"https?://\S+", cells[1]):
+            if not _valid_web_source_url_cell(cells[1]):
                 issues.append(f"{manifest_rel}:{line_no}: web-source URL must use http or https")
             if not cells[0] or not cells[2] or not cells[3] or not cells[4]:
                 issues.append(f"{manifest_rel}:{line_no}: web-source metadata fields must be non-empty")
     by_source: dict[str, ManifestRecord] = {}
     for record in records:
-        if not record.source_is_exact or not _valid_source_identity(record.source):
-            issues.append(f"{manifest_rel}:{record.line_no}: source must use a full root-relative identity")
+        is_repo_snapshot = record.kind == "repo-snapshot"
+        source_valid = (
+            _valid_repo_snapshot_source(record.source)
+            if is_repo_snapshot
+            else _valid_source_identity(record.source)
+        )
+        if not record.source_is_exact or not source_valid:
+            if is_repo_snapshot:
+                issues.append(
+                    f"{manifest_rel}:{record.line_no}: file type repo-snapshot requires a GitHub repository tree URL pinned to a full 40-character commit SHA"
+                )
+            else:
+                issues.append(f"{manifest_rel}:{record.line_no}: source must use a full root-relative identity")
         elif record.source in by_source:
             issues.append(f"{manifest_rel}:{record.line_no}: duplicate source identity: {record.source}")
         by_source[record.source] = record
-        if not re.fullmatch(r"`\.[A-Za-z0-9]+`", record.kind):
+        if is_repo_snapshot:
+            pass
+        elif not re.fullmatch(r"`\.[A-Za-z0-9]+`", record.kind):
             issues.append(f"{manifest_rel}:{record.line_no}: file type must be a backticked extension")
-        elif _valid_source_identity(record.source) and record.kind.strip("`").lower() != Path(record.source).suffix.lower():
+        elif _valid_source_identity(record.source) and record.kind.strip("`").lower() != _source_suffix(record.source):
             issues.append(f"{manifest_rel}:{record.line_no}: file type does not match source suffix")
         if record.count is None:
             issues.append(f"{manifest_rel}:{record.line_no}: page/slide/record count must be a positive integer")

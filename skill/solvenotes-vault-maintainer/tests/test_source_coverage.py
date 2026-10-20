@@ -116,6 +116,31 @@ def test_nested_web_source_manifest_is_formal_without_fake_page_counts(tmp_path:
     assert manifest_issues(tmp_path, manifest, contract_index(tmp_path)) == ([], 0)
 
 
+def test_web_source_cell_validates_each_semicolon_delimited_url(tmp_path: Path) -> None:
+    root = tmp_path
+    manifest = Path(os.environ["SOLVENOTES_MANIFEST_ROOT"]) / "course" / "source_manifest.md"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    header = (
+        frontmatter("source_manifest")
+        + "\n| 来源 | URL | 类型 | 访问状态 | 用途 |\n"
+        + "|---|---|---|---|---|\n"
+    )
+    for urls, should_pass in (
+        ("https://one.example/a ; https://two.example/b", True),
+        ("https://one.example/a ; ftp://two.example/b", False),
+        ("https://one.example/a;ftp://two.example/b", False),
+        ("https://one.example/a;b", True),
+    ):
+        manifest.write_text(
+            header + f"| Two sources | {urls} | paper | 可访问 | 核对书目信息 |\n",
+            encoding="utf-8",
+        )
+        issues, rows = manifest_issues(root, manifest, contract_index(root))
+        assert rows == 0
+        has_url_issue = any("web-source URL" in issue for issue in issues)
+        assert has_url_issue is (not should_pass)
+
+
 def test_main_does_not_scan_symlinked_manifest_neighbor(
     tmp_path: Path,
     monkeypatch,
@@ -298,6 +323,68 @@ def test_manifest_type_must_match_source_suffix(tmp_path: Path) -> None:
     issues, _ = manifest_issues(tmp_path, manifest, contract_index(tmp_path))
 
     assert any("file type does not match source suffix" in issue for issue in issues)
+
+
+def test_dotfile_type_matches_lone_dotfile_name(tmp_path: Path) -> None:
+    manifest = write_manifest(tmp_path, source="course/.gitignore", kind="`.gitignore`")
+
+    issues, _ = manifest_issues(tmp_path, manifest, contract_index(tmp_path))
+
+    assert not any("file type" in issue for issue in issues)
+
+
+def test_remote_pdf_source_keeps_existing_extension_validation(tmp_path: Path) -> None:
+    manifest = write_manifest(
+        tmp_path,
+        source="https://example.com/assets/course-slides.pdf",
+        kind="`.pdf`",
+    )
+
+    issues, rows = manifest_issues(tmp_path, manifest, contract_index(tmp_path))
+
+    assert rows == 1
+    assert issues == []
+
+
+def test_repo_snapshot_requires_github_tree_with_full_commit_sha(tmp_path: Path) -> None:
+    commit = "73f43d414e099df59844ede5ae14920d58bc252c"
+    valid_source = f"https://github.com/example/paper/tree/{commit}"
+    manifest = write_manifest(tmp_path, source=valid_source, kind="repo-snapshot", count="11")
+
+    issues, rows = manifest_issues(tmp_path, manifest, contract_index(tmp_path))
+
+    assert rows == 1
+    assert issues == []
+
+    invalid_sources = (
+        "https://github.com/example/paper/tree/main",
+        "https://github.com/example/paper/tree/73f43d4",
+        f"https://example.com/example/paper/tree/{commit}",
+        f"https://github.com/example/paper/tree/{commit}/src",
+    )
+    current_source = valid_source
+    for invalid_source in invalid_sources:
+        text = manifest.read_text(encoding="utf-8").replace(
+            f"| `{current_source}` |", f"| `{invalid_source}` |"
+        )
+        manifest.write_text(text, encoding="utf-8")
+        current_source = invalid_source
+        issues, rows = manifest_issues(tmp_path, manifest, contract_index(tmp_path))
+        assert rows == 1
+        assert any("repo-snapshot requires a GitHub repository tree URL" in issue for issue in issues)
+
+    text = manifest.read_text(encoding="utf-8").replace("| repo-snapshot | 11 |", "| repo-snapshot | 0 |")
+    manifest.write_text(text, encoding="utf-8")
+    issues, _ = manifest_issues(tmp_path, manifest, contract_index(tmp_path))
+    assert any("count must be a positive integer" in issue for issue in issues)
+
+
+def test_repo_snapshot_type_does_not_accept_arbitrary_label(tmp_path: Path) -> None:
+    manifest = write_manifest(tmp_path, kind="repo-snapshot-copy")
+
+    issues, _ = manifest_issues(tmp_path, manifest, contract_index(tmp_path))
+
+    assert any("file type must be a backticked extension" in issue for issue in issues)
 
 
 def test_manifest_link_must_exist(tmp_path: Path) -> None:
