@@ -66,6 +66,38 @@ def test_nonjudgment_of_inevitability_is_not_an_inevitability_claim() -> None:
     assert two_claims[0].high_confidence is True
 
 
+def test_denied_claim_scope_covers_voice_lists_and_quoted_examples() -> None:
+    assert audit_line("不声称这种表达必然加分。", 5, "demo.md") == []
+    assert audit_line(
+        "它不保证交易必然连续、价格必然合理或投资者不发生亏损。",
+        6,
+        "demo.md",
+    ) == []
+    assert audit_line(
+        "过程度量不能被误解为“只要流程正确，质量就必然好”。",
+        7,
+        "demo.md",
+    ) == []
+
+    positive_after_contrast = audit_line(
+        "它不保证交易必然连续、价格必然合理或投资者不发生亏损，"
+        "但该模型必然成功。",
+        8,
+        "demo.md",
+    )
+    assert [issue.term for issue in positive_after_contrast] == ["必然"]
+    assert positive_after_contrast[0].high_confidence is True
+
+    quoted_then_positive = audit_line(
+        "过程度量不能被误解为“只要流程正确，质量就必然好”，"
+        "但该模型必然成功。",
+        9,
+        "demo.md",
+    )
+    assert [issue.term for issue in quoted_then_positive] == ["必然"]
+    assert quoted_then_positive[0].high_confidence is True
+
+
 def test_claim_categories_keep_formal_and_negated_context_distinct() -> None:
     assert classify_claim("保证", "该算法保证所有请求成功。") == "ENGINEERING_PROMISE"
     assert classify_claim("保证", "该措施并不自动保证安全。") == "NEGATED_GUARANTEE"

@@ -105,8 +105,14 @@ NEGATED_CONTEXT = re.compile(
     r"非(?:充分|必要)|而非|不承诺)",
 )
 NONDETERMINED_CERTAINTY = re.compile(
-    r"(?:不|未|无法|不能)(?:判定|判断|确定)"
+    r"(?:不|未|无法|不能|并不)(?:判定|判断|确定|声称|主张|断言|认为|宣称|保证|承诺)"
     r"(?:(?!必然|一定)[^，,;；。！？\n]){0,60}$"
+)
+NEGATED_CERTAINTY_SCOPE = re.compile(
+    r"(?:不|并不|不能|不可|不会)(?:保证|承诺|声称|主张|断言|认为|宣称)"
+)
+COORDINATED_ITEM_CONTINUATION = re.compile(
+    r"(?:、|或|或者|以及|和|与|及|并且)[^，,;；。！？\n]{0,24}$"
 )
 CERTAINTY_CLAUSE_BOUNDARY = re.compile(
     r"[，,;；。！？\n]|但是|然而|不过|可是|(?<!不)但|却"
@@ -194,8 +200,32 @@ def _sentence(text: str, start: int, end: int) -> str:
     return text[left + 1 : right + 1].strip()
 
 
+def _quoted_sentence_context(text: str, start: int, end: int) -> str | None:
+    """Return the full sentence only inside a paired Chinese quote."""
+
+    left = max(text.rfind(mark, 0, start) for mark in "。！？\n") + 1
+    right_candidates = [text.find(mark, end) for mark in "。！？\n"]
+    right_candidates = [value for value in right_candidates if value >= 0]
+    right = min(right_candidates) + 1 if right_candidates else len(text)
+    sentence = text[left:right]
+    relative_start = start - left
+    relative_end = end - left
+
+    for opening, closing in (("“", "”"), ("‘", "’")):
+        open_at = sentence.rfind(opening, 0, relative_start)
+        close_before = sentence.rfind(closing, 0, relative_start)
+        close_after = sentence.find(closing, relative_end)
+        if open_at > close_before and close_after >= relative_end:
+            return sentence.strip()
+    return None
+
+
 def _certainty_clause_context(text: str, start: int, end: int) -> str:
     """Keep negation and conditions local to this certainty occurrence."""
+
+    quoted = _quoted_sentence_context(text, start, end)
+    if quoted is not None:
+        return quoted
 
     prior_boundaries = list(CERTAINTY_CLAUSE_BOUNDARY.finditer(text, 0, start))
     clause_start = prior_boundaries[-1].end() if prior_boundaries else 0
@@ -213,7 +243,24 @@ def _is_nondetermined_certainty(text: str, start: int) -> bool:
     prior_boundaries = list(CERTAINTY_CLAUSE_BOUNDARY.finditer(text, 0, start))
     clause_start = prior_boundaries[-1].end() if prior_boundaries else 0
     prefix = text[clause_start:start]
-    return bool(NONDETERMINED_CERTAINTY.search(prefix))
+    if NONDETERMINED_CERTAINTY.search(prefix):
+        return True
+
+    # A negated guarantee can govern multiple predicates in an explicit
+    # coordinated list (for example, “不保证 A 必然……、B 必然……”); do not
+    # carry that scope across clause punctuation or contrastive conjunctions.
+    segment = text[clause_start:start]
+    triggers = list(NEGATED_CERTAINTY_SCOPE.finditer(segment))
+    if not triggers:
+        return False
+    governed = segment[triggers[-1].end() :]
+    prior_certainties = list(re.finditer(r"必然|一定", governed))
+    if not prior_certainties:
+        return False
+    continuation = governed[prior_certainties[-1].end() :]
+    if CERTAINTY_CLAUSE_BOUNDARY.search(continuation):
+        return False
+    return bool(COORDINATED_ITEM_CONTINUATION.search(continuation))
 
 
 def _suggestion(term: str, category: str = "ENGINEERING_PROMISE") -> str:
