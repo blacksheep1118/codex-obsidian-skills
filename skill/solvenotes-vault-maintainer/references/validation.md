@@ -11,12 +11,14 @@ learning note and must never be copied into the vault.
 
 ## Validation commands
 
-Set the vault explicitly:
+Set the vault explicitly. Routine local checks use `vault-basic`. For source
+coverage, prepare a manifest under this task's `RUN_TMP` and set its root
+explicitly; do not create or reuse sibling `vault_sources`.
 
 ```bash
 export SOLVENOTES_VAULT_ROOT=/absolute/path/to/solvenotes/notes
-# Optional; omit to use Notes.parent / "vault_sources".
-export SOLVENOTES_MANIFEST_ROOT=/absolute/path/to/solvenotes/vault_sources
+# Only when a source manifest has been prepared under this task's RUN_TMP:
+export SOLVENOTES_MANIFEST_ROOT="$RUN_TMP/source-manifests"
 ```
 
 Run from the Skills repository:
@@ -24,7 +26,8 @@ Run from the Skills repository:
 ```bash
 bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh tool-quick
 bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh tool-full
-bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-quick
+bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-basic
+# Run only when SOLVENOTES_MANIFEST_ROOT points to the prepared task manifest.
 bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-full
 bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-runtime
 bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh github-ready
@@ -38,8 +41,10 @@ corresponding preflight first.
 The tool gates validate the Skill implementation; the vault gates validate
 external learning content without rerunning the Skill test suite. Compatibility
 aliases `quick` and `full` map to `vault-quick` and `vault-full`. `vault-full`
-runs source-manifest, link, frontmatter, formula, table, heading,
-example, language, algorithm-job, and C++ checks; `github-ready` adds hygiene,
+requires a configured source manifest and runs source-manifest, link,
+frontmatter, formula, table, heading, example, language, algorithm-job, and
+C++ checks; use `vault-basic` for routine source-independent checks.
+`github-ready` adds hygiene,
 large-file, public-readiness, and Git-status checks.
 
 `vault-runtime` is a separate, explicit gate for reviewed dependency-backed
@@ -79,13 +84,15 @@ The normal frontmatter and structural checks still apply, including a minimum
 of 600 compact prose characters for a standalone personal record.
 
 `source_manifest.md` and source-manifest history pages must remain outside
-Notes. Use `SOLVENOTES_MANIFEST_ROOT`, or default to
-`Notes.parent / "vault_sources"`, and mirror the course/topic path relative to
-Notes: `<manifest-root>/<course-or-topic>/source_manifest.md`. A root inside
-Notes, including a symlink resolving there, is invalid. Resolve manifest note
-targets against the corresponding Notes directory. Preserve note `source_files`,
-URLs, source page markers, exact source paths, extraction methods, unit counts,
-status, dates, example evidence, and OCR/visual limitations.
+Notes. For the current Solvenotes workspace, set `SOLVENOTES_MANIFEST_ROOT`
+explicitly to a temporary root under `RUN_TMP`; the scripts retain a sibling
+`vault_sources` fallback only for compatibility, and active workspace rules
+take precedence. Mirror the course/topic path relative to Notes:
+`<manifest-root>/<course-or-topic>/source_manifest.md`. A root inside Notes,
+including a symlink resolving there, is invalid. Resolve manifest note targets
+against the corresponding Notes directory. Preserve note `source_files`, URLs,
+source page markers, exact source paths, extraction methods, unit counts, status,
+dates, example evidence, and OCR/visual limitations.
 
 The public Skills repository contains only synthetic manifests, for example
 under `fixtures/vault_sources`, never real private mappings. Real-vault coverage

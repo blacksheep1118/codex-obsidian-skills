@@ -14,6 +14,9 @@
 - Expand rough bullets into coherent explanations when the user asks for content improvement.
 - Do not keep generic source phrases if they do not help learning or recall.
 - Add examples or boundary cases when a concept is easy to misuse.
+- Combine caveats that repeat the same scope; keep each necessary condition
+  beside the claim it qualifies. Put audit-process narration in chat or a
+  task-local record, and preserve meaningful negations.
 
 ## Formulas
 

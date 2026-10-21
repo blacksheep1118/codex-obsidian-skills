@@ -271,8 +271,8 @@ Run these external maintainer commands from the Solvenotes Skills repository:
 
 ```bash
 export SOLVENOTES_VAULT_ROOT=/path/to/solvenotes/notes
-# Optional; omit to use Notes.parent / "vault_sources".
-export SOLVENOTES_MANIFEST_ROOT=/path/to/solvenotes/vault_sources
+# Only after preparing a source manifest under the task's RUN_TMP:
+export SOLVENOTES_MANIFEST_ROOT="$RUN_TMP/source-manifests"
 python3 skill/solvenotes-vault-maintainer/scripts/check_source_coverage.py --json
 SOLVENOTES_SOURCE_ROOT=/path/to/source-root \
   python3 skill/solvenotes-vault-maintainer/scripts/check_source_files.py --strict --json

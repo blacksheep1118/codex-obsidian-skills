@@ -11,7 +11,7 @@ Use this reference only when the target vault or repository clearly follows solv
 ## Quality Checks
 
 - Follow the Audit Output Placement rule in `SKILL.md`: keep temporary reports outside the vault and write corrections and source markers into notes.
-- Keep the applicable self-contained `source_manifest.md` outside Notes and outside the public Skills repository. Use `SOLVENOTES_MANIFEST_ROOT`, or default to `Notes.parent / "vault_sources"`; mirror the course/topic path relative to Notes. Reject roots inside Notes, including symlink resolutions. Synthetic public fixtures may use `fixtures/vault_sources`.
+- In the current Solvenotes workspace, prepare any needed `source_manifest.md` under the task's `RUN_TMP`, set `SOLVENOTES_MANIFEST_ROOT` explicitly, and remove it at handoff; do not create or reuse sibling `vault_sources`. Use `vault-basic` for routine local checks and `vault-full` only with that temporary manifest. Other vaults follow local policy. Reject roots inside Notes, including symlink resolutions. Synthetic public fixtures may use `fixtures/vault_sources`.
 - Resolve manifest note targets against the corresponding Notes directory. Preserve source paths and types, extraction methods, unit counts, mapping targets, status, dates, example evidence, and OCR/blank/visual limits. Keep `source_files`, source URLs, and page/slide markers in the learning notes.
 - Missing, unreadable, or empty required external manifests are FAIL/unavailable, never an empty PASS. Mapping ranges do not prove per-unit semantic or visual verification.
 - Do not create or update `99_内容覆盖审查.md`, `coverage_audit`, or a central coverage page. Keep temporary audit ledgers and machine-readable reports outside the vault.

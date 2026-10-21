@@ -15,11 +15,13 @@ orchestrator for a learning vault; it does not replace the reusable
 - `/notes` contains notes, navigation, review pages, learning paths,
   source citations, and source metadata in note frontmatter. It contains no
   `source_manifest.md` or source-manifest history pages.
-- Durable private source manifests live outside Notes and the public Skills
-  repository. Resolve `SOLVENOTES_MANIFEST_ROOT` when set; otherwise use
-  `Notes.parent / "vault_sources"`. Mirror each course/topic path relative to
-  Notes, for example `<manifest-root>/<course>/source_manifest.md`. Reject a
-  manifest root inside Notes, including a symlink that resolves there.
+- When source coverage is needed, prepare its manifest under this task's
+  `RUN_TMP` and set `SOLVENOTES_MANIFEST_ROOT` explicitly. Do not create or
+  reuse sibling `vault_sources`. Use `vault-basic` for routine local checks and
+  `vault-full` only with that temporary manifest. The scripts retain a sibling
+  root fallback for compatibility, but the active workspace `AGENT.md` takes
+  precedence. Mirror each course/topic path relative to Notes. Reject a manifest
+  root inside Notes, including symlink resolutions.
 - Preserve `source_files`, source URLs, and page/slide markers in learning
   notes. Resolve manifest note targets against the matching Notes directory;
   moving the manifest must not erase source ownership or weaken coverage.
@@ -39,13 +41,12 @@ orchestrator for a learning vault; it does not replace the reusable
   handoff after checking that it contains no requested deliverable.
 - The public Skills repository must remain self-contained: its CI uses source
   code and non-sensitive fixtures only, and never checks out a private Notes
-  vault or its private manifest store. The real-vault quick/full gate belongs
-  to the Notes repository's
-  hidden `.github/workflows/vault-quality.yml`, which pins this source skill to
-  a commit. A real-vault source-coverage gate also needs the external private
-  manifest store; a Notes checkout alone cannot establish source coverage.
-  Report unavailable manifests explicitly instead of accepting zero files. Do
-  not make the two repositories follow floating `main` branches.
+  vault or its private mappings. The Notes repository's hidden
+  `.github/workflows/vault-quality.yml` pins this source skill to a commit.
+  A real-vault source-coverage gate requires the task's temporary manifest,
+  which a Notes checkout alone cannot provide. Report unavailable manifests
+  explicitly instead of accepting zero files. Do not make the two repositories
+  follow floating `main` branches.
 - Never modify an installed skill copy directly. Edit this source repository,
   validate it, then use the repository installation scripts to synchronize the
   mirror.
@@ -64,10 +65,10 @@ Set the vault explicitly before invoking a maintenance command:
 
 ```bash
 export SOLVENOTES_VAULT_ROOT=/absolute/path/to/solvenotes/notes
-# Optional override; the default is the vault sibling vault_sources directory.
-export SOLVENOTES_MANIFEST_ROOT=/absolute/path/to/solvenotes/vault_sources
 RUN_TMP="$(mktemp -d)"
 export RUN_TMP TMPDIR="$RUN_TMP" SOLVENOTES_TMP_ROOT="$RUN_TMP"
+# Only after preparing a manifest here, when source coverage is needed:
+export SOLVENOTES_MANIFEST_ROOT="$RUN_TMP/source-manifests"
 ```
 
 Each maintenance subprocess is bounded by `SOLVENOTES_STEP_TIMEOUT` seconds
@@ -87,8 +88,9 @@ path, and Skills path without using machine-specific fallbacks.
 
 1. Read applicable `AGENTS.md` and `AGENTS.override.md` files and follow their references. Read custom `AGENT.md` files when the user, active project instructions, or an established workspace procedure explicitly designates them, then inspect Git status.
 2. Create one task-specific `RUN_TMP`, point temporary-output settings such as
-   `TMPDIR` at it, then run the read-only baseline checks. Keep diagnostics
-   outside the vault and clean the exact task directory before handoff.
+   `TMPDIR` at it, then run `vault-basic` for the routine source-independent
+   baseline. Keep diagnostics outside the vault and clean that exact task
+   directory before handoff.
 3. Use the generic Obsidian skill for link/frontmatter/structure work, the
    courseware skill for source-manifest and course coverage work, and the
    algorithm skill for the nine-direction algorithm-job contract and C++
@@ -97,7 +99,8 @@ path, and Skills path without using machine-specific fallbacks.
 4. Edit notes semantically. Preserve the external source manifests and update
    their note targets together with `source_files` when notes move. Move unique
    content before deleting obsolete pages or routes.
-5. Run the full gate from this skill and compile only explicitly marked
+5. Run `vault-full` only when this task has a prepared manifest under `RUN_TMP`
+   and `SOLVENOTES_MANIFEST_ROOT` points to it; compile only explicitly marked
    runnable code. Build and verify a clean package outside the vault only when
    the user requests an export and local guidance permits package mode.
 6. Validate the source skill repository and use the official update script in
@@ -122,9 +125,11 @@ guidance permits package mode.
 
 ```bash
 SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
-  bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-quick
+  bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-basic
 
+# Run source coverage only when a task manifest is prepared under RUN_TMP.
 SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
+SOLVENOTES_MANIFEST_ROOT="$RUN_TMP/source-manifests" \
   bash skill/solvenotes-vault-maintainer/scripts/dev_check.sh vault-full
 
 SOLVENOTES_VAULT_ROOT=/absolute/path/to/notes \
@@ -159,18 +164,37 @@ python3 skill/solvenotes-vault-maintainer/scripts/verify_workspace_package.py \
 
 Before changing the formal Notes lock, run
 `validate_notes_candidate.py --notes-root ... --skills-root ... --skills-ref ...`.
-It installs the target commit and its dependency closure in a temporary
-location, runs `vault-full` against the real Notes vault through an override
-lock, and leaves the formal lock unchanged. Package construction is not part of
-the default candidate gate. Add `--verify-package` only when the user requests
-an export and local guidance permits package mode. Only after the applicable
-candidate checks pass should `update_notes_skill_lock.py --write` be used.
+It creates a temporary detached worktree for the target commit and installs its
+dependency closure there, then validates the real Notes vault through an
+override lock without changing the formal lock. Use this helper only where local
+workspace rules permit temporary worktrees; otherwise validate the committed
+checkout with the approved temporary install and override-lock process.
+Candidate validation defaults to `vault-full`, which
+requires an explicit `SOLVENOTES_MANIFEST_ROOT` and reports `source_audit: PASS`
+only after the full gate succeeds. This status covers automated manifest and
+source-coverage checks, not semantic or visual review. For the current source-independent local
+release check, pass `--validation-profile vault-basic`; its report must say
+`source_audit: NOT_RUN` and does not establish source coverage. Package
+construction is not part of the default candidate gate. Add `--verify-package`
+only when the user requests an export and local guidance permits package mode.
+Only after the applicable candidate checks pass should
+`update_notes_skill_lock.py --write` be used.
 
-Candidate validation deliberately runs `vault-full`, not reviewed local code.
-When the release closes a dependency-backed execution gap, update the formal
-lock after the candidate passes, then run `vault-runtime` against the clean
-Skills commit and updated lock before committing Notes. Report the two gates
-separately; neither a passing candidate full gate nor an optional package check
+```bash
+python3 skill/solvenotes-vault-maintainer/scripts/validate_notes_candidate.py \
+  --notes-root /absolute/path/to/notes \
+  --skills-root /absolute/path/to/skills \
+  --skills-ref "$SKILLS_SHA" \
+  --validation-profile vault-basic
+```
+
+The default candidate profile remains `vault-full`; selecting `vault-basic` is
+explicit and records that source audit was not run. A full candidate gate must
+use the task's prepared temporary manifest root. When a release closes a
+dependency-backed execution gap, update the formal lock after candidate
+validation, then run `vault-runtime` against the clean Skills commit and updated
+lock before committing Notes. Report the selected profile and runtime gate
+separately; neither a passing candidate gate nor an optional package check
 implies ONNX or Spark execution.
 
 The Notes learning package embeds a deterministic file manifest and excludes
@@ -315,13 +339,13 @@ not create them as new job directions.
   to preserve an earlier unit count. Keep formulas, code spans and blocks, URLs,
   and source identifiers intact while splitting; punctuation inside them is not
   a boundary, such as the semicolon in I(X;Y).
-- For incremental evidence snapshots, merge newly produced records with durable
-  accepted records; a missing temporary copy does not revoke prior review.
-  Preserve versioned path/SHA-256 references and prior index versions, and
-  archive the exact files referenced by records or manifests instead of relying
-  on filename-extension allowlists. Use full task-relative paths or another unique
-  version key for artifact indexes; never key by basename alone, and label current
-  core artifacts separately from historical snapshots.
+- Keep task-generated evidence snapshots and ledgers in `RUN_TMP` and remove
+  them at handoff; do not create durable audit archives. When reviewing a
+  user-supplied existing archive, merge new records with accepted records; a
+  missing temporary copy alone does not revoke prior review. If an archive is
+  explicitly required, preserve exact referenced files, unique task-relative
+  paths or version keys, SHA-256 references, and distinct current versus
+  historical artifacts; never key records by basename alone.
   Once a candidate, record, or map has been returned for review, never overwrite
   that path; save revisions under a new versioned path, and have the reviewer freeze
   and verify the returned path/SHA-256 before reading it.
@@ -393,12 +417,14 @@ unless it actually did.
 
 ## Validate before finishing
 
-Run the quick gate before editing and the full gate after editing. Run the
-algorithm Skill scanner and its isolated tests when algorithm-job notes are in
-scope. Compile only marked C++17 examples. When dependency-level execution is
-requested, also run `vault-runtime` and report its executed-block count. Run
-the package builder and inspect its ZIP listing before delivering an export.
-Keep generated reports and caches outside `/notes`.
+Run `vault-basic` before editing and after source-independent changes. Run
+`vault-full` only when a task manifest has been prepared under `RUN_TMP` and
+`SOLVENOTES_MANIFEST_ROOT` points to it. Run the algorithm Skill scanner and
+its isolated tests when algorithm-job notes are in scope. Compile only marked
+C++17 examples. When dependency-level execution is requested, also run
+`vault-runtime` and report its executed-block count. Run the package builder
+and inspect its ZIP listing before delivering an export. Keep generated reports
+and caches outside `/notes`.
 
 ## Handoff Boundaries
 

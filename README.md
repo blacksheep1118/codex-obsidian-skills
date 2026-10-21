@@ -33,21 +33,20 @@ See [Skill Routing](docs/routing.md) for cross-skill boundaries and mixed workfl
 - Keep detailed and concise review pages separate.
 - Validate Markdown links, Obsidian wiki links, and self-links.
 - Respect source-file boundaries: courseware, papers, and datasets stay read-only unless the user explicitly asks otherwise.
-- For Solvenotes, keep formal `source_manifest.md` files outside Notes and the public Skills repository. Use `SOLVENOTES_MANIFEST_ROOT`, or default to `Notes.parent / "vault_sources"`, mirroring the Notes-relative course/topic path. Reject roots inside Notes, including symlink resolutions. Preserve note `source_files`, URLs, and source markers; missing required manifests are FAIL/unavailable, never an empty PASS. Other vaults retain their local provenance layout.
+- For the current Solvenotes workspace, put any source manifest needed for this task under task-specific `RUN_TMP` and set `SOLVENOTES_MANIFEST_ROOT` explicitly; do not create or reuse sibling `vault_sources`. Use `vault-basic` for routine local checks and `vault-full` only with that temporary manifest. Preserve note `source_files`, URLs, and source markers; missing required manifests are FAIL/unavailable, never an empty PASS. Other vaults retain their local provenance layout.
 
 ## CI boundary
 
 The public Skills repository validates only its own source, tests, metadata, and
 non-sensitive fixtures, including synthetic manifests under `fixtures/vault_sources`.
 Its Actions do not checkout or depend on a private Solvenotes Notes vault or
-its private source mappings. The real-vault `quick`/`full` gate runs from the Notes
-repository's hidden `.github/workflows/vault-quality.yml`, which pins the Skills
-source to an explicit commit. Clean export remains a separate local operation
-and is not part of that ordinary Notes workflow. This keeps public pull requests
-reproducible without exposing private note paths or requiring cross-repository
-secrets. Real-vault source-coverage checks require the external private manifest
-store in their execution environment; unavailable manifests must fail or be
-reported unavailable, never silently count as zero-file success.
+its source mappings. The Notes workflow runs `vault-quick` for pull requests and
+`vault-basic` for pushes and manual basic runs; `online` remains an explicit mode.
+Task-local manifests under `RUN_TMP` are unavailable to cloud CI, so these gates
+do not run source-coverage checks. The workflow pins the Skills source to an
+explicit commit. Clean export remains a separate local operation and is not part
+of that workflow. Unavailable manifests must be reported as unavailable, never
+silently counted as zero-file success.
 
 ## Install
 
@@ -293,6 +292,14 @@ tools, network policy, and path requirements for every gate. Run the project
 Doctor against the intended profile before a long gate:
 
 ```bash
+# Routine local validation does not require a source manifest.
+python3 skill/solvenotes-vault-maintainer/scripts/doctor.py \
+  --notes-root /path/to/solvenotes/notes \
+  --skills-root /path/to/solvenotes/skills \
+  --profile vault-basic --strict
+
+# For source coverage, prepare a manifest under the task's RUN_TMP and set it explicitly.
+SOLVENOTES_MANIFEST_ROOT="$RUN_TMP/source-manifests" \
 python3 skill/solvenotes-vault-maintainer/scripts/doctor.py \
   --notes-root /path/to/solvenotes/notes \
   --skills-root /path/to/solvenotes/skills \

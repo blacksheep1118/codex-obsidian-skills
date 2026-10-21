@@ -11,7 +11,7 @@ Organize an existing Obsidian vault or Markdown note collection into a coherent 
 
 Use this skill for vault-first work. If the main task is extracting or converting PPT/PPTX/PDF courseware, use `$ppt-to-md-for-obsidian` instead.
 
-When a target vault follows solvenotes-style conventions, read `references/solvenotes-profile.md` before strict cleanup or project-specific validation. In Solvenotes, keep formal source manifests outside Notes: use `SOLVENOTES_MANIFEST_ROOT` or default to `Notes.parent / "vault_sources"`, mirroring each course/topic path relative to Notes. Reject a manifest root inside Notes, including symlink resolutions. Keep private mappings out of the public Skills repository and temporary ledgers in the task directory. Preserve `source_files`, URLs, and page/slide markers in notes; never create or update legacy audit notes. A missing required manifest makes source provenance and coverage FAIL/unavailable, never an empty PASS; it does not prevent independent factual verification against adequate authoritative sources. Report source fidelity and independently verified correctness separately. Other vaults retain their own provenance layout.
+When a target vault follows solvenotes-style conventions, read `references/solvenotes-profile.md` before strict cleanup or project-specific validation. Follow the current workspace rules for temporary provenance records and validation profiles. Keep private mappings outside Notes and the public Skills repository, and preserve `source_files`, URLs, and page/slide markers in learning notes. Missing required source records make provenance and coverage unavailable; independent factual verification may still proceed against authoritative sources. Report those results separately. Other vaults retain their local provenance layout.
 
 ## Handoff Boundaries
 
@@ -23,7 +23,7 @@ When the user asks for a dry run, audit and report planned edits only. Include b
 
 Keep backup copies, backup directories, audit notes, coverage notes, and report Markdown files outside the vault by default. Create an in-vault artifact only when the user explicitly requests one or local guidance requires it. Use the chat response, git diffs, and validation output for ordinary audits. When deleting a previously generated report, remove stale links to it.
 
-The Solvenotes profile is stricter: its legacy audit/report pages stay forbidden even if the generic `--allow-formal-coverage-audits` compatibility flag is supplied. Record durable source limitations in the profile's external manifest store and keep claim-specific source scope in the learning note.
+The Solvenotes profile is stricter: its legacy audit/report pages stay forbidden even if the generic `--allow-formal-coverage-audits` compatibility flag is supplied. Keep task-level source limitations in temporary review records, and preserve lasting claim-specific limits in the learning note or its source metadata.
 
 For dry-run audits and broad cleanup, run `scripts/link_inventory.py` before editing when the vault is local. Keep the baseline outside the vault unless the user explicitly asks for a file artifact inside it. After cleanup, rerun the inventory and compare total link count, per-directory link counts, and the files with the largest link-count drops before claiming link coverage was preserved.
 

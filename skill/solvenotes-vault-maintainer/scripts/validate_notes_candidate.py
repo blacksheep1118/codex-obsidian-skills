@@ -23,6 +23,8 @@ from vault_contract import (
     SKILLS_REPOSITORY,
 )
 
+VALIDATION_PROFILES = ("vault-basic", "vault-full")
+
 
 def _run(
     command: list[str], *, cwd: Path, env: dict[str, str], timeout: int, label: str
@@ -79,7 +81,18 @@ def validate_candidate(
     python_bin: str,
     allow_local_source: bool,
     verify_package: bool = False,
+    validation_profile: str = "vault-full",
 ) -> dict[str, object]:
+    if validation_profile not in VALIDATION_PROFILES:
+        raise ValueError(f"unsupported Notes validation profile: {validation_profile}")
+    if (
+        validation_profile == "vault-full"
+        and not os.environ.get("SOLVENOTES_MANIFEST_ROOT", "").strip()
+    ):
+        raise ValueError(
+            "vault-full candidate validation requires an explicit SOLVENOTES_MANIFEST_ROOT; "
+            "set it to the prepared task manifest root or select --validation-profile vault-basic"
+        )
     verify_repository_identity(skills_root, allow_local_source=allow_local_source)
     commit = resolve_commit(skills_root, ref)
     target = verify_target_tree(skills_root, commit, level=verify_level)
@@ -125,11 +138,11 @@ def validate_candidate(
             )
             dev_check = installed / MAINTAINER_SKILL / "scripts" / "dev_check.sh"
             _run(
-                ["bash", str(dev_check), "vault-full"],
+                ["bash", str(dev_check), validation_profile],
                 cwd=temporary,
                 env=environment,
                 timeout=900,
-                label="candidate real Notes vault-full",
+                label=f"candidate real Notes {validation_profile}",
             )
 
             package_entries: int | None = None
@@ -178,6 +191,8 @@ def validate_candidate(
                 "contract_version": target["contract_version"],
                 "skills": target["skills"],
                 "dependency_graph_digest": target["dependency_graph_digest"],
+                "validation_profile": validation_profile,
+                "source_audit": "NOT_RUN" if validation_profile == "vault-basic" else "PASS",
                 "package_verified": verify_package,
                 "notes_package_entries": package_entries,
                 "formal_lock_modified": False,
@@ -192,6 +207,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skills-root", type=Path, required=True)
     parser.add_argument("--skills-ref", required=True)
     parser.add_argument("--verify-level", choices=("metadata", "smoke", "full"), default="full")
+    parser.add_argument(
+        "--validation-profile",
+        choices=VALIDATION_PROFILES,
+        default="vault-full",
+        help="Notes gate profile; vault-full requires explicit SOLVENOTES_MANIFEST_ROOT",
+    )
     parser.add_argument("--python-bin", default=os.environ.get("SOLVENOTES_PYTHON_BIN", sys.executable))
     parser.add_argument("--allow-local-source", action="store_true")
     parser.add_argument(
@@ -213,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
             python_bin=args.python_bin,
             allow_local_source=args.allow_local_source,
             verify_package=args.verify_package,
+            validation_profile=args.validation_profile,
         )
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         parser.error(str(exc))

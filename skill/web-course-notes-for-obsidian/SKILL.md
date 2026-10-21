@@ -23,7 +23,7 @@ For each course, book, or topic collection, prefer:
 - `知识点详细版_含公式.md` when the material is course-like.
 - `知识点精简复习版_含公式.md` or `快速复习.md` for review.
 
-Keep source URLs in notes or frontmatter so provenance stays visible. For Solvenotes, `source_manifest.md` is a separate external deliverable: use `SOLVENOTES_MANIFEST_ROOT`, or `Notes.parent / "vault_sources"` by default, mirroring the Notes-relative collection path. Reject roots inside Notes, including symlink resolutions, and keep private mappings out of the public Skills repository. Preserve `source_files`, URLs, and source markers in notes. Missing required manifests are FAIL/unavailable, never an empty PASS. Other vaults retain their local provenance layout.
+Keep source URLs in notes or frontmatter so provenance stays visible. For the current Solvenotes workspace, prepare any required `source_manifest.md` under the task's `RUN_TMP`, set `SOLVENOTES_MANIFEST_ROOT` explicitly, and remove it at handoff; do not create or reuse sibling `vault_sources`. Preserve `source_files`, URLs, and source markers in notes. Missing required manifests are FAIL/unavailable, never an empty PASS. Other vaults retain their local provenance layout.
 
 ## Handoff Boundaries
 
