@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -73,3 +74,32 @@ def test_algorithm_adapter_text_cli_forwards_exclusions_and_handles_walk_errors(
     captured = capsys.readouterr()
     assert "ERROR: permission denied while scanning" in captured.err
     assert "Traceback" not in captured.err
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_algorithm_adapter_rejects_symlink_loop_without_traceback(tmp_path, json_output):
+    loop = tmp_path / "loop"
+    try:
+        loop.symlink_to(loop, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(check_algorithm_job_notes.__file__)),
+            "--root", str(loop),
+            *(["--json"] if json_output else []),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert result.stdout == ""
+    assert result.stderr.startswith("ERROR: ")
+    assert str(loop) in result.stderr
+    assert "Traceback" not in result.stderr

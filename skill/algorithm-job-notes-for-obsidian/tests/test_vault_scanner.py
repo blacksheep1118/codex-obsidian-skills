@@ -1,3 +1,4 @@
+import errno
 import json
 import subprocess
 import sys
@@ -434,3 +435,59 @@ def test_scanner_fails_closed_when_walk_cannot_read_subtree(tmp_path, monkeypatc
     assert "ERROR: cannot read" in captured.err
     assert "Traceback" not in captured.err
     assert "algorithm_job_files" not in captured.out
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+@pytest.mark.parametrize("loop_kind", ["self", "mutual", "ancestor"])
+def test_cli_rejects_symlink_loop_without_traceback(tmp_path, json_output, loop_kind):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    try:
+        first.symlink_to(first if loop_kind == "self" else second, target_is_directory=True)
+        if loop_kind != "self":
+            second.symlink_to(first, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+    root = first / "child" if loop_kind == "ancestor" else first
+
+    result = subprocess.run(
+        [sys.executable, str(SCANNER), str(root), *(["--json"] if json_output else [])],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
+    )
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert result.stdout == ""
+    assert result.stderr.startswith("ERROR: ")
+    assert str(first) in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("error_type", [RuntimeError, OSError])
+def test_cli_handles_both_path_resolution_error_types(tmp_path, monkeypatch, capsys, error_type):
+    root = tmp_path / "loop"
+    error = (
+        RuntimeError(f"Symlink loop from {root}")
+        if error_type is RuntimeError
+        else OSError(errno.ELOOP, "Too many levels of symbolic links", str(root))
+    )
+
+    def fail_resolve(self, *args, **kwargs):
+        raise error
+
+    def unexpected_scan(_root):
+        pytest.fail("a failed path resolution must not start a scan")
+
+    monkeypatch.setattr(Path, "resolve", fail_resolve)
+    monkeypatch.setattr(scanner, "scan", unexpected_scan)
+    monkeypatch.setattr(sys, "argv", [str(SCANNER), str(root)])
+
+    assert scanner.main() == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("ERROR: ")
+    assert str(root) in captured.err
+    assert "Traceback" not in captured.err

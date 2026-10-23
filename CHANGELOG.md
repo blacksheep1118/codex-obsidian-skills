@@ -4,6 +4,7 @@ All notable changes to this repository are documented here.
 
 ## Unreleased
 
+- Rejected algorithm-scanner input paths containing symbolic-link loops with a concise error and exit code 2, with regressions for both direct and maintainer entry points, text/JSON modes, and path-resolution exception variants.
 - Preserved backslashes and escaped pipes when collecting web manifests, rejected malformed source tables instead of dropping resources, and limited inaccessible-resource exemptions to explicit, consistent access states.
 - Extended algorithm-route validation to nested Markdown notes and case-insensitive Markdown extensions while keeping canonical direction entries at the algorithm folder root.
 - Restricted vault-quality tooling exclusions to root-level directories, retained cache exclusions at every depth, and checked nested study folders and uppercase Markdown files without following symlinks.

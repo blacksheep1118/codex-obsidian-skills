@@ -382,7 +382,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         payload = scan(args.root.resolve())
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     if args.json:
