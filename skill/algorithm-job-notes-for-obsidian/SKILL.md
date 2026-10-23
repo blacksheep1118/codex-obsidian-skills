@@ -1,6 +1,6 @@
 ---
 name: algorithm-job-notes-for-obsidian
-description: Use when maintaining algorithm-job learning notes, internship or recruiting maps, interview preparation, or direction-aware Obsidian vaults; enforce the nine directions, executable algorithms, and evidence-first JD analysis. Use $obsidian-vault-organizer for generic vault cleanup and $ppt-to-md-for-obsidian for local courseware extraction.
+description: Use when maintaining algorithm-job learning notes, internship or recruiting maps, interview preparation, or direction-aware Obsidian vaults; enforce the nine directions, executable algorithms, and evidence-first JD analysis. Use $obsidian-vault-organizer for generic vault cleanup and $ppt-to-md-for-obsidian for local courseware or research-paper PDF extraction.
 ---
 
 # Algorithm Job Notes for Obsidian
@@ -219,15 +219,18 @@ perform a deterministic rule scan and report that it is a file-level check.
 - Use `$obsidian-vault-organizer` for generic vault link repair, duplicate
   merging, navigation, and note-quality cleanup. This skill owns the algorithm
   job taxonomy and migration decisions.
-- Use `$ppt-to-md-for-obsidian` when local PPT/PPTX/PDF courseware extraction is
-  the starting task; do not claim extracted text is visual OCR.
+- Use `$ppt-to-md-for-obsidian` for local courseware extraction or a local
+  research-paper PDF that needs a source-backed paper note; extracted text is
+  not visual OCR.
 - Use `$web-course-notes-for-obsidian` when collecting URL-based course or
-  paper sources; preserve its source-manifest contract.
+  paper sources. If a permitted file is later downloaded and needs extraction,
+  hand it off to the PPT skill while preserving the URL provenance.
 - Use `$notes-to-scientific-ppt` when the desired output is a scientific deck,
   not a notes-vault route.
-- Edit the source skill under `/solvenotes/skills`. Do not edit an installed
-  mirror directly; use the repository's documented install/check flow only
-  when the user explicitly requests synchronization.
+- Edit the source skill at `skill/algorithm-job-notes-for-obsidian` in this
+  repository. Do not edit an installed mirror directly; use the repository's
+  documented install/check flow only when the user explicitly requests
+  synchronization.
 
 ## Bundled Resources
 

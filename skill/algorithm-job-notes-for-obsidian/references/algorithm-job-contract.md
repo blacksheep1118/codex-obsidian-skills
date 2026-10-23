@@ -69,10 +69,17 @@ the exact `python-e2e` marker and the separate runtime gate described in
 unsupported Java, timeout, or nonzero exit rather than reporting a skip as
 coverage.
 
-The read-only `scripts/check_algorithm_job_vault.py` checks route-shaped
-navigation, frontmatter and required entries. It must allow technical prose
-to mention a cross-topic while rejecting that same topic when it is configured
-as a top-level route.
+The read-only `scripts/check_algorithm_job_vault.py` checks Markdown files
+recursively under `算法岗学习笔记`, including both `.md` and `.MD` extensions.
+It reports paths relative to the vault and skips symbolic-link files and
+directories instead of reading outside the selected tree. Canonical navigation
+and foundation entries remain required directly under `算法岗学习笔记`.
+Its JSON and text output include the recursive Markdown count and each omitted
+symbolic-link path with its reason; directory exclusions are reported at the
+link boundary without walking the target.
+The scanner checks route-shaped navigation, frontmatter and obsolete route
+filenames. It must allow technical prose to mention a cross-topic while
+rejecting that same topic when it is configured as a top-level route.
 
 Official JD entries require company, role, one canonical direction, stage,
 location, check date, URL, and uncertainty/status notes. Small samples must

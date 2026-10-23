@@ -7,6 +7,7 @@ import sys
 import pytest
 
 from scripts.check_web_notes import load_manifest_rows
+from scripts.collect_web_sources import build_manifest, collect_sources
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -139,6 +140,165 @@ def test_check_web_notes_passes_finalized_note_and_per_link_resource(tmp_path: P
             f"Resource note: {resource}\n\n"
             "This note explains the reading list item with concrete mechanisms, limitations, and next checks.\n"
         ),
+    )
+
+    result = run_checker(collection, "--source", source, "--per-link-notes")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "web_note_issues 0" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("link_label", "include_resource_in_note", "expected_returncode"),
+    [
+        (r"Paper P(A \| B)", False, 1),
+        (r"Paper P(A \| B)", True, 0),
+        ("Paper P(A | B)", False, 1),
+        ("Paper P(A | B)", True, 0),
+    ],
+    ids=("escaped-pipe-missing-note", "escaped-pipe-note-present", "plain-pipe-missing-note", "plain-pipe-note-present"),
+)
+def test_collector_manifest_round_trip_requires_each_learning_resource_note(
+    tmp_path: Path,
+    link_label: str,
+    include_resource_in_note: bool,
+    expected_returncode: int,
+) -> None:
+    collection = tmp_path / "collection"
+    html_path = tmp_path / "course.html"
+    resource = "https://example.com/paper.pdf"
+    html_path.write_text(
+        f"<!doctype html><title>Course</title><a href=\"{resource}\">{link_label}</a>",
+        encoding="utf-8",
+    )
+    page = collect_sources([str(html_path)])[0]
+    generated_manifest = build_manifest([page])
+    write(collection / "source_manifest.md", generated_manifest)
+    resource_rows = [
+        row for row in load_manifest_rows(collection / "source_manifest.md")
+        if row.section == "Learning Resources"
+    ]
+    assert len(resource_rows) == 1
+    assert resource_rows[0].values["Title"] == link_label
+    write_entry_map(collection)
+    note_resource = f"\n\nSource: {resource}" if include_resource_in_note else ""
+    write(
+        collection / "01_Course.md",
+        "# Course\n\nFinalized course-specific explanation." + note_resource + "\n",
+    )
+
+    result = run_checker(collection, "--per-link-notes")
+
+    assert result.returncode == expected_returncode, result.stdout + result.stderr
+    if include_resource_in_note:
+        assert "web_note_issues 0" in result.stdout
+    else:
+        assert "MISSING_PER_LINK_NOTE" in result.stdout
+        assert resource in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("malformation", "expected_message"),
+    [
+        ("missing_pages_header", "Pages section is missing its table header"),
+        ("missing_resources_header", "Learning Resources section is missing its table header"),
+        ("duplicate_column", "duplicate column name"),
+        ("malformed_row", "has 2 cells; expected 7"),
+        ("missing_leading_pipe", "malformed Learning Resources table row is missing its leading"),
+        ("missing_table_delimiters", "malformed Learning Resources table row is missing Markdown table delimiters"),
+        ("empty_resource_url", "Learning Resources row has an empty URL"),
+        ("invalid_resource_url_syntax", "Learning Resources URL has invalid syntax"),
+        ("invalid_page_url_syntax", "Pages URL has invalid syntax"),
+        ("empty_page_url", "Pages row has an empty Kind, Original Source, or URL"),
+    ],
+)
+def test_check_web_notes_rejects_malformed_manifest_tables(
+    tmp_path: Path,
+    malformation: str,
+    expected_message: str,
+) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/readings"
+    resource = "https://example.com/paper.pdf"
+    manifest_text = manifest(source, resource)
+    if malformation == "missing_pages_header":
+        pages_table = (
+            "## Pages\n\n"
+            "| Kind | Title | Original Source | URL | Access | Status | Error | Description |\n"
+            "| --- | --- | --- | --- | --- | --- | --- | --- |\n"
+            f"| course_page | Course | {source} | {source} | ok | ok |  | Course page |\n"
+        )
+        manifest_text = manifest_text.replace(pages_table, "## Pages\n\n")
+    elif malformation == "missing_resources_header":
+        manifest_text = manifest(source)
+        resource_table = (
+            "## Learning Resources\n\n"
+            "| Kind | Title | URL | Access | Status | Error | Source Page |\n"
+            "| --- | --- | --- | --- | --- | --- | --- |\n"
+        )
+        manifest_text = manifest_text.replace(resource_table, "## Learning Resources\n\n")
+    elif malformation == "duplicate_column":
+        manifest_text = manifest_text.replace(
+            "| Kind | Title | URL | Access | Status | Error | Source Page |",
+            "| Kind | URL | URL | Access | Status | Error | Source Page |",
+        )
+    elif malformation == "malformed_row":
+        manifest_text += "| pdf | truncated row |\n"
+    elif malformation == "missing_leading_pipe":
+        manifest_text += f"pdf | Malformed row | {resource} | listed | listed |  | {source} |\n"
+    elif malformation == "missing_table_delimiters":
+        manifest_text += f"pdf Malformed row {resource} listed listed source {source}\n"
+    elif malformation == "empty_resource_url":
+        manifest_text = manifest(
+            source,
+            resources=[("", "listed", "listed", "")],
+        )
+    elif malformation == "invalid_resource_url_syntax":
+        manifest_text = manifest(
+            source,
+            resources=[("http://[", "inaccessible", "skipped", "malformed source URL")],
+        )
+    elif malformation == "invalid_page_url_syntax":
+        manifest_text = manifest(source).replace(
+            f"| course_page | Course | {source} | {source} |",
+            f"| course_page | Course | {source} | http://[ |",
+        )
+    elif malformation == "empty_page_url":
+        manifest_text = manifest(source).replace(
+            f"| course_page | Course | {source} | {source} |",
+            f"| course_page | Course | {source} |  |",
+        )
+    write(collection / "source_manifest.md", manifest_text)
+    write_entry_map(collection)
+    write(collection / "01_Course.md", f"# Course\n\nSource-specific explanation: {source}\n")
+
+    result = run_checker(collection, "--source", source, "--per-link-notes")
+
+    assert result.returncode == 1
+    assert "INVALID_MANIFEST" in result.stdout
+    assert expected_message in result.stdout
+
+
+def test_check_web_notes_accepts_legacy_minimal_manifest_headers(tmp_path: Path) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/readings"
+    resource = "https://example.com/readings/chapter-1"
+    write(
+        collection / "source_manifest.md",
+        "# Source Manifest\n\n"
+        "## Pages\n\n"
+        "| Kind | Original Source | URL |\n"
+        "| --- | --- | --- |\n"
+        f"| book_or_chapter | {source} | {source} |\n\n"
+        "## Learning Resources\n\n"
+        "| URL | Access | Status |\n"
+        "| --- | --- | --- |\n"
+        f"| {resource} | listed | listed |\n",
+    )
+    write_entry_map(collection)
+    write(
+        collection / "01_Chapter.md",
+        f"# Chapter\n\nSource: {source}\n\nResource: {resource}\n\nFinished explanation.\n",
     )
 
     result = run_checker(collection, "--source", source, "--per-link-notes")
@@ -384,6 +544,79 @@ def test_check_web_notes_skipped_or_inaccessible_resource_does_not_require_note(
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "web_note_issues 0" in result.stdout
+
+
+def test_collector_generated_inaccessible_resource_error_keeps_explicit_exemption(tmp_path: Path) -> None:
+    collection = tmp_path / "collection"
+    missing_pdf = tmp_path / "missing-paper.pdf"
+    page = collect_sources([str(missing_pdf)])[0]
+    generated_manifest = build_manifest([page])
+    assert page.access_status == "inaccessible"
+    assert page.error
+    write(collection / "source_manifest.md", generated_manifest)
+    write_entry_map(collection)
+    write(collection / "01_Paper.md", "# Paper\n\nFinished source-specific explanation.\n")
+
+    result = run_checker(collection, "--source", str(missing_pdf), "--per-link-notes")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "web_note_issues 0" in result.stdout
+
+
+def test_arbitrary_resource_error_text_does_not_exempt_missing_note(tmp_path: Path) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/readings"
+    chapter_1 = "https://example.com/readings/chapter-1"
+    chapter_2 = "https://example.com/readings/chapter-2"
+    write(
+        collection / "source_manifest.md",
+        manifest(
+            source,
+            page_kind="book_or_chapter",
+            resources=[
+                (chapter_1, "listed", "listed", ""),
+                (chapter_2, "listed", "listed", "no chapter note yet"),
+            ],
+        ),
+    )
+    write_entry_map(collection)
+    write(collection / "01_Chapter_1.md", f"# Chapter 1\n\nSource: {chapter_1}\n\nFinished explanation.\n")
+
+    result = run_checker(collection, "--source", source, "--per-link-notes")
+
+    assert result.returncode == 1
+    assert "MISSING_PER_LINK_NOTE" in result.stdout
+    assert chapter_2 in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("access", "status"),
+    [("listed", "inaccessible"), ("inaccessible", "listed"), ("ok", "failed"), ("http_403", "ok")],
+)
+def test_check_web_notes_rejects_contradictory_resource_states(
+    tmp_path: Path,
+    access: str,
+    status: str,
+) -> None:
+    collection = tmp_path / "collection"
+    source = "https://example.com/readings"
+    resource = "https://example.com/readings/chapter-1"
+    write(
+        collection / "source_manifest.md",
+        manifest(
+            source,
+            page_kind="book_or_chapter",
+            resources=[(resource, access, status, "HTTP 403")],
+        ),
+    )
+    write_entry_map(collection)
+    write(collection / "01_Chapter_1.md", f"# Chapter 1\n\nSource: {resource}\n\nFinished explanation.\n")
+
+    result = run_checker(collection, "--source", source)
+
+    assert result.returncode == 1
+    assert "CONTRADICTORY_RESOURCE_STATUS" in result.stdout
+    assert resource in result.stdout
 
 
 def test_check_web_notes_rejects_external_manifest_symlink(tmp_path: Path) -> None:

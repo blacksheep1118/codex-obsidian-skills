@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -200,23 +201,97 @@ def _matrix_header_issues(relative: str, line: str) -> list[str]:
     return [f"{relative}: matrix header contains extra top-level category {label!r}" for label in sorted(LEGACY_MATRIX_LABELS & cells)]
 
 
+def _is_regular_file(path: Path) -> bool:
+    """Accept a regular file entry without following a Markdown symlink."""
+
+    try:
+        return not path.is_symlink() and path.is_file()
+    except OSError:
+        return False
+
+
+def _raise_walk_error(error: OSError) -> None:
+    raise error
+
+
+def _markdown_inventory(root: Path) -> tuple[list[Path], list[dict[str, str]]]:
+    """Collect Markdown files and report symlink entries omitted from the scan."""
+
+    files: list[Path] = []
+    excluded_paths: list[dict[str, str]] = []
+    for directory, directory_names, filenames in os.walk(
+        root,
+        topdown=True,
+        followlinks=False,
+        onerror=_raise_walk_error,
+    ):
+        current = Path(directory)
+        kept_directories: list[str] = []
+        for name in sorted(directory_names):
+            path = current / name
+            if path.is_symlink():
+                excluded_paths.append(
+                    {
+                        "path": path.relative_to(root).as_posix(),
+                        "reason": "symlink_directory",
+                    }
+                )
+            else:
+                kept_directories.append(name)
+        directory_names[:] = kept_directories
+        for filename in sorted(filenames):
+            path = current / filename
+            if path.suffix.casefold() == ".md" and path.is_symlink():
+                excluded_paths.append(
+                    {
+                        "path": path.relative_to(root).as_posix(),
+                        "reason": "symlink_file",
+                    }
+                )
+                continue
+            if path.suffix.casefold() == ".md" and _is_regular_file(path):
+                files.append(path)
+    excluded_paths.sort(key=lambda item: item["path"])
+    return sorted(files), excluded_paths
+
+
 def scan(root: Path) -> dict[str, object]:
     issues: list[str] = []
     algorithm_dir = root / ALGORITHM_DIR_NAME
+    if algorithm_dir.is_symlink():
+        return {
+            "ok": False,
+            "root": str(root),
+            "algorithm_files": 0,
+            "excluded_paths": [
+                {"path": ALGORITHM_DIR_NAME, "reason": "symlink_directory"}
+            ],
+            "canonical_directions": sorted(CANONICAL_LABELS),
+            "issues": [f"missing directory: {ALGORITHM_DIR_NAME}"],
+        }
     if not algorithm_dir.is_dir():
-        return {"ok": False, "issues": [f"missing directory: {ALGORITHM_DIR_NAME}"]}
+        return {
+            "ok": False,
+            "root": str(root),
+            "algorithm_files": 0,
+            "excluded_paths": [],
+            "canonical_directions": sorted(CANONICAL_LABELS),
+            "issues": [f"missing directory: {ALGORITHM_DIR_NAME}"],
+        }
     for filename in REQUIRED_FILES:
-        if not (algorithm_dir / filename).is_file():
+        if not _is_regular_file(algorithm_dir / filename):
             issues.append(f"missing required entry: {filename}")
     for filename in all_entry_files():
-        if not (algorithm_dir / filename).is_file():
+        if not _is_regular_file(algorithm_dir / filename):
             issues.append(f"missing canonical direction entry: {filename}")
-    for path in algorithm_dir.glob("*.md"):
+    markdown_paths, excluded_paths = _markdown_inventory(algorithm_dir)
+    for path in markdown_paths:
         if any(path.name.startswith(stem) for stem in OLD_ROUTE_FILE_STEMS):
-            issues.append(f"obsolete route file remains: {path.name}")
+            relative = path.relative_to(root).as_posix()
+            issues.append(f"obsolete route file remains: {relative}")
     for filename in KEY_NAVIGATION_FILES:
         path = algorithm_dir / filename
-        if not path.is_file():
+        if not _is_regular_file(path):
             issues.append(f"missing key navigation: {filename}")
             continue
         text = path.read_text(encoding="utf-8")
@@ -227,8 +302,8 @@ def scan(root: Path) -> dict[str, object]:
             for label in sorted(CANONICAL_LABELS)
             if not DIRECTION_PATTERNS[label].search(visible_text)
         )
-    for path in algorithm_dir.glob("*.md"):
-        relative = f"{ALGORITHM_DIR_NAME}/{path.name}"
+    for path in markdown_paths:
+        relative = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8")
         lines = _frontmatter(text)
         for key, value, line_number in _frontmatter_values(lines):
@@ -287,7 +362,14 @@ def scan(root: Path) -> dict[str, object]:
     return {
         "ok": not issues,
         "root": str(root),
-        "algorithm_files": len(list(algorithm_dir.glob("*.md"))),
+        "algorithm_files": len(markdown_paths),
+        "excluded_paths": [
+            {
+                "path": f"{ALGORITHM_DIR_NAME}/{item['path']}",
+                "reason": item["reason"],
+            }
+            for item in excluded_paths
+        ],
         "canonical_directions": sorted(CANONICAL_LABELS),
         "issues": issues,
     }
@@ -298,11 +380,19 @@ def main() -> int:
     parser.add_argument("root", type=Path, help="vault root to inspect")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    payload = scan(args.root.resolve())
+    try:
+        payload = scan(args.root.resolve())
+    except OSError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(f"algorithm_job_files {payload.get('algorithm_files', 0)}")
+        excluded_paths = payload.get("excluded_paths", [])
+        print(f"algorithm_job_excluded_paths {len(excluded_paths)}")
+        for excluded in excluded_paths:
+            print(f"EXCLUDED {excluded['reason']}: {excluded['path']}")
         print(f"algorithm_job_directions {len(CANONICAL_LABELS)}")
         print(f"algorithm_job_issues {len(payload['issues'])}")
         for issue in payload["issues"]:

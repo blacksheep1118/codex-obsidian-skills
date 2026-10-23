@@ -112,4 +112,6 @@ Create `source_manifest.md` first, then group notes by topic rather than by URL 
 
 When per-link notes are required, each learning resource in `source_manifest.md` needs either a corresponding note that cites the URL or an explicit skipped/inaccessible status.
 
+Keep the `Pages` and `Learning Resources` tables well formed, even when the resource table is empty: retain headers and separators, consistent cell counts, and nonempty source identities. Escape backslashes before pipes in cell text. The checker rejects malformed rows instead of omitting them from coverage. A free-text `Error` alone does not waive a resource note; record an explicit unavailable state in `Access` or `Status`, such as `blocked`, `skipped`, `login_required`, or `http_403`, without an accessible state in the other field. Conflicting access states fail validation.
+
 Keep URLs used only to discover or verify a client-rendered page under `Provenance Helpers`, not `Learning Resources`. API endpoints, static bundles, and ordinary navigation pages do not require per-link study notes unless they independently contain learning material.

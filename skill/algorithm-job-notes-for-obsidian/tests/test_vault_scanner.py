@@ -3,7 +3,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from algorithm_job_taxonomy import DIRECTIONS as CANONICAL_DIRECTIONS
+import check_algorithm_job_vault as scanner
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -318,3 +321,116 @@ def test_missing_dsa_entry_is_reported(tmp_path):
     code, payload = run_scan(vault)
     assert code == 1
     assert any("49_数据结构与算法" in issue for issue in payload["issues"])
+
+
+def test_nested_obsolete_route_is_reported_with_its_relative_path(tmp_path):
+    vault = make_vault(tmp_path)
+    obsolete = vault / "算法岗学习笔记" / "专题" / "103_强化学习_独立路线.MD"
+    obsolete.parent.mkdir(parents=True)
+    obsolete.write_text("# Archived route\n", encoding="utf-8")
+
+    code, payload = run_scan(vault)
+
+    assert code == 1
+    assert any(
+        "obsolete route file remains: 算法岗学习笔记/专题/103_强化学习_独立路线.MD" in issue
+        for issue in payload["issues"]
+    )
+
+
+def test_nested_uppercase_markdown_is_scanned_for_route_and_frontmatter(tmp_path):
+    vault = make_vault(tmp_path)
+    note = vault / "算法岗学习笔记" / "专题" / "legacy.MD"
+    note.parent.mkdir(parents=True)
+    note.write_text(
+        "---\njob_track: risk_control\n---\n# 主题\n\n## 强化学习算法岗路线\n",
+        encoding="utf-8",
+    )
+
+    code, payload = run_scan(vault)
+
+    assert code == 1
+    assert any("算法岗学习笔记/专题/legacy.MD" in issue for issue in payload["issues"])
+    assert any("legacy frontmatter direction" in issue for issue in payload["issues"])
+    assert any("强化学习算法岗" in issue for issue in payload["issues"])
+
+
+def test_nested_topical_markdown_remains_allowed(tmp_path):
+    vault = make_vault(tmp_path)
+    note = vault / "算法岗学习笔记" / "专题" / "强化学习基础.MD"
+    note.parent.mkdir(parents=True)
+    note.write_text("# 强化学习基础\n\n正文讨论强化学习与 RAG，但不把它们列为岗位路线。\n", encoding="utf-8")
+
+    code, payload = run_scan(vault)
+
+    assert code == 0, payload
+    assert payload["algorithm_files"] == len(KEY_FILES) + len(ENTRIES) + 1
+
+
+def test_markdown_symlink_to_outside_is_not_scanned(tmp_path):
+    vault = make_vault(tmp_path)
+    outside = tmp_path / "outside.md"
+    outside.write_text("## 强化学习算法岗路线\n", encoding="utf-8")
+    outside_dir = tmp_path / "outside-topic"
+    outside_dir.mkdir()
+    (outside_dir / "hidden.md").write_text("## 强化学习算法岗路线\n", encoding="utf-8")
+    alias = vault / "算法岗学习笔记" / "external.md"
+    alias_dir = vault / "算法岗学习笔记" / "external-topic"
+    try:
+        alias.symlink_to(outside)
+        alias_dir.symlink_to(outside_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    code, payload = run_scan(vault)
+
+    assert code == 0, payload
+    assert payload["algorithm_files"] == len(KEY_FILES) + len(ENTRIES)
+    assert payload["excluded_paths"] == [
+        {
+            "path": "算法岗学习笔记/external-topic",
+            "reason": "symlink_directory",
+        },
+        {
+            "path": "算法岗学习笔记/external.md",
+            "reason": "symlink_file",
+        },
+    ]
+
+    result = subprocess.run(
+        [sys.executable, str(SCANNER), str(vault)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"algorithm_job_files {len(KEY_FILES) + len(ENTRIES)}" in result.stdout
+    assert "algorithm_job_excluded_paths 2" in result.stdout
+    assert "EXCLUDED symlink_directory: 算法岗学习笔记/external-topic" in result.stdout
+    assert "EXCLUDED symlink_file: 算法岗学习笔记/external.md" in result.stdout
+
+
+def test_scanner_fails_closed_when_walk_cannot_read_subtree(tmp_path, monkeypatch, capsys):
+    vault = make_vault(tmp_path)
+    algorithm = vault / "算法岗学习笔记"
+    blocked = algorithm / "unreadable"
+    blocked.mkdir()
+    real_scandir = scanner.os.scandir
+
+    def fail_on_blocked(path):
+        if Path(path) == blocked:
+            raise PermissionError(f"cannot read {path}")
+        return real_scandir(path)
+
+    monkeypatch.setattr(scanner.os, "scandir", fail_on_blocked)
+
+    with pytest.raises(PermissionError, match="cannot read"):
+        scanner.scan(vault)
+
+    monkeypatch.setattr(sys, "argv", [str(SCANNER), str(vault)])
+    assert scanner.main() == 2
+    captured = capsys.readouterr()
+    assert "ERROR: cannot read" in captured.err
+    assert "Traceback" not in captured.err
+    assert "algorithm_job_files" not in captured.out

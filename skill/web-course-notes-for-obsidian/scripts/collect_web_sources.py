@@ -546,7 +546,8 @@ def collect_sources(
 
 
 def markdown_escape_cell(value: str) -> str:
-    return value.replace("|", "\\|").replace("\n", " ")
+    normalized = value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    return normalized.replace("\\", "\\\\").replace("|", "\\|")
 
 
 def build_manifest(pages: list[PageRecord]) -> str:

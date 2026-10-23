@@ -45,6 +45,19 @@ The checker scans Markdown inline destinations, used full/collapsed/shortcut ref
 
 The generic command scans Markdown files under the selected root, including hidden folders such as `.obsidian/templates`. The Solvenotes maintainer gate uses its existing learning-note inventory and excludes `.obsidian/templates` from both source and Markdown target resolution. The checker tests whether a destination resolves within the selected vault. It does not judge whether a link is useful, whether the relationship is conceptually correct, or whether a backlink should exist. Review those choices in context; do not add reciprocal links just to make links mechanically bidirectional.
 
+The separate `scripts/check_vault_quality.py` inventory also treats `.md` and
+`.MD` as Markdown and does not follow symbolic links. By default it excludes
+cache directories named `.git`, `.obsidian`, `.pytest_cache`, `.ruff_cache`, or
+`__pycache__` at any depth, plus `scripts`, `skills`, `build`, and `output` only
+when they are directly below the selected root. It also excludes `AGENT.md`
+case-insensitively. Use repeatable `--skip-dir` options for other exact,
+root-relative subtrees; nested directories named `scripts`, `skills`, `build`,
+or `output` remain part of the learning-note scan.
+The CLI reports the number of scanned Markdown files and each excluded path
+with its reason (`cache_dir`, `root_tool_dir`, `explicit_skip_dir`, symlink,
+or guidance file). It reports directory boundaries without walking excluded
+subtrees to count their contents.
+
 Reference-definition parsing currently covers single-line, unquoted definitions (with an optional same-line title). Multiline definitions, definitions inside blockquotes/list containers, and Markdown image embeds require separate manual review; do not report those forms as validated by this checker.
 
 Report broken links and self-links before making content claims.

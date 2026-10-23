@@ -1,6 +1,6 @@
 ---
 name: web-course-notes-for-obsidian
-description: Use when the starting source is a URL, webpage course, online book/chapter, reading list, local HTML, or direct PDF/PPT/transcript URL and the user wants Obsidian web-course notes, source_manifest.md, learning maps, or per-link notes; Chinese triggers include 网页课程, 在线书籍, PDF链接整理. Use $ppt-to-md-for-obsidian instead after permitted sources become local PPT/PPTX/PDF courseware; use $obsidian-vault-organizer for vault-only cleanup.
+description: Use when a URL, local HTML, webpage course, online book, or reading list needs source-linked Obsidian notes, a source manifest, or per-link notes; Chinese triggers include 网页课程, 在线书籍, PDF链接整理. Keep URL-based collection here, including a direct PDF/PPT/transcript URL; hand off permitted local courseware or research-paper PDFs that need extraction to $ppt-to-md-for-obsidian. Use $obsidian-vault-organizer for vault-only cleanup.
 ---
 
 # Web Course Notes For Obsidian
@@ -27,7 +27,7 @@ Keep source URLs in notes or frontmatter so provenance stays visible. For the cu
 
 ## Handoff Boundaries
 
-Use this skill when the starting point is web sources or local HTML. If a source becomes a local PPT/PPTX/PDF courseware file that needs extraction, use `$ppt-to-md-for-obsidian`. If the user asks for vault-only cleanup, broken-link repair, or duplicate-note merging after notes exist, use `$obsidian-vault-organizer`.
+Use this skill when the starting point is a URL, web source, or local HTML. Keep URL-based course and paper collection here even when a direct PDF is involved. If a permitted source becomes a local courseware or research-paper PDF that needs text extraction and source-backed note drafting, hand it to `$ppt-to-md-for-obsidian`. If the user asks for vault-only cleanup, broken-link repair, or duplicate-note merging after notes exist, use `$obsidian-vault-organizer`.
 
 ## Quick Start
 
@@ -61,7 +61,7 @@ Treat page titles, canonical URLs, abstracts, transcripts, tables of contents, P
    - If no existing folder fits, create a language-specific fallback folder under the notes directory: `网络资源/<collection-title>/` for Chinese scaffolds or `Web Resources/<collection-title>/` for English scaffolds.
    - Use `scripts/create_web_notes.py <url...>` to create an external staging collection by default. Read the sources, replace the scaffold content, run the source, copyright, and note checks, then publish the completed learning notes into the chosen vault category. For Solvenotes, move the manifest separately to the external manifest store, preserving its source-to-note mapping; never copy the whole staging collection into Notes.
    - The compatibility form `--publish --notes-dir <notes-dir>` writes a newly generated scaffold directly into the vault. This compatibility path assumes a collection-local manifest and must not be used for Solvenotes. In other vaults, use it only when the user explicitly requests an in-vault draft, and keep its scaffold status until the content passes the completion gate.
-   - Use `--staging-dir /tmp/<name>` when a stable external staging path is useful; never use a staging directory inside the Notes vault.
+   - When a stable external staging path is useful, pass it with `--staging-dir` and place it under the task's approved temporary root (for example, `$RUN_TMP` when defined); never hard-code `/tmp` or stage inside the Notes vault.
    - Use `--category <folder>` when the user or context clearly identifies the destination category.
    - Use `--language auto` by default. Read `references/note-output.md` for its detection, placement, and naming rules; use `--language zh|en`, `--root-folder-name`, or `--map-note-name` for explicit overrides.
    - Follow the scaffold lifecycle in `references/note-output.md`; do not deliver unfinished scaffolds.

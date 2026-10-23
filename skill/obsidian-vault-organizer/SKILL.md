@@ -1,6 +1,6 @@
 ---
 name: obsidian-vault-organizer
-description: Use when the starting point is an existing Obsidian vault or Markdown note collection and the task is cleanup, broken-link repair, duplicate merge, navigation, validation, or note-quality improvement; Chinese triggers include vault整理, 断链修复, 合并重复笔记. Use $algorithm-job-notes-for-obsidian when algorithm-job direction taxonomy, JD routes, or interview evidence is in scope; use $ppt-to-md-for-obsidian for local courseware extraction, $web-course-notes-for-obsidian for URL collection, and $notes-to-scientific-ppt when the main goal is a PPTX deck.
+description: Use when the starting point is an existing Obsidian vault or Markdown note collection and the task is cleanup, broken-link repair, duplicate merge, navigation, validation, or note-quality improvement; Chinese triggers include vault整理, 断链修复, 合并重复笔记. Use $algorithm-job-notes-for-obsidian when algorithm-job direction taxonomy, JD routes, or interview evidence is in scope; use $ppt-to-md-for-obsidian for local courseware or research-paper PDF extraction, $web-course-notes-for-obsidian for URL collection, and $notes-to-scientific-ppt when the main goal is a PPTX deck.
 ---
 
 # Obsidian Vault Organizer
@@ -9,13 +9,13 @@ description: Use when the starting point is an existing Obsidian vault or Markdo
 
 Organize an existing Obsidian vault or Markdown note collection into a coherent note system without damaging source materials. Preserve local conventions, improve navigation, repair links, merge duplicate notes, and turn rough notes into usable study or research material.
 
-Use this skill for vault-first work. If the main task is extracting or converting PPT/PPTX/PDF courseware, use `$ppt-to-md-for-obsidian` instead.
+Use this skill for vault-first work. If the main task is extracting local PPT/PPTX/PDF courseware or a research-paper PDF for a source-backed paper note, use `$ppt-to-md-for-obsidian` instead.
 
 When a target vault follows solvenotes-style conventions, read `references/solvenotes-profile.md` before strict cleanup or project-specific validation. Follow the current workspace rules for temporary provenance records and validation profiles. Keep private mappings outside Notes and the public Skills repository, and preserve `source_files`, URLs, and page/slide markers in learning notes. Missing required source records make provenance and coverage unavailable; independent factual verification may still proceed against authoritative sources. Report those results separately. Other vaults retain their local provenance layout.
 
 ## Handoff Boundaries
 
-Use this skill when the task is vault-first: cleanup, repair, merge, navigation, validation, or note-quality improvement. If algorithm-job direction taxonomy, JD categories, or interview routes are being changed, hand off to `$algorithm-job-notes-for-obsidian` first. If source extraction from PPT/PPTX/PDF is still the main task, switch to `$ppt-to-md-for-obsidian`; if public web source collection is still required, use `$web-course-notes-for-obsidian` first.
+Use this skill when the task is vault-first: cleanup, repair, merge, navigation, validation, or note-quality improvement. If algorithm-job direction taxonomy, JD categories, or interview routes are being changed, hand off to `$algorithm-job-notes-for-obsidian` first. If extraction from local courseware or a local research-paper PDF is still the main task, switch to `$ppt-to-md-for-obsidian`; if public web source collection is still required, use `$web-course-notes-for-obsidian` first and hand off after a permitted file becomes local.
 
 ## Dry-run Mode
 
@@ -88,9 +88,9 @@ Treat existing notes, local guidance, source files opened in the current task, g
    - See `references/obsidian-style.md` for style guidance.
 
 6. Validate before finishing.
-   - Run `scripts/check_obsidian_links.py` for Markdown and Obsidian wiki links when the vault is local.
-   - The bundled link checker masks fenced and inline code before scanning. Code-like double brackets outside code spans, such as R `x[[1]]` in prose, still need escaping/rephrasing; never claim link validation is clean until the checker and a code-block regression test pass.
-   - Run `scripts/check_vault_quality.py` for conflict markers, empty files, unbalanced block math, duplicate note stems, and leftover template text.
+   - Prefer equivalent project-local validators; otherwise run `scripts/check_obsidian_links.py` for Markdown and Obsidian wiki links when the vault is local.
+   - The bundled link checker masks fenced and inline code before scanning. Code-like double brackets outside code spans, such as R `x[[1]]` in prose, still need escaping/rephrasing. Run code-block regression tests when modifying the checker; ordinary vault edits require the selected link validation to pass.
+   - Without equivalent project-local checks, run `scripts/check_vault_quality.py` for conflict markers, empty files, unbalanced block math, duplicate note stems, and leftover template text.
    - For strict cleanup, also run `scripts/check_vault_quality.py --strict-study --forbid-report-notes` on the affected note directory. Use `--profile solvenotes` only after reading `references/solvenotes-profile.md`, and use `--pattern-file` for project-specific residue lists.
    - Under `--profile solvenotes`, `99_内容覆盖审查.md` and `coverage_audit` report pages fail closed. The generic profile may use `--allow-formal-coverage-audits` for a different vault's typed legacy contract.
    - If a checked course contains an independently validated nested topic, pass its exact root-relative path with repeatable `--skip-dir` and validate that topic separately. Read `references/solvenotes-profile.md` for the exact-path and fail-closed rules.

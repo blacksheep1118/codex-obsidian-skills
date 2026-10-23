@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import os
 from pathlib import Path, PureWindowsPath
 import re
 import stat
@@ -58,8 +59,11 @@ SOLVENOTES_REPORT_NOTE_TYPES = frozenset(
 )
 BRIDGE_NOTE_RE = re.compile(r"本页保留旧路径，正文请读 \[\[[^\]]+\]\]。")
 WIKI_LINK_RE = re.compile(r"\[\[[^\]]+\]\]")
-DEFAULT_EXCLUDED_DIRS = frozenset({".git", ".obsidian", ".pytest_cache", ".ruff_cache", "__pycache__", "scripts", "skills", "build", "output"})
-DEFAULT_EXCLUDED_FILES = frozenset({"AGENT.md"})
+DEFAULT_EXCLUDED_CACHE_DIRS = frozenset(
+    {".git", ".obsidian", ".pytest_cache", ".ruff_cache", "__pycache__"}
+)
+DEFAULT_EXCLUDED_ROOT_TOOL_DIRS = frozenset({"scripts", "skills", "build", "output"})
+DEFAULT_EXCLUDED_FILES = frozenset({"agent.md"})
 
 
 def configure_output_encoding() -> None:
@@ -79,6 +83,13 @@ class VaultIssue:
     path: Path
     kind: str
     message: str
+
+
+@dataclass(frozen=True)
+class MarkdownInventory:
+    root: Path
+    markdown_paths: tuple[Path, ...]
+    excluded_paths: tuple[tuple[str, str], ...]
 
 
 def normalized_skip_dirs(
@@ -133,29 +144,87 @@ def normalized_skip_dirs(
     return tuple(sorted(normalized))
 
 
+def _raise_walk_error(error: OSError) -> None:
+    raise error
+
+
+def _markdown_inventory(
+    root: Path,
+    skip_dirs: list[Path] | None = None,
+) -> MarkdownInventory:
+    root = validate_input_root(root)
+    excluded_subtrees = normalized_skip_dirs(root, skip_dirs)
+    files: list[Path] = []
+    exclusions: dict[str, str] = {}
+    for directory, directory_names, filenames in os.walk(
+        root,
+        topdown=True,
+        followlinks=False,
+        onerror=_raise_walk_error,
+    ):
+        current = Path(directory)
+        relative_directory = current.relative_to(root).parts
+        if any(
+            relative_directory[: len(excluded)] == excluded
+            for excluded in excluded_subtrees
+        ):
+            directory_names[:] = []
+            continue
+
+        kept_directories: list[str] = []
+        for name in sorted(directory_names):
+            candidate = current / name
+            candidate_parts = (*relative_directory, name)
+            relative = candidate.relative_to(root).as_posix()
+            if candidate.is_symlink():
+                exclusions[relative] = "symlink_directory"
+                continue
+            if candidate_parts in excluded_subtrees:
+                exclusions[relative] = "explicit_skip_dir"
+                continue
+            if name in DEFAULT_EXCLUDED_CACHE_DIRS:
+                exclusions[relative] = "cache_dir"
+                continue
+            if not relative_directory and name in DEFAULT_EXCLUDED_ROOT_TOOL_DIRS:
+                exclusions[relative] = "root_tool_dir"
+                continue
+            kept_directories.append(name)
+        directory_names[:] = kept_directories
+
+        for filename in sorted(filenames):
+            path = current / filename
+            if path.suffix.casefold() != ".md":
+                continue
+            relative = path.relative_to(root)
+            relative_label = relative.as_posix()
+            if path.is_symlink():
+                exclusions[relative_label] = "symlink_file"
+                continue
+            if path.name.casefold() in DEFAULT_EXCLUDED_FILES:
+                exclusions[relative_label] = "guidance_file"
+                continue
+            if not _is_regular_file_without_symlink_components(root, path):
+                continue
+            if any(
+                relative.parts[: len(excluded)] == excluded
+                for excluded in excluded_subtrees
+            ):
+                continue
+            if not _is_within_root(root, path):
+                continue
+            files.append(path)
+    return MarkdownInventory(
+        root=root,
+        markdown_paths=tuple(sorted(files)),
+        excluded_paths=tuple(sorted(exclusions.items())),
+    )
+
+
 def markdown_files(
     root: Path,
     skip_dirs: list[Path] | None = None,
 ) -> list[Path]:
-    excluded_subtrees = normalized_skip_dirs(root, skip_dirs)
-    files: list[Path] = []
-    for path in root.rglob("*.md"):
-        relative = path.relative_to(root)
-        if not _is_regular_file_without_symlink_components(root, path):
-            continue
-        if path.name in DEFAULT_EXCLUDED_FILES:
-            continue
-        if set(relative.parts) & DEFAULT_EXCLUDED_DIRS:
-            continue
-        if any(
-            relative.parts[: len(excluded)] == excluded
-            for excluded in excluded_subtrees
-        ):
-            continue
-        if not _is_within_root(root, path):
-            continue
-        files.append(path)
-    return sorted(files)
+    return list(_markdown_inventory(root, skip_dirs=skip_dirs).markdown_paths)
 
 
 def _is_regular_file_without_symlink_components(root: Path, path: Path) -> bool:
@@ -311,9 +380,16 @@ def find_vault_issues(
     profile: str = "generic",
     pattern_files: list[Path] | None = None,
     skip_dirs: list[Path] | None = None,
+    *,
+    _inventory: MarkdownInventory | None = None,
 ) -> list[VaultIssue]:
     root = validate_input_root(root)
-    files = markdown_files(root, skip_dirs=skip_dirs)
+    if _inventory is None:
+        files = markdown_files(root, skip_dirs=skip_dirs)
+    else:
+        if _inventory.root != root:
+            raise ValueError("precomputed Markdown inventory belongs to a different root")
+        files = list(_inventory.markdown_paths)
     issues: list[VaultIssue] = []
     stems: dict[str, list[Path]] = {}
     stem_labels: dict[str, str] = {}
@@ -432,8 +508,10 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        root = validate_input_root(args.root)
+        inventory = _markdown_inventory(root, skip_dirs=args.skip_dir)
         issues = find_vault_issues(
-            args.root,
+            root,
             allow_duplicate_stems=args.allow_duplicate_stems,
             strict_study=args.strict_study,
             forbid_report_notes=args.forbid_report_notes,
@@ -441,12 +519,17 @@ def main() -> int:
             profile=args.profile,
             pattern_files=args.pattern_file,
             skip_dirs=args.skip_dir,
+            _inventory=inventory,
         )
     except InputRootError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
+    print(f"vault_quality_markdown_files {len(inventory.markdown_paths)}")
+    print(f"vault_quality_excluded_paths {len(inventory.excluded_paths)}")
+    for path, reason in inventory.excluded_paths:
+        print(f"EXCLUDED {reason}: {path}")
     print(f"vault_quality_issues {len(issues)}")
     for issue in issues:
         print(f"{issue.kind.upper()}: {issue.path}: {issue.message}")

@@ -1,11 +1,11 @@
 ---
 name: ppt-to-md-for-obsidian
-description: Use when the starting source is local PPT/PPTX/PDF lecture courseware or slide-derived files and the user wants extracted text, Obsidian Markdown course notes, source coverage, formulas, examples, or review pages; Chinese triggers include PPT转笔记, 课件转Markdown, PDF课件整理. Use $web-course-notes-for-obsidian instead for URL or web-source collection; use $obsidian-vault-organizer for vault cleanup that no longer needs courseware extraction.
+description: Use when local PPT/PPTX/PDF courseware or research-paper PDFs need extraction into source-checked Obsidian course or paper notes; Chinese triggers include PPT转笔记, 课件转Markdown, PDF课件整理, 论文PDF笔记. Use $web-course-notes-for-obsidian for URL-first collection and $obsidian-vault-organizer for vault cleanup after drafting.
 ---
 
 # PPT To Markdown For Obsidian
 ## Goal
-Convert slide-based course material into an Obsidian note system, not a raw slide transcript. The output should be readable as standalone study notes with concept explanation, mechanisms, formulas, examples, boundaries, and useful cross-links.
+Convert local slide-based course material into an Obsidian note system, not a raw slide transcript. For a local research-paper PDF, write a source-backed paper note that explains its research gap, method, evidence, reproducibility, and failure boundaries. Outputs should read as standalone notes with useful explanations, source links, and cross-links.
 
 When writing into an existing project or vault, first load project-local guidance such as `AGENT.md`, `agent.md`, and files under `agent/`. Treat project-local guidance and scripts as the source of truth when they are stricter or more current than this skill. Keep source files read-only unless the user explicitly asks to rename, move, or delete them. For vault-only organization work, use `$obsidian-vault-organizer`.
 
@@ -15,13 +15,13 @@ When a target vault follows solvenotes-style conventions, read `references/solve
 
 ## Handoff Boundaries
 
-Use this skill while source extraction or slide-order reconstruction is still part of the task. Once notes have been drafted and the remaining work is only link repair, duplicate cleanup, navigation restructuring, or vault-wide validation, switch to `$obsidian-vault-organizer`. If the user starts from public URLs instead of local files, use `$web-course-notes-for-obsidian` first and return here only after a permitted PPT/PDF has become a local source file.
+Use this skill while extracting local courseware or a research-paper PDF and drafting source-backed notes. For a paper PDF, verify the paper metadata and write a paper note; for courseware, preserve slide/page order and course coverage. Once notes have been drafted and the remaining work is only link repair, duplicate cleanup, navigation restructuring, or vault-wide validation, switch to `$obsidian-vault-organizer`. If the user starts from public URLs instead of local files, use `$web-course-notes-for-obsidian` first; hand off here only after a permitted PDF/PPT has become a local source file that needs extraction.
 
 ## Quick Start
 
-1. Resolve source files, target note folder, local guidance, and conversion mode.
+1. Resolve source files, target note folder, local guidance, and whether the source is courseware or a research paper.
 2. Extract or inventory the source with the bundled scripts before rewriting.
-3. Build a source-to-note coverage map for slides/pages, formulas, examples, and exam-scope terms.
+3. Build a source-to-note map for pages, formulas, and evidence; include examples and exam-scope terms for courseware when relevant.
 4. Write or update notes only after coverage gaps and assumptions are explicit.
 5. Run project-local link, note-quality, residue, example, and coverage checks before the final response; use bundled checks only when the project has no equivalent.
 
@@ -62,7 +62,7 @@ Resolve `TODO`, `待核实`, and other placeholders before delivery. If evidence
 
 ## Default Outputs
 
-For each course or topic directory, prefer this structure:
+For a research-paper PDF, default to one substantive paper note plus links into existing navigation. Follow [Paper Notes](references/modes.md#paper-notes); course overviews and paired review pages apply only to courseware or explicit user requests. For each course directory, prefer this structure:
 
 - `00_课程总览.md`, `00_学习地图.md`, or a local `00_*总览.md` variant as the navigation entry.
 - Numbered chapter notes such as `01_绪论.md`, `02_知识表示.md`.
@@ -77,13 +77,13 @@ If the user explicitly asks for one exam review file instead of two review pages
 ## Workflow
 
 1. Inventory the source files and existing notes first.
-   - Identify PPT/PPTX/PDF/DOCX source files, their course order, and whether matching notes already exist.
+   - Identify PPT/PPTX/PDF/DOCX source files, their course or paper structure, and whether matching notes already exist.
    - Treat source files as read-only unless the user explicitly asks to rename, move, or delete them.
 
-2. Extract slide text while preserving slide order.
+2. Extract source text while preserving slide/page order.
    - For `.pptx`, use `scripts/extract_pptx_text.py` when a deterministic text dump helps. A successful `python-pptx` backend does not prove visual coverage: blank-text slides and media objects still require visual inspection.
    - For legacy `.ppt`, use `scripts/convert_ppt_to_pptx.py` to convert with LibreOffice first, then extract. If LibreOffice is unavailable or conversion fails, use the bundled `scripts/extract_legacy_ppt_text.py` OLE/CFB text-record fallback, count text records, and mark fallback or 0-record files as partial text/OCR-limited extraction rather than claimed full coverage. The pipeline performs this fallback automatically and records it in `pipeline_manifest.md`.
-   - For `.pdf` courseware, use `scripts/extract_pdf_text.py`; it reads one stable input snapshot, tries `pypdf`, `pdfplumber`, and `pdftotext`, and continues when a backend returns all-empty pages or very low text coverage. The helper rejects inputs above 256 MiB, more than 10,000 pages, or more than 64 Mi characters of extracted text; the external `pdftotext` call also has a 60-second timeout. Preserve the reported backend, page count, empty-page count, and low-coverage warning in coverage notes when relevant. If the final backend still reports low text coverage, treat the PDF as likely scanned/image-only until OCR or manual inspection confirms coverage; the in-process Python parsers have size budgets but are not a separate OCR or visual pass.
+   - For `.pdf` courseware or papers, use `scripts/extract_pdf_text.py`; it reads one stable input snapshot, tries `pypdf`, `pdfplumber`, and `pdftotext`, and continues when a backend returns all-empty pages or very low text coverage. The helper rejects inputs above 256 MiB, more than 10,000 pages, or more than 64 Mi characters of extracted text; the external `pdftotext` call also has a 60-second timeout. Preserve the reported backend, page count, empty-page count, and low-coverage warning in coverage notes when relevant. If the final backend still reports low text coverage, treat the PDF as likely scanned/image-only until OCR or manual inspection confirms coverage; the in-process Python parsers have size budgets but are not a separate OCR or visual pass.
    - If the extracted text contains formula noise, run `scripts/clean_latex_from_ppt.py` before rewriting.
    - For repeatable runs, use `scripts/ppt_to_obsidian_pipeline.py` to extract, clean, and write a manifest. The pipeline keeps a basename when it is unique and adds a stable source-path hash when same-named files would otherwise overwrite one another. Run extraction and its `pipeline_manifest.md` in external staging; they are intermediate artifacts, not the formal Solvenotes manifest or learning notes.
    - If extraction is noisy, use slide titles, visible bullets, formulas, filenames, and course order together instead of trusting raw text blindly.
@@ -92,7 +92,7 @@ If the user explicitly asks for one exam review file instead of two review pages
 3. Do a source coverage pass before writing the final notes.
    - Build a source-to-output map by file, chapter, slide/page range, and major headings.
    - Pull out formulas, algorithms, examples, derivation steps, definitions, assumptions, and warnings from each source file.
-   - Every source-derived example must carry a traceable marker such as `（/课程/文件或章节 p.N）`. If PPT/PDF text extraction has no standalone example, add an auxiliary question and say naturally that it is a self-written teaching example rather than a source exercise. A compact table cell may use `自拟教学例；背景见 课程/文件.pptx slide N` without explaining differences from the original page. The older label `自拟教学例：源课件未提供可独立还原的对应例题` remains accepted for compatibility; it is optional.
+   - Every source-derived example must carry a traceable marker such as `（/课程/文件或章节 p.N）`. For courseware without standalone examples, add an auxiliary question and identify it naturally as a self-written teaching example; paper notes need no artificial exercise. A compact table cell may use `自拟教学例；背景见 课程/文件.pptx slide N` without explaining differences from the original page. The older label `自拟教学例：源课件未提供可独立还原的对应例题` remains accepted for compatibility; it is optional.
    - Every example must include a detailed explanation, not just an answer. Include the tested concept, known conditions, formula or rule choice, substitution or reasoning steps, conclusion, and the common mistake or boundary condition to avoid.
    - Write auxiliary questions in natural prose while keeping the givens, rule or formula, reasoning steps, conclusion, common pitfall, and provenance easy to find. Use labels such as `题目`, `解法`, `关键陷阱`, and `来源说明` only when they improve readability, not as repeated boilerplate.
    - Keep source-derived examples and generated auxiliary questions visibly distinct. Never relabel a generated question as a PPT/PDF example. If examples are graded or reviewed by project scripts, improve low-grade rows by adding analysis, steps, conclusion, and pitfalls while preserving the original source marker.
@@ -126,7 +126,7 @@ If the user explicitly asks for one exam review file instead of two review pages
    - Reduce repeated contrast frames such as `不是...而是...`; use direct definitions, conditions, and consequences instead.
 
 5. Build Obsidian navigation.
-   - Add or update the course overview.
+   - For courseware, add or update the course overview; for a paper note, link it from the existing paper/topic navigation when available.
    - Link concepts where they first become relevant.
    - For cross-course concept pages, build reciprocal navigation when practical: concept pages link to concrete chapters, and chapter notes link back to the concept page at the first relevant occurrence.
    - Avoid dumping large link lists at the end of every note.
@@ -134,7 +134,7 @@ If the user explicitly asks for one exam review file instead of two review pages
    - Inside Markdown tables, avoid wiki-link aliases such as `[[课程目录/文件名|显示文本]]` because the alias pipe can split the table cell. Prefer `[[课程目录/文件名]]` in tables, or put the alias link outside the table.
    - Escape literal pipes in table cells, including regular expressions such as `` `a\|b` ``.
 
-6. Add review pages.
+6. For courseware or an explicit review request, add review pages; skip this step for standalone paper notes.
    - The detailed version should retain the full course mechanism and formulas.
    - The concise version should keep the main chain, core formulas, and common mistakes.
    - If the user says a long review page must not be split, keep it as one file.
@@ -143,17 +143,17 @@ If the user explicitly asks for one exam review file instead of two review pages
 7. Validate before finishing.
    - Prefer project-local validators from `AGENT.md` when present. If the project follows a known profile such as solvenotes, load its bundled reference before choosing checks.
    - If the project has no equivalent validators, check broken links and self-links with `scripts/check_obsidian_links.py`.
-   - If the project has no equivalent validators, check course-note output structure with `scripts/check_course_notes.py`; it also catches unbalanced fences/math, stale residue, and malformed Markdown tables.
+   - For courseware without equivalent project validators, check output structure with `scripts/check_course_notes.py`; it also catches unbalanced fences/math, stale residue, and malformed Markdown tables. For paper notes, use link/source checks and the paper checklist in `references/modes.md`; do not impose the course checker or review-page requirements.
    - For strict PPT/PDF coverage audits, run the project-local source coverage checker first. If only the bundled `scripts/check_source_coverage.py` is available, run it with explicit source-to-notes mappings.
    - Treat the selected source and notes roots as trust boundaries: reject absolute paths, `../` escapes, and mappings that resolve outside those roots. A local paper-note `source_files` entry or body source reference must use the exact root-relative spelling of an existing regular file; reject directory targets and every leaf or ancestor symlink, including broken links. Provide complete mappings for renamed directories, and keep standalone systems such as `概念索引`, `模板`, `游戏数值策划`, `科研方法论`, `算法岗学习笔记`, and `学习路径` outside course reconciliation.
    - The course-note checker accepts either exact review filenames or local course-prefixed review filenames; do not rename working review pages only to satisfy a generic template.
    - For a generic vault whose local contract requires a separate coverage audit, run `scripts/check_course_notes.py --strict-depth --require-coverage-audit`; add `--allow-exam-review` when using one exam review file instead of the two default review pages. Never pass `--require-coverage-audit` for Solvenotes; use its external maintainer coverage checker and strict source-file checker with the resolved manifest root.
    - If a vault contains non-course generated index or audit folders, run this checker per course directory or pass repeated `--skip-dir <name>` values for directories such as `概念索引`. Report the thresholds and skipped directory names used.
-   - Check empty files, conflict markers, leftover template phrases such as `相关知识链接`, and review-page coverage.
+   - Check empty files, conflict markers, and leftover template phrases such as `相关知识链接`; check review-page coverage only when review pages are in scope.
    - Run a direct keyword/formula sweep against source-derived terms before the final response. Missing hits should be explained as out of scope, noisy extraction, or corrected before delivery.
    - For paper-note work, also check that each actual paper note records title, year, venue/status, source evidence, contribution, and failure boundary. Read strong-claim keyword hits in context; negated boundary statements are not errors.
    - Add targeted semantic regression checks for every repaired formula, example, or scope-sensitive claim (for example, evaluate the worked assignment, verify a construction's two cases, or assert that the corrected floor/sign/condition is present). If Ruff is unavailable, activate an existing project environment or install it only when the package is within the user's stated size budget; report that environment choice.
-   - After repairs, sweep all synchronized chapter, detailed-review, concise-review, and summary files for the old claim and the new scoped wording. Check that no reviewer-language residue, stale numeric rule, or unmarked generated example remains.
+   - After repairs, sweep affected notes and any existing synchronized chapter, review, or summary copies for the old claim and the new scoped wording. Check that no reviewer-language residue, stale numeric rule, or unmarked generated example remains.
    - Keep source-fidelity status separate from note-quality status. If `SOLVENOTES_SOURCE_ROOT` or another source root is unavailable, report the strict source check as blocked rather than treating a passing local note check as source verification.
    - When the user requests multiple strict check rounds, make them distinct: file quality, outline/source coverage, and vault/navigation checks. Rerun affected checks after the last edit.
    - For residue scans, read each hit in context before deleting it. Avoid false positives such as `指令系统的使用方法` being treated as generic `使用方法` filler.
@@ -164,7 +164,7 @@ If the user explicitly asks for one exam review file instead of two review pages
 
 Choose one mode before rewriting:
 
-- Course notes: numbered chapter notes, course overview, detailed and concise review pages.
+- Course notes: numbered chapters, course overview, detailed and concise review pages; paper notes: bibliographic identity, research gap, method, evidence, reproducibility, and paper-specific failure boundaries.
 - Research group presentation: problem, method, experiment, limitation, and discussion.
 - Exam review material: concept map, formula table, typical question patterns, and common mistakes.
 
@@ -197,8 +197,8 @@ Poor notes usually look like:
 The final response should include:
 
 - output folder, main note files created or updated, and source coverage by PPT/PPTX/PDF file, including extraction gaps,
-- detailed/concise review-page status and strict-depth status, including exact thresholds or why strict depth was not used,
-- validation performed, including link, course-note, formula-fence, and keyword checks, plus whether requested audit artifacts followed local guidance,
+- for courseware, detailed/concise review-page status and strict-depth thresholds; for paper notes, bibliographic verification and claim/source coverage,
+- validation performed, including link, formula-fence, keyword, and applicable course-structure or paper-note checks, plus whether requested audit artifacts followed local guidance,
 - repository/upload status when commit, push, or PR work was requested, and unresolved assumptions, noisy formulas, missing slides, or source files needing manual review.
 
 If only a dry run or audit was requested, report planned changes and validation commands without writing notes.
@@ -208,7 +208,7 @@ If only a dry run or audit was requested, report planned changes and validation 
 - `scripts/extract_pptx_text.py`: extract ordered text, tables, and notes from `.pptx` files.
 - `scripts/convert_ppt_to_pptx.py`: convert legacy `.ppt` files to `.pptx` with LibreOffice.
 - `scripts/extract_legacy_ppt_text.py`: extract best-effort OLE/CFB text records from legacy `.ppt` files when LibreOffice conversion is unavailable or fails.
-- `scripts/extract_pdf_text.py`: extract raw text from `.pdf` courseware with backend fallback and extraction metadata.
+- `scripts/extract_pdf_text.py`: extract raw text from `.pdf` courseware or papers with backend fallback and extraction metadata.
 - `scripts/check_obsidian_links.py`: check Markdown and Obsidian wiki links while ignoring fenced and inline code.
 - `scripts/check_course_notes.py`: check course overview, review pages, empty files, conflict markers, template residue, and formula fences.
 - `scripts/check_source_coverage.py`: check PPT/PDF source-file mapping, separate manifest/audit/note ownership evidence, sibling source parts, source-directory reconciliation, paper-note source ownership, page-level supplement index fields, source/generated example evidence, canonical source refs, chapter ownership, and hidden residue. Use `--strict` when the source root is available; it discovers same-name courses such as `cs231n` and reports unmapped source directories instead of silently omitting them.
@@ -216,5 +216,5 @@ If only a dry run or audit was requested, report planned changes and validation 
 - `scripts/ppt_to_obsidian_pipeline.py`: run conversion, extraction, cleanup, and manifest creation.
 - `references/obsidian-style.md`: local style guide for note writing and cross-linking.
 - `references/validation.md`: lightweight validation checks for Obsidian Markdown outputs.
-- `references/modes.md`: conversion mode guidance for course notes, group presentations, and exam review.
+- `references/modes.md`: conversion mode guidance for paper notes, course notes, group presentations, and exam review.
 - `references/solvenotes-profile.md`: optional solvenotes-style validation and generated-artifact rules.

@@ -2,6 +2,17 @@
 
 Use these modes when the user asks for a specific output style.
 
+## Paper Notes
+
+Best for a local research-paper PDF that should become a standalone learning note.
+
+- Extract with `scripts/extract_pdf_text.py` and inspect rendered figures, tables, and equations when needed. This is a writing workflow, not a new `--mode` value for the courseware pipeline.
+- Verify the title, authors, year, DOI when assigned, and venue or preprint status against the paper or an official bibliographic record.
+- Explain the research gap, method, assumptions, scoped experimental evidence, reproducibility obstacles, and failure boundaries; retain source files, URLs, and precise page/figure/table references.
+- Default to one substantive note and existing topic navigation. Do not create course overviews, numbered chapters, paired review pages, or teaching exercises unless requested.
+- Validate links, source ownership, metadata, formulas, and the paper-specific claims. Use a local paper-note checklist when available; the bundled course-structure checker does not apply.
+- Keep extraction dumps and temporary coverage records outside the vault, following the project's provenance policy.
+
 ## Course Notes
 
 Best for lecture PPT/PPTX files.

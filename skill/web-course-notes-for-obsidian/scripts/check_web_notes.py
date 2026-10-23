@@ -47,6 +47,46 @@ SUPPORT_NOTE_STEMS = frozenset(
         "validation_report",
     }
 )
+REQUIRED_MANIFEST_HEADERS = {
+    "Pages": frozenset({"Kind", "Original Source", "URL"}),
+    "Learning Resources": frozenset({"URL", "Access", "Status"}),
+}
+ALL_MANIFEST_HEADERS = frozenset(
+    {
+        "Kind",
+        "Title",
+        "Original Source",
+        "URL",
+        "Access",
+        "Status",
+        "Error",
+        "Description",
+        "Source Page",
+        "Final URL",
+        "HTTP Status",
+        "Access Class",
+    }
+)
+CANONICAL_MANIFEST_HEADERS = {
+    header.casefold(): header for header in ALL_MANIFEST_HEADERS
+}
+ACCESSIBLE_RESOURCE_STATES = frozenset({"accessible", "available", "listed", "ok", "recorded"})
+INACCESSIBLE_RESOURCE_STATES = frozenset(
+    {
+        "blocked",
+        "error",
+        "failed",
+        "inaccessible",
+        "login required",
+        "network error",
+        "parse error",
+        "paywalled",
+        "skipped",
+        "timeout",
+        "too large",
+    }
+)
+HTTP_ERROR_STATE_RE = re.compile(r"http [45]\d{2}")
 @dataclass(frozen=True)
 class ManifestRow:
     section: str
@@ -58,6 +98,10 @@ class WebNoteIssue:
     kind: str
     path: Path
     message: str
+
+
+class ManifestFormatError(ValueError):
+    """Raised when a source manifest table cannot be parsed without losing rows."""
 
 
 def configure_output_encoding() -> None:
@@ -98,31 +142,124 @@ def split_table_row(line: str) -> list[str]:
     return cells
 
 
+def has_unescaped_table_delimiter(line: str) -> bool:
+    escaped = False
+    for char in line:
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == "|":
+            return True
+    return False
+
+
 def is_separator_row(line: str) -> bool:
     return bool(re.match(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$", line))
 
 
 def load_manifest_rows(manifest: Path) -> list[ManifestRow]:
     rows: list[ManifestRow] = []
-    section = ""
-    headers: list[str] = []
+    section: str | None = None
+    headers: list[str] | None = None
+    separator_seen = False
+    seen_sections: set[str] = set()
 
-    for raw_line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
+    def finish_section(section_name: str | None, section_headers: list[str] | None, has_separator: bool) -> None:
+        if section_name not in REQUIRED_MANIFEST_HEADERS:
+            return
+        if section_headers is None:
+            raise ManifestFormatError(f"{section_name} section is missing its table header")
+        if not has_separator:
+            raise ManifestFormatError(f"{section_name} table header is missing its separator row")
+
+    def canonicalize_header(value: str) -> str:
+        normalized = " ".join(value.split())
+        return CANONICAL_MANIFEST_HEADERS.get(normalized.casefold(), normalized)
+
+    for line_number, raw_line in enumerate(
+        manifest.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+    ):
         line = raw_line.strip()
         if line.startswith("## "):
+            finish_section(section, headers, separator_seen)
             section = line.removeprefix("## ").strip()
-            headers = []
+            if section in seen_sections and section in REQUIRED_MANIFEST_HEADERS:
+                raise ManifestFormatError(f"line {line_number}: duplicate {section} section")
+            seen_sections.add(section)
+            headers = None
+            separator_seen = False
             continue
-        if not line.startswith("|") or is_separator_row(line):
+        if not line.startswith("|"):
+            if line and separator_seen and section in REQUIRED_MANIFEST_HEADERS:
+                if has_unescaped_table_delimiter(line):
+                    detail = "is missing its leading '|'"
+                else:
+                    detail = "is missing Markdown table delimiters"
+                raise ManifestFormatError(f"line {line_number}: malformed {section} table row {detail}: {line}")
             continue
-        cells = split_table_row(line)
-        if not headers:
-            headers = cells
-            continue
-        if len(cells) != len(headers):
-            continue
-        rows.append(ManifestRow(section=section, values=dict(zip(headers, cells))))
 
+        cells = split_table_row(line)
+        if section is None:
+            raise ManifestFormatError(f"line {line_number}: table row appears before a section heading")
+        if headers is None:
+            if is_separator_row(line):
+                raise ManifestFormatError(f"line {line_number}: table separator appears before its header")
+            headers = [canonicalize_header(cell) for cell in cells]
+            normalized_headers = [" ".join(header.split()).casefold() for header in headers]
+            if len(normalized_headers) != len(set(normalized_headers)):
+                raise ManifestFormatError(f"line {line_number}: duplicate column name in {section} table header")
+            required_headers = REQUIRED_MANIFEST_HEADERS.get(section)
+            if required_headers is not None:
+                missing_headers = sorted(required_headers.difference(headers))
+                if missing_headers:
+                    missing = ", ".join(missing_headers)
+                    raise ManifestFormatError(
+                        f"line {line_number}: {section} table header is missing required columns: {missing}"
+                    )
+            if any(not header for header in headers):
+                raise ManifestFormatError(f"line {line_number}: table header contains an empty column name")
+            continue
+
+        if not separator_seen:
+            if not is_separator_row(line):
+                raise ManifestFormatError(f"line {line_number}: {section} table header is missing its separator row")
+            if len(cells) != len(headers):
+                raise ManifestFormatError(
+                    f"line {line_number}: {section} separator has {len(cells)} cells; expected {len(headers)}"
+                )
+            separator_seen = True
+            continue
+        if is_separator_row(line):
+            raise ManifestFormatError(f"line {line_number}: duplicate separator row in {section} table")
+        if len(cells) != len(headers):
+            raise ManifestFormatError(
+                f"line {line_number}: {section} row has {len(cells)} cells; expected {len(headers)}"
+            )
+        values = dict(zip(headers, cells))
+        if section == "Pages" and any(not values.get(column, "").strip() for column in ("Kind", "Original Source", "URL")):
+            raise ManifestFormatError(
+                f"line {line_number}: Pages row has an empty Kind, Original Source, or URL"
+            )
+        if section == "Learning Resources" and not values.get("URL", "").strip():
+            raise ManifestFormatError(f"line {line_number}: Learning Resources row has an empty URL")
+        url_columns = {
+            "Pages": ("Original Source", "URL"),
+            "Learning Resources": ("URL",),
+        }.get(section, ())
+        for column in url_columns:
+            try:
+                normalize_url(values[column])
+            except ValueError as exc:
+                raise ManifestFormatError(
+                    f"line {line_number}: {section} {column} has invalid syntax: {exc}"
+                ) from exc
+        rows.append(ManifestRow(section=section, values=values))
+
+    finish_section(section, headers, separator_seen)
+    for required_section in REQUIRED_MANIFEST_HEADERS:
+        if required_section not in seen_sections:
+            raise ManifestFormatError(f"manifest is missing the {required_section} section and table header")
     return rows
 
 
@@ -275,30 +412,26 @@ def normalize_cell(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip()).lower()
 
 
-def has_error_value(value: str) -> bool:
-    normalized = normalize_cell(value)
-    return normalized not in {"", "-", "none", "n/a", "ok"}
+def resource_state_kind(value: str) -> str:
+    state = normalize_cell(value).replace("_", " ")
+    if state in ACCESSIBLE_RESOURCE_STATES:
+        return "accessible"
+    if state in INACCESSIBLE_RESOURCE_STATES or HTTP_ERROR_STATE_RE.fullmatch(state):
+        return "inaccessible"
+    return "unknown"
 
 
 def inaccessible_resource(row: ManifestRow) -> bool:
-    access = normalize_cell(row.values.get("Access", ""))
-    status = normalize_cell(row.values.get("Status", ""))
-    error = row.values.get("Error", "")
-    state = f"{access} {status}"
-    markers = (
-        "inaccessible",
-        "blocked",
-        "paywalled",
-        "skipped",
-        "failed",
-        "error",
-        "http_",
-        "login_required",
-        "timeout",
-        "network_error",
-        "parse_error",
+    return any(
+        resource_state_kind(row.values.get(column, "")) == "inaccessible"
+        for column in ("Access", "Status")
     )
-    return any(marker in state for marker in markers) or has_error_value(error)
+
+
+def has_contradictory_resource_status(row: ManifestRow) -> bool:
+    access = resource_state_kind(row.values.get("Access", ""))
+    status = resource_state_kind(row.values.get("Status", ""))
+    return access != "unknown" and status != "unknown" and access != status
 
 
 def validate_web_notes(root: Path, sources: list[str], *, per_link_notes: bool = False) -> list[WebNoteIssue]:
@@ -325,7 +458,11 @@ def validate_web_notes(root: Path, sources: list[str], *, per_link_notes: bool =
         )
         return issues
 
-    rows = load_manifest_rows(manifest)
+    try:
+        rows = load_manifest_rows(manifest)
+    except ManifestFormatError as exc:
+        issues.append(WebNoteIssue("invalid_manifest", manifest.relative_to(root), str(exc)))
+        return issues
     for source in sources:
         if not manifest_covers_source(rows, source):
             issues.append(WebNoteIssue("missing_user_source", manifest.relative_to(root), f"manifest does not cover user source: {source}"))
@@ -350,6 +487,19 @@ def validate_web_notes(root: Path, sources: list[str], *, per_link_notes: bool =
             )
         )
 
+    learning_rows = [row for row in rows if row.section == "Learning Resources"]
+    for row in learning_rows:
+        if has_contradictory_resource_status(row):
+            issues.append(
+                WebNoteIssue(
+                    "contradictory_resource_status",
+                    manifest.relative_to(root),
+                    "learning resource has conflicting Access and Status values "
+                    f"({row.values.get('Access', '')!r} vs {row.values.get('Status', '')!r}): "
+                    f"{row.values.get('URL', '')}",
+                )
+            )
+
     for path in notes:
         text = path.read_text(encoding="utf-8", errors="replace")
         visible = visible_markdown_text(text)
@@ -367,10 +517,10 @@ def validate_web_notes(root: Path, sources: list[str], *, per_link_notes: bool =
     if require_per_link:
         resources: list[tuple[str, str]] = []
         seen_resources: set[str] = set()
-        for row in rows:
-            if row.section != "Learning Resources":
-                continue
+        for row in learning_rows:
             url = row.values.get("URL", "")
+            if has_contradictory_resource_status(row):
+                continue
             identity = normalize_url(url)
             if not identity or identity in seen_resources:
                 continue

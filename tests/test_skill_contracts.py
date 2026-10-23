@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 
@@ -25,7 +27,7 @@ ROUTING_EXPECTATIONS = {
         "boundary": ("$ppt-to-md-for-obsidian", "$web-course-notes-for-obsidian", "$notes-to-scientific-ppt"),
     },
     "notes-to-scientific-ppt": {
-        "positive": ("existing Markdown/Obsidian notes", "scientific PPTX deck", "科研严谨风PPT"),
+        "positive": ("existing Markdown/Obsidian notes", "scientific", "PPTX", "deck brief", "科研严谨风PPT"),
         "boundary": ("$web-course-notes-for-obsidian", "$ppt-to-md-for-obsidian", "$obsidian-vault-organizer"),
     },
     "algorithm-job-notes-for-obsidian": {
@@ -43,6 +45,37 @@ FORBIDDEN_SKILL_AUXILIARY_FILES = {
     "quick_reference.md",
     "changelog.md",
 }
+
+
+def test_documented_ppt_pipeline_runs_from_repository_root(tmp_path: Path):
+    document = (ROOT / "docs" / "skill-command-reference.md").read_text(encoding="utf-8")
+    script = "skill/ppt-to-md-for-obsidian/scripts/ppt_to_obsidian_pipeline.py"
+    examples = [block for block in re.findall(r"```bash\n(.*?)\n```", document, re.S) if script in block]
+    assert len(examples) == 1
+    command = shlex.split(examples[0].replace("\\\n", ""))
+    assert command[:2] == ["python3", script]
+    command = [sys.executable, *[arg.replace("$RUN_TMP", str(tmp_path)) for arg in command[1:]]]
+    # Keep an older, broken example from writing its default output into the checkout.
+    documented_output = "--output-dir" in command
+    if not documented_output:
+        command.extend(["--output-dir", str(tmp_path / "course-pipeline")])
+    output = Path(command[command.index("--output-dir") + 1])
+    assert output.parent == tmp_path
+    environment = os.environ.copy()
+    environment.update(
+        RUN_TMP=str(tmp_path), TMPDIR=str(tmp_path), SOLVENOTES_TMP_ROOT=str(tmp_path),
+        PYTHONDONTWRITEBYTECODE="1",
+    )
+    result = subprocess.run(
+        command, cwd=ROOT, env=environment, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=SUBPROCESS_TIMEOUT_SECONDS,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert documented_output, "the example must explicitly keep generated files outside the checkout"
+    assert "processed_sources 1" in result.stdout
+    assert (output / "pipeline_manifest.md").is_file()
+    assert list((output / "raw_extracted").glob("*.md"))
+    assert list((output / "cleaned").glob("*.md"))
 
 
 def test_root_command_reference_uses_supported_notes_to_ppt_mode(tmp_path: Path):

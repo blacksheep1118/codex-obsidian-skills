@@ -4,6 +4,12 @@ All notable changes to this repository are documented here.
 
 ## Unreleased
 
+- Preserved backslashes and escaped pipes when collecting web manifests, rejected malformed source tables instead of dropping resources, and limited inaccessible-resource exemptions to explicit, consistent access states.
+- Extended algorithm-route validation to nested Markdown notes and case-insensitive Markdown extensions while keeping canonical direction entries at the algorithm folder root.
+- Restricted vault-quality tooling exclusions to root-level directories, retained cache exclusions at every depth, and checked nested study folders and uppercase Markdown files without following symlinks.
+- Reported scanned Markdown counts and excluded paths with reasons in both scanners and the maintainer adapter, failed explicitly on directory traversal errors, and declared the Markdown parser test dependency so cross-parser checks run in fresh development environments.
+- Corrected the documented courseware pipeline command for repository-root execution, moved example outputs under a task temporary directory, and added an executable regression for the documented command.
+- Moved detailed sentence-review procedures into an on-demand maintainer reference, clarified local research-paper PDF routing, and separated editable PPTX skeletons from completed, visually reviewed presentations.
 - Corrected the algorithm-job routing condition, documented every PDF extraction fallback, and aligned the web-note staging and direct-to-vault scaffold lifecycle with the command's actual behavior.
 - Treated a PDF/PPT path in an example table's source column as complete traceable provenance, instead of requiring an additional legacy prefix for the same row.
 - Accepted Markdown example tables with optional outer pipes and resolved topic, explanation, and provenance cells from the header instead of fixed column positions.

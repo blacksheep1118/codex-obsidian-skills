@@ -53,13 +53,17 @@ def main() -> int:
     args = parser.parse_args()
     try:
         payload = scan(args.root.resolve())
-    except RuntimeError as exc:
+    except (OSError, RuntimeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(f"algorithm_job_files {payload.get('algorithm_files', 0)}")
+        excluded_paths = payload.get("excluded_paths", [])
+        print(f"algorithm_job_excluded_paths {len(excluded_paths)}")
+        for excluded in excluded_paths:
+            print(f"EXCLUDED {excluded['reason']}: {excluded['path']}")
         print(f"algorithm_job_directions {len(payload.get('canonical_directions', []))}")
         print(f"algorithm_job_issues {len(payload['issues'])}")
         for issue in payload["issues"]:

@@ -1,7 +1,7 @@
 interface:
   display_name: "Notes To Scientific PPT"
-  short_description: "Turn notes into rigorous research PPTX decks"
-  default_prompt: "Use $notes-to-scientific-ppt to turn these Markdown or Obsidian notes into an editable research deck with a clear claim spine, traceable evidence, readable formulas, and purposeful visuals."
+  short_description: "Create scientific deck briefs and finished editable PPTX decks"
+  default_prompt: "Use $notes-to-scientific-ppt to create an evidence-based deck brief and finished editable PPTX from these notes, starting with the builder skeleton. Complete slide-specific content and manually inspect rendered slides; if suitable authoring or rendering tools are unavailable, report the labeled skeleton and remaining work."
 
 policy:
   allow_implicit_invocation: true

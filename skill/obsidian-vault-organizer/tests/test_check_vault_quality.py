@@ -12,6 +12,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+import scripts.check_vault_quality as quality_scanner  # noqa: E402
 from scripts.check_vault_quality import find_vault_issues, markdown_files  # noqa: E402
 from scripts.safe_io import InputRootError  # noqa: E402
 
@@ -588,6 +589,132 @@ def test_vault_quality_excludes_guidance_tooling_cache_and_external_symlink(tmp_
     issues = find_vault_issues(tmp_path)
 
     assert issues == []
+
+
+def test_cli_reports_markdown_inventory_and_exclusion_reasons(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    write(vault / "Actual.md", "# Actual\n")
+    write(vault / "AGENT.md", "# Guidance\n<<<<<<< should not be scanned\n")
+    write(vault / "scripts" / "README.md", "# Tooling\nTODO\n")
+    write(vault / "course" / ".git" / "cache.md", "# Cache\n<<<<<<< should not be scanned\n")
+    write(vault / "course" / "skills" / "Learning.MD", "# Nested skill-name study note\n")
+    write(
+        vault / "course" / "skip-me" / "hidden.md",
+        "# Explicitly skipped\n<<<<<<< should not be scanned\n",
+    )
+    outside = tmp_path / "outside"
+    write(outside / "hidden.md", "# Outside\n<<<<<<< should not be scanned\n")
+    try:
+        (vault / "linked.MD").symlink_to(outside / "hidden.md")
+        (vault / "course" / "external-topic").symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--skip-dir", "course/skip-me", str(vault)],
+        text=True,
+        capture_output=True,
+        timeout=SUBPROCESS_TIMEOUT_SECONDS,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "vault_quality_markdown_files 2" in result.stdout
+    assert "vault_quality_excluded_paths 6" in result.stdout
+    assert "EXCLUDED guidance_file: AGENT.md" in result.stdout
+    assert "EXCLUDED cache_dir: course/.git" in result.stdout
+    assert "EXCLUDED symlink_directory: course/external-topic" in result.stdout
+    assert "EXCLUDED explicit_skip_dir: course/skip-me" in result.stdout
+    assert "EXCLUDED symlink_file: linked.MD" in result.stdout
+    assert "EXCLUDED root_tool_dir: scripts" in result.stdout
+    assert "vault_quality_issues 0" in result.stdout
+
+
+def test_markdown_inventory_fails_closed_when_walk_cannot_read_subtree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    vault = tmp_path / "vault"
+    write(vault / "visible.md", "# Visible\n")
+    blocked = vault / "unreadable"
+    blocked.mkdir()
+    real_scandir = quality_scanner.os.scandir
+
+    def fail_on_blocked(path):
+        if Path(path) == blocked:
+            raise PermissionError(f"cannot read {path}")
+        return real_scandir(path)
+
+    monkeypatch.setattr(quality_scanner.os, "scandir", fail_on_blocked)
+
+    with pytest.raises(PermissionError, match="cannot read"):
+        markdown_files(vault)
+
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), str(vault)])
+    with pytest.raises(SystemExit) as caught:
+        quality_scanner.main()
+    assert caught.value.code == 2
+    captured = capsys.readouterr()
+    assert "cannot read" in captured.err
+    assert "vault_quality_markdown_files" not in captured.out
+
+
+@pytest.mark.parametrize("tool_dir", ("scripts", "skills", "build", "output"))
+def test_only_root_level_tool_dirs_are_excluded(tmp_path: Path, tool_dir: str) -> None:
+    write(tmp_path / tool_dir / "README.md", "# Root tooling\n<<<<<<< ignored at root\n")
+    nested_note = tmp_path / "course" / tool_dir / "broken.md"
+    write(nested_note, "# Nested study note\n<<<<<<< HEAD\nold\n=======\nnew\n>>>>>>> branch\n")
+
+    issues = find_vault_issues(tmp_path)
+
+    conflicts = [issue for issue in issues if issue.kind == "conflict_marker"]
+    assert {issue.path.as_posix() for issue in conflicts} == {
+        nested_note.relative_to(tmp_path).as_posix()
+    }
+
+
+@pytest.mark.parametrize(
+    "cache_dir",
+    (".git", ".obsidian", ".pytest_cache", ".ruff_cache", "__pycache__"),
+)
+def test_cache_dirs_are_excluded_at_any_depth(tmp_path: Path, cache_dir: str) -> None:
+    write(tmp_path / "course" / cache_dir / "broken.md", "# Cache\n<<<<<<< ignored\n")
+
+    assert markdown_files(tmp_path) == []
+    assert find_vault_issues(tmp_path) == []
+
+
+def test_uppercase_markdown_is_scanned_like_lowercase_markdown(tmp_path: Path) -> None:
+    lowercase = tmp_path / "lowercase.md"
+    uppercase = tmp_path / "course" / "uppercase.MD"
+    write(lowercase, "# Lowercase\n")
+    write(uppercase, "# Uppercase\n<<<<<<< HEAD\nold\n=======\nnew\n>>>>>>> branch\n")
+
+    paths = {path.relative_to(tmp_path).as_posix() for path in markdown_files(tmp_path)}
+    issues = find_vault_issues(tmp_path)
+
+    assert paths == {"lowercase.md", "course/uppercase.MD"}
+    assert any(
+        issue.kind == "conflict_marker" and issue.path.as_posix() == "course/uppercase.MD"
+        for issue in issues
+    )
+
+
+def test_markdown_files_do_not_follow_directory_symlinks_outside_vault(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    outside = tmp_path / "outside"
+    write(outside / "nested" / "broken.md", "# Outside\n<<<<<<< should not be read\n")
+    write(vault / "local.md", "# Local\n")
+    alias = vault / "course" / "external"
+    alias.parent.mkdir(parents=True)
+    try:
+        alias.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    paths = [path.relative_to(vault).as_posix() for path in markdown_files(vault)]
+
+    assert paths == ["local.md"]
 
 
 def test_skip_dir_excludes_independent_nested_topic_and_nested_passes_alone(tmp_path: Path):

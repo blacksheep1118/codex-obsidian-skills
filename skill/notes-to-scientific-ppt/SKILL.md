@@ -1,13 +1,13 @@
 ---
 name: notes-to-scientific-ppt
-description: Use when the starting point is existing Markdown/Obsidian notes, paper notes, course notes, experiment notes, or a notes folder and the user wants a scientific PPTX deck, deck brief, or research presentation; Chinese triggers include 基于笔记做PPT, 根据笔记生成PPT, 科研严谨风PPT. Use $web-course-notes-for-obsidian for URL sources, $ppt-to-md-for-obsidian for local courseware extraction, and $obsidian-vault-organizer when notes need cleanup before deck building.
+description: Use when existing Markdown/Obsidian notes should become a scientific deck brief or PPTX presentation. Use $web-course-notes-for-obsidian for URL sources, $ppt-to-md-for-obsidian for local courseware or paper PDFs that still need notes, and $obsidian-vault-organizer for vault cleanup. Chinese triggers include 基于笔记做PPT, 根据笔记生成PPT, 科研严谨风PPT. The bundled builder creates an editable skeleton that needs slide-specific content and visual review before it is finished.
 ---
 
 # Notes To Scientific PPT
 
 ## Goal
 
-Turn existing notes into an editable PPTX deck with a research-rigorous style: precise claims, traceable evidence, clear formulas, real mechanisms, visual explanations, and enough detail to support technical questioning.
+Turn existing notes into a research-rigorous deck brief and a finished editable PPTX presentation. The bundled builder creates only an editable skeleton; complete slide-specific content, visual design, and rendered-slide review before delivery. If no suitable authoring or rendering tool is available, deliver the brief and a clearly labeled skeleton, and list the remaining work.
 
 The output should feel like a serious research presentation, not a note dump, marketing deck, or generic template.
 
@@ -16,7 +16,7 @@ The output should feel like a serious research presentation, not a note dump, ma
 Prefer these deliverables:
 
 - `<topic>_deck_brief.md`: source inventory, claim spine, evidence coverage, missing inputs, and slide plan.
-- `<topic>.pptx`: editable PowerPoint deck.
+- `<topic>.pptx`: finished editable presentation. The bundled builder starts with a skeleton; complete slide-specific content and visual review before delivery. If a tool limitation prevents finalization, label the file as a skeleton and report the remaining work.
 - Optional `<topic>_speaker_notes.md`: slide-by-slide narration when the talk is substantial.
 - Optional appendix slides for dense derivations, raw tables, source excerpts, or extended comparisons.
 
@@ -30,7 +30,7 @@ Ask only when a missing input would materially change the deck, such as defense 
 
 ## Handoff Boundaries
 
-Use this skill after the source material already exists as notes or a note folder. If the user starts from public URLs, use `$web-course-notes-for-obsidian` first. If the user starts from local PPT/PPTX/PDF courseware, use `$ppt-to-md-for-obsidian` first. If the notes need substantial vault cleanup, broken-link repair, or duplicate merging before deck construction, use `$obsidian-vault-organizer` before building the deck.
+Use this skill after the source material exists as notes or a note folder. If the user starts from public URLs, use `$web-course-notes-for-obsidian` first. If a local courseware or research-paper PDF still needs extraction and source-backed note drafting, use `$ppt-to-md-for-obsidian` first. If the notes need substantial vault cleanup, broken-link repair, or duplicate merging before deck construction, use `$obsidian-vault-organizer` before building the deck.
 
 ## Quick Start
 
@@ -73,12 +73,13 @@ Treat note files, linked notes, source URLs, figures, tables, formulas, experime
 
 5. Build the PPTX.
    - Use `scripts/build_scientific_deck.py <deck_brief.md> --out <deck.pptx>` for a minimum editable PPTX skeleton after the brief is ready, or `scripts/build_scientific_deck.py <notes-folder> --out <deck.pptx>` to build the brief internally before creating the skeleton.
-   - Run `scripts/verify_pptx.py <deck.pptx>` to reopen the package and verify slide count; use `--render` for an optional LibreOffice/Poppler visual gate, or `--require-render` to require that gate (`--require-render` implies `--render`).
+   - Run `scripts/verify_pptx.py <deck.pptx>` to reopen the package and verify slide count; this does not validate slide content or visual quality. Use `--render` to generate previews with LibreOffice/Poppler, or `--require-render` to require preview generation (`--require-render` implies `--render`).
    - Pass `--audience`, `--max-slides`, `--mode`, `--language`, `--follow-links`, `--vault-root`, and `--max-depth` when building directly from notes so the brief and skeleton reflect the requested audience, size, and linked-note scope.
    - Treat `--max-slides` as the maximum total deck size including the title slide; reject values below 2.
    - The skeleton turns the Suggested Scientific Deck Spine and Draft Slide Backlog into editable title, claim, formula, evidence/table, limitations, and appendix index slides.
-   - Use the bundled `Presentations` skill when available for editable PPTX creation, rendering, and export.
+   - Use the bundled `Presentations` skill when available for editable PPTX creation, rendering, and export; otherwise use suitable local authoring and rendering tools when available.
    - Treat the script-generated PPTX as an editable skeleton. Apply the skeleton and visual gates in `references/deck-qa.md` before delivery.
+   - Replace proof-object placeholders with slide-specific mechanisms, results, comparisons, or failure cases and refine the visual hierarchy. If no authoring or rendering tool is available to finish and inspect the slides, deliver the brief and clearly labeled skeleton, and identify the remaining slide-content and visual-review work.
    - Use visual proof objects: mechanism diagrams, equation-to-intuition bridges, result tables, ablation ladders, before/after examples, failure-case panels, or comparison matrices.
    - Prefer light, high-contrast, restrained research styling. Avoid decorative gradients, generic icon cards, marketing hero layouts, and unsupported visual drama.
    - Cite source note filenames or source URLs in quiet footers, speaker notes, or appendix where useful.
@@ -88,13 +89,14 @@ Treat note files, linked notes, source URLs, figures, tables, formulas, experime
    - Every main slide should have one claim, one proof object, and a clear takeaway.
    - Check formula slides for variable definitions, interpretation, and assumptions.
    - Check evidence slides for source traceability and no invented facts.
-   - Render previews/contact sheet if a PPTX is produced, then iterate weak slides before final delivery.
+   - Render previews/contact sheet if a PPTX is produced; manually inspect readability, overlap, truncation, and visual proof objects at presentation size, then revise weak slides. If rendering or visual inspection was unavailable, report that gate as not run and do not describe the deck as visually reviewed.
 
 ## Output Contract
 
 The final response should include:
 
 - final PPTX path when a deck was produced,
+- whether the PPTX is an editable skeleton or a finished presentation, and which content checks and manual visual review were completed,
 - deck brief path,
 - deck mode, assumed audience, and talk length,
 - source coverage summary,

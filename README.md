@@ -13,13 +13,13 @@ The project is distributed through GitHub commits, branches, tags, and CI. Do no
 | Skill | Use it when | Main outputs |
 | --- | --- | --- |
 | [`web-course-notes-for-obsidian`](skill/web-course-notes-for-obsidian) | The task starts from course video websites, PPT/slide websites, book websites, direct PDF/PPT URLs, or mixed online learning URLs. | Source manifests, classified note folders, URL-linked learning maps, detailed note scaffolds, chapter notes, reading notes, review pages. |
-| [`ppt-to-md-for-obsidian`](skill/ppt-to-md-for-obsidian) | The task starts from local PPT, PPTX, PDF courseware, or slide-derived files. | Extracted text, cleaned Markdown input, chapter notes, course maps, review pages, Obsidian links. |
+| [`ppt-to-md-for-obsidian`](skill/ppt-to-md-for-obsidian) | The task starts from local PPT/PPTX/PDF courseware, slide-derived files, or a local research-paper PDF for a source-backed paper note. | Extracted text, coverage maps, course or paper notes, review pages, Obsidian links. |
 | [`obsidian-vault-organizer`](skill/obsidian-vault-organizer) | The task starts from an existing Obsidian vault or Markdown note directory. | Link findings, repaired references, merged duplicate notes, navigation pages, and vault cleanup. |
-| [`notes-to-scientific-ppt`](skill/notes-to-scientific-ppt) | The task starts from Obsidian or Markdown notes and asks for a PPT/PPTX research presentation. | Source inventories, evidence ledgers, scientific claim spines, draft slide backlogs, rigorous PPTX deck plans, speaker-note guidance. |
+| [`notes-to-scientific-ppt`](skill/notes-to-scientific-ppt) | Existing Obsidian or Markdown notes should become a scientific deck brief and finished PPTX presentation. | Source inventories, evidence ledgers, claim spines, slide plans, and finished editable PPTX decks; the bundled builder starts from a skeleton. |
 | [`algorithm-job-notes-for-obsidian`](skill/algorithm-job-notes-for-obsidian) | The task maintains algorithm-job learning notes, internship/recruiting maps, interview preparation, or direction-aware Obsidian vaults. | Nine-direction taxonomy, route migration, P0/P1/P2 learning plans, DSA/C++17 practice, evidence-backed JD and interview workflows. |
 | [`solvenotes-vault-maintainer`](skill/solvenotes-vault-maintainer) | The task maintains this specific Solvenotes workspace from outside the vault. | Offline/online validation, source-manifest boundaries, naturalness candidates, clean exports, and orchestration of the other note Skills. |
 
-The skills are split so their trigger boundaries stay clear. Use `web-course-notes-for-obsidian` when the task starts from URLs. Use `ppt-to-md-for-obsidian` when the task starts from local slide/courseware files. Use `algorithm-job-notes-for-obsidian` when an existing vault needs algorithm-job direction boundaries, migration, interview artifacts, or JD evidence. Use `obsidian-vault-organizer` for generic vault cleanup. Use `notes-to-scientific-ppt` when the task starts from notes and the desired output is a research PPT.
+The skills are split so their trigger boundaries stay clear. Use `web-course-notes-for-obsidian` when the task starts from URLs. Use `ppt-to-md-for-obsidian` when the task starts from local courseware or a local research-paper PDF that needs a source-backed note. Use `algorithm-job-notes-for-obsidian` when an existing vault needs algorithm-job direction boundaries, migration, interview artifacts, or JD evidence. Use `obsidian-vault-organizer` for generic vault cleanup. Use `notes-to-scientific-ppt` when the task starts from existing notes and the desired output is a scientific deck brief or PPTX.
 
 See [Skill Routing](docs/routing.md) for cross-skill boundaries and mixed workflow handoffs.
 
@@ -29,7 +29,7 @@ See [Skill Routing](docs/routing.md) for cross-skill boundaries and mixed workfl
 - Turn course video, slide, and book websites into source-linked study notes.
 - Preserve formulas, variable explanations, chapter order, and Chinese course-note style.
 - Generate or maintain navigation pages such as `00_课程总览.md` and `00_学习地图.md`.
-- Turn finished notes into detailed, vivid, research-rigorous PPTX deck briefs and slide plans.
+- Turn finished notes into evidence-based scientific deck briefs and finished PPTX presentations; the bundled builder starts from a skeleton that needs slide-specific content and manual visual review.
 - Keep detailed and concise review pages separate.
 - Validate Markdown links, Obsidian wiki links, and self-links.
 - Respect source-file boundaries: courseware, papers, and datasets stay read-only unless the user explicitly asks otherwise.
@@ -164,11 +164,15 @@ Use $ppt-to-md-for-obsidian for these local PPT/PPTX/PDF courseware files. Extra
 ```
 
 ```text
+Use $ppt-to-md-for-obsidian for this local research-paper PDF. Verify its bibliographic details, then write a source-backed paper note that explains the method, evidence, reproducibility limits, and failure boundaries.
+```
+
+```text
 Use $obsidian-vault-organizer for this existing vault. Audit links, duplicate stems, navigation, and note quality before editing; keep source files read-only.
 ```
 
 ```text
-Use $notes-to-scientific-ppt for this notes folder. Create a deck brief first, then build an editable scientific PPTX skeleton with claim, formula, evidence, limitations, and appendix slides.
+Use $notes-to-scientific-ppt for this notes folder. Create an evidence-based deck brief and finished editable PPTX, starting from the builder skeleton. Complete slide-specific content and manually inspect the rendered deck. If suitable authoring or rendering tools are unavailable, label the PPTX as a skeleton and list the remaining work.
 ```
 
 ```text
@@ -233,7 +237,6 @@ When a task crosses sources, notes, cleanup, and deck creation, follow the hando
         ├── SKILL.md
         ├── LICENSE
         ├── agents/
-        ├── assets/
         ├── fixtures/
         ├── references/
         ├── scripts/
